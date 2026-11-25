@@ -115,7 +115,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { toast } from 'vue-sonner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -124,9 +123,11 @@ import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
-import { api } from '../../../services/api'
-import SbModal from '../../modal/SbModal.vue'
-import { KV_COMMANDS, KV_COMMAND_GROUPS, kvBasePath, kvCurlSnippet, type KvCommand } from './kv-endpoints'
+import { api } from '@/services/api'
+import SbModal from '@/components/modal/SbModal.vue'
+import { KV_COMMANDS, KV_COMMAND_GROUPS, kvCurlSnippet, type KvCommand } from '@/components/databases/kv/kv-endpoints'
+import { kvPath } from '@/services/paths'
+import { copyText } from '@/utils/clipboard'
 
 const props = defineProps<{
   projectId: string
@@ -140,32 +141,16 @@ const { t } = useI18n()
 const group = ref<KvCommandGroup>('key')
 const groupCommands = computed(() => KV_COMMANDS.filter((c) => c.group === group.value))
 
-const base = computed(() => kvBasePath(props.projectId))
+const base = computed(() => kvPath(props.projectId))
 const baseFull = computed(() => window.location.origin + base.value)
-const origin = typeof window !== 'undefined' ? window.location.origin : ''
+const origin = window.location.origin
 
 function curl(cmd: KvCommand): string {
   return kvCurlSnippet(cmd, baseFull.value)
 }
 
-async function copy(text: string, message: string) {
-  try {
-    await navigator.clipboard.writeText(text)
-  } catch {
-    try {
-      const ta = document.createElement('textarea')
-      ta.value = text
-      ta.style.position = 'fixed'
-      ta.style.opacity = '0'
-      document.body.appendChild(ta)
-      ta.select()
-      document.execCommand('copy')
-      ta.remove()
-    } catch {
-      // clipboard 全不可用（如测试环境）：静默降级，仍给反馈
-    }
-  }
-  toast.success(message)
+function copy(text: string, message: string) {
+  return copyText(text, message, t('common.copyFailed'))
 }
 
 // —— 试调用 ——

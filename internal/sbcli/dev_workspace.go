@@ -5,7 +5,7 @@
 //
 // 主要符号
 //
-//	loadDevWorkspace(dir string) (*devWorkspace, error)
+//	loadDevWorkspaceManifest(dir, manifest string) (*devWorkspace, error)
 //	type devWorkspace / devDatabase / devCollection / devFunction / devCron
 
 package sbcli
@@ -197,13 +197,9 @@ func (w *devWorkspace) warnf(format string, args ...any) {
 	w.warnings = append(w.warnings, fmt.Sprintf(format, args...))
 }
 
-// loadDevWorkspace 读取并校验工作区。清单缺失或不是合法 JSON 直接返回错误；
-// 其余问题累积在 errors/warnings 里，由调用方决定是否拒绝。
-func loadDevWorkspace(dir string) (*devWorkspace, error) {
-	return loadDevWorkspaceManifest(dir, "")
-}
-
-// loadDevWorkspaceManifest 与 loadDevWorkspace 相同，但清单文件可由 manifest 指定
+// loadDevWorkspaceManifest 读取并校验工作区。清单缺失或不是合法 JSON 直接返回错误；
+// 其余问题累积在 errors/warnings 里，由调用方决定是否拒绝。manifest 为空时用默认清单名；
+// 清单文件可由 manifest 指定
 // （相对路径按 dir 解析，也可以是绝对路径）；清单里引用的迁移、函数等文件始终相对 dir。
 // examples 的初始化脚本用它传入一份派生清单，而不改动仓库里的 simplebase.json。
 func loadDevWorkspaceManifest(dir, manifest string) (*devWorkspace, error) {
@@ -314,85 +310,114 @@ func devMaskSQL(text string) []string { return devSQLStatements(text, true) }
 
 var devDollarTag = regexp.MustCompile(`^\$([A-Za-z_][A-Za-z0-9_]*)?\$`)
 
+type devSQLScanner struct {
+	text string
+	mask bool
+	out  []string
+	cur  strings.Builder
+}
+
 func devSQLStatements(text string, mask bool) []string {
-	var out []string
-	var cur strings.Builder
-	blank := func(s string) {
-		cur.WriteString(strings.Repeat(" ", len(s)))
+	s := devSQLScanner{text: text, mask: mask}
+	return s.scan()
+}
+
+func (s *devSQLScanner) put(value string) {
+	if s.mask {
+		s.cur.WriteString(strings.Repeat(" ", len(value)))
+		return
 	}
-	put := func(s string) {
-		if mask {
-			blank(s)
-			return
-		}
-		cur.WriteString(s)
+	s.cur.WriteString(value)
+}
+
+func (s *devSQLScanner) flush() {
+	if value := strings.TrimSpace(s.cur.String()); value != "" {
+		s.out = append(s.out, value)
 	}
-	flush := func() {
-		if s := strings.TrimSpace(cur.String()); s != "" {
-			out = append(out, s)
-		}
-		cur.Reset()
-	}
-	n := len(text)
-	for i := 0; i < n; {
-		c := text[i]
+	s.cur.Reset()
+}
+
+func (s *devSQLScanner) scan() []string {
+	for i := 0; i < len(s.text); {
+		c := s.text[i]
 		switch {
 		case c == '\'' || c == '"':
-			cur.WriteByte(c)
-			i++
-			start := i
-			for i < n {
-				if text[i] == c {
-					if i+1 < n && text[i+1] == c { // '' / "" 转义
-						i += 2
-						continue
-					}
-					break
-				}
-				i++
-			}
-			put(text[start:i])
-			if i < n {
-				cur.WriteByte(c)
-				i++
-			}
-		case c == '-' && i+1 < n && text[i+1] == '-':
-			for i < n && text[i] != '\n' {
-				i++
-			}
-			cur.WriteByte(' ')
-		case c == '/' && i+1 < n && text[i+1] == '*':
-			i += 2
-			for i+1 < n && !(text[i] == '*' && text[i+1] == '/') {
-				i++
-			}
-			if i+1 < n {
-				i += 2
-			}
-			cur.WriteByte(' ')
-		case c == '$' && devDollarTag.MatchString(text[i:]):
-			tag := devDollarTag.FindString(text[i:])
-			cur.WriteString(tag)
-			i += len(tag)
-			start := i
-			for i < n && !strings.HasPrefix(text[i:], tag) {
-				i++
-			}
-			put(text[start:i])
-			if strings.HasPrefix(text[i:], tag) {
-				cur.WriteString(tag)
-				i += len(tag)
-			}
+			i = s.scanQuoted(i)
+		case c == '-' && i+1 < len(s.text) && s.text[i+1] == '-':
+			i = s.scanLineComment(i)
+		case c == '/' && i+1 < len(s.text) && s.text[i+1] == '*':
+			i = s.scanBlockComment(i)
+		case c == '$' && devDollarTag.MatchString(s.text[i:]):
+			i = s.scanDollarQuoted(i)
 		case c == ';':
-			flush()
+			s.flush()
 			i++
 		default:
-			cur.WriteByte(c)
+			s.cur.WriteByte(c)
 			i++
 		}
 	}
-	flush()
-	return out
+	s.flush()
+	return s.out
+}
+
+func (s *devSQLScanner) scanQuoted(i int) int {
+	quote := s.text[i]
+	s.cur.WriteByte(quote)
+	i++
+	start := i
+	for i < len(s.text) {
+		if s.text[i] == quote {
+			if i+1 < len(s.text) && s.text[i+1] == quote {
+				i += 2
+				continue
+			}
+			break
+		}
+		i++
+	}
+	s.put(s.text[start:i])
+	if i < len(s.text) {
+		s.cur.WriteByte(quote)
+		i++
+	}
+	return i
+}
+
+func (s *devSQLScanner) scanLineComment(i int) int {
+	for i < len(s.text) && s.text[i] != '\n' {
+		i++
+	}
+	s.cur.WriteByte(' ')
+	return i
+}
+
+func (s *devSQLScanner) scanBlockComment(i int) int {
+	i += 2
+	for i+1 < len(s.text) && !(s.text[i] == '*' && s.text[i+1] == '/') {
+		i++
+	}
+	if i+1 < len(s.text) {
+		i += 2
+	}
+	s.cur.WriteByte(' ')
+	return i
+}
+
+func (s *devSQLScanner) scanDollarQuoted(i int) int {
+	tag := devDollarTag.FindString(s.text[i:])
+	s.cur.WriteString(tag)
+	i += len(tag)
+	start := i
+	for i < len(s.text) && !strings.HasPrefix(s.text[i:], tag) {
+		i++
+	}
+	s.put(s.text[start:i])
+	if strings.HasPrefix(s.text[i:], tag) {
+		s.cur.WriteString(tag)
+		i += len(tag)
+	}
+	return i
 }
 
 func devFirstKeyword(stmt string) string {
@@ -461,59 +486,71 @@ func (w *devWorkspace) sqlFile(rel, what string, isMigration bool) *devSQLFile {
 func (w *devWorkspace) checkDatabases(items []devDBDecl, withCollections map[string]bool) {
 	seen := map[string]bool{}
 	for i, d := range items {
-		what := fmt.Sprintf("databases[%d]", i)
-		name := strings.TrimSpace(d.Name)
-		if name == "" || len(name) > 63 {
-			w.errf("%s.name 必填且不超过 63 字符", what)
-			continue
+		if db, ok := w.checkDatabase(d, i, withCollections, seen); ok {
+			w.databases = append(w.databases, db)
 		}
-		if seen[name] {
-			w.errf("%s: 库名 %s 重复", what, name)
-		}
-		seen[name] = true
-		model := d.DataModel
-		if model == "" {
-			// 缺省是 collection（与建库接口一致）；只有声明了迁移/种子、且没有集合引用它时才推断为 sql。
-			model = "collection"
-			if (d.Migrations != "" || d.Seed != "") && !withCollections[name] {
-				model = "sql"
-			}
-		}
-		if model != "sql" && model != "collection" {
-			w.errf("%s.data_model 只能是 sql 或 collection", what)
-			continue
-		}
-		// 声明了 migrations/seed 且未写 data_model 时按 sql 处理；显式写 collection 则允许
-		// 同一个库既跑迁移 SQL 又存集合文档（examples 的 community / ops-assistant 就是这样）。
-		db := devDatabase{name: name, dataModel: model}
-		if d.Migrations != "" {
-			if mdir, ok := w.safePath(d.Migrations, what+".migrations"); ok {
-				entries, err := os.ReadDir(mdir)
-				if err != nil {
-					w.errf("%s.migrations: 目录不存在（%s）", what, d.Migrations)
-				} else {
-					for _, e := range entries {
-						if e.IsDir() || !strings.HasSuffix(e.Name(), ".sql") {
-							continue
-						}
-						rel := filepath.ToSlash(filepath.Join(d.Migrations, e.Name()))
-						if f := w.sqlFile(rel, what+".migrations", true); f != nil {
-							db.migrations = append(db.migrations, *f)
-						}
-					}
-					if len(db.migrations) == 0 {
-						w.warnf("%s.migrations: 目录里没有 .sql 文件", what)
-					}
-				}
-			}
-		}
-		if d.Seed != "" {
-			db.seed = w.sqlFile(d.Seed, what+".seed", false)
-		}
-		w.databases = append(w.databases, db)
 	}
 	if len(w.databases) > 1 {
 		w.warnf("databases: 声明了 %d 个库，但每个项目只能有一个用户数据库，多出的库建库时会返回 database_already_exists", len(w.databases))
+	}
+}
+
+func (w *devWorkspace) checkDatabase(d devDBDecl, index int, withCollections map[string]bool, seen map[string]bool) (devDatabase, bool) {
+	what := fmt.Sprintf("databases[%d]", index)
+	name := strings.TrimSpace(d.Name)
+	if name == "" || len(name) > 63 {
+		w.errf("%s.name 必填且不超过 63 字符", what)
+		return devDatabase{}, false
+	}
+	if seen[name] {
+		w.errf("%s: 库名 %s 重复", what, name)
+	}
+	seen[name] = true
+	model := d.DataModel
+	if model == "" {
+		// 缺省是 collection；只有声明了迁移/种子、且没有集合引用它时才推断为 sql。
+		model = "collection"
+		if (d.Migrations != "" || d.Seed != "") && !withCollections[name] {
+			model = "sql"
+		}
+	}
+	if model != "sql" && model != "collection" {
+		w.errf("%s.data_model 只能是 sql 或 collection", what)
+		return devDatabase{}, false
+	}
+	// 显式 collection 允许同一个库既跑迁移 SQL 又存集合文档。
+	db := devDatabase{name: name, dataModel: model}
+	w.checkDatabaseMigrations(&db, d, what)
+	if d.Seed != "" {
+		db.seed = w.sqlFile(d.Seed, what+".seed", false)
+	}
+	return db, true
+}
+
+func (w *devWorkspace) checkDatabaseMigrations(db *devDatabase, d devDBDecl, what string) {
+	if d.Migrations == "" {
+		return
+	}
+	dir, ok := w.safePath(d.Migrations, what+".migrations")
+	if !ok {
+		return
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		w.errf("%s.migrations: 目录不存在（%s）", what, d.Migrations)
+		return
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
+			continue
+		}
+		rel := filepath.ToSlash(filepath.Join(d.Migrations, entry.Name()))
+		if f := w.sqlFile(rel, what+".migrations", true); f != nil {
+			db.migrations = append(db.migrations, *f)
+		}
+	}
+	if len(db.migrations) == 0 {
+		w.warnf("%s.migrations: 目录里没有 .sql 文件", what)
 	}
 }
 

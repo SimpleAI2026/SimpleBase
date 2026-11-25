@@ -3,7 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import DataBrowser from '@/pages/DataBrowser.vue'
 import { api, resetApiMocks } from '@/test/api-mock'
-import { uiStubs } from '@/test/helpers'
+import { chooseFromPopover, installJsdomPolyfills, realPopoverStubs, uiStubs } from '@/test/helpers'
 import { pageVm } from '@/test/page-vm'
 import { useProjectStore } from '@/stores/project'
 import { useAuthStore } from '@/stores/auth'
@@ -42,13 +42,15 @@ function setup(opts: { tables?: unknown[]; canWrite?: boolean; admin?: boolean }
     columns: q.groupBy ? ['x', 'count'] : ['count'], rows: q.groupBy ? [['click', 3], ['view', 2]] : [[5]],
     truncated: false, scanned: 5, durationMs: 1, requestId: ''
   }))
-  return mount(DataBrowser, { global: { plugins: [pinia], stubs: uiStubs } })
+  return mount(DataBrowser, { attachTo: document.body, global: { plugins: [pinia], stubs: { ...uiStubs, ...realPopoverStubs } } })
 }
 
 beforeEach(() => {
   resetApiMocks()
   window.localStorage.clear()
 })
+
+installJsdomPolyfills()
 
 describe('SQL table as a data source', () => {
   it('opens the first table straight into a dashboard (no old schema panel, no "create table" form)', async () => {
@@ -156,8 +158,7 @@ describe('SQL table as a data source', () => {
   it('board edits persist under a table-specific key that cannot collide with a collection of the same name', async () => {
     const wrapper = setup()
     await flushPromises()
-    await wrapper.get('[data-widget="kpi-total"] [data-action="menu"]').trigger('click')
-    await wrapper.get('[data-widget="kpi-total"] [data-action="duplicate"]').trigger('click')
+    await chooseFromPopover(wrapper, '[data-action="duplicate"]', '[data-widget="kpi-total"]')
     await flushPromises()
     expect(window.localStorage.getItem('sb_bi_v1:p1:sql1:table:events')).toContain('kpi-total')
     expect(window.localStorage.getItem('sb_bi_v1:p1:sql1:events')).toBeNull()

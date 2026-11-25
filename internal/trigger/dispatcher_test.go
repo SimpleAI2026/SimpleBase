@@ -1,3 +1,30 @@
+// 文件说明：dispatcher_test.go — internal/trigger 的单元测试（TestDispatcherRetriesThreeTimes、TestDispatcherQueueFullAndObjectPrefix 等）
+//
+// 用法
+//
+//	go test ./internal/trigger -run 'TestDispatcherRetriesThreeTimes|TestDispatcherQueueFullAndObjectPrefix|TestTriggerFilterValidation'
+//
+// 调用架构
+//
+//	[上游] internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/trigger/dispatcher_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] dispatcher.go
+//
+// 主要符号
+//
+//	type fakeStore struct{…}
+//	(s fakeStore) ListFunctionTriggers(context.Context, string) ([]systemdb.FunctionTrigger, error)
+//	type fakeRunner struct{…}
+//	(r *fakeRunner) Run(ctx context.Context, request functionrun.Request) (functionrun.Result, error)
+//	TestDispatcherRetriesThreeTimes(t *testing.T)
+//	TestDispatcherQueueFullAndObjectPrefix(t *testing.T)
+//	TestTriggerFilterValidation(t *testing.T)
+
 package trigger
 
 import (

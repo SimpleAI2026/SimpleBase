@@ -6,7 +6,7 @@
 //	(a *App) Close(ctx context.Context) error  // Close 反向关闭所有已注册资源
 //	(a *App) Start() error  // Start 启动 HTTP server
 //	同包调用：New() → cron_runner.go, reset.go；App → catalog_engine.go；ReadFile() → identity.go
-//	装配阶段：assembleDeps 内部按序调用 assemble_{storage,handlers,sandbox,backup,auth,agent}.go
+//	装配阶段：assembleDeps 内部按序调用 assemble_{storage,handlers,sandbox,backup,auth,agent,api}.go
 //
 // 调用架构
 //
@@ -42,7 +42,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -55,17 +54,14 @@ import (
 	"github.com/linkxzhou/SimpleBase/godatabase/lease"
 	"github.com/linkxzhou/SimpleBase/godatabase/registry"
 	"github.com/linkxzhou/SimpleBase/gosandbox/image"
-	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
+	"github.com/linkxzhou/SimpleBase/internal/agentrun"
 	"github.com/linkxzhou/SimpleBase/internal/alerts"
 	"github.com/linkxzhou/SimpleBase/internal/api"
 	"github.com/linkxzhou/SimpleBase/internal/audit"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
-	"github.com/linkxzhou/SimpleBase/internal/collection"
 	"github.com/linkxzhou/SimpleBase/internal/config"
 	"github.com/linkxzhou/SimpleBase/internal/cronjob"
-	"github.com/linkxzhou/SimpleBase/internal/dbbridge"
-	"github.com/linkxzhou/SimpleBase/internal/functionrun"
 	"github.com/linkxzhou/SimpleBase/internal/llmgateway"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
@@ -123,8 +119,10 @@ type App struct {
 	leaseGate    *lease.Gate       // 同库并发首写串行化（perf §1.5）
 	onLostLease  func(dbID string) // 失租回调（租约获取处闭包捕获）
 
-	delegations       *auth.DelegationRegistry
-	cronScheduler     *cronjob.Scheduler
+	delegations   *auth.DelegationRegistry
+	cronScheduler *cronjob.Scheduler
+	// agentRun 是 Agent 协作应用服务：生命周期归 App（Shutdown 第 0 步取消、第 5 步等收尾）。
+	agentRun          *agentrun.Service
 	triggerDispatcher *trigger.Dispatcher
 	kvSweeper         *kv.Sweeper
 	handleEvictor     *registry.Evictor // R1：周期回收空闲句柄
@@ -240,101 +238,49 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 	)
 	a.health = &healthService{app: a}
 
-	// 删库清空用户数据（保留 KV / 项目文件 / 备份），并同步清理集合元数据。
-	var purgerSchemas collectionCleaner
-	if a.systemStore != nil {
-		purgerSchemas = collection.NewRepository(a.systemStore.DB(), a.systemStore.NotifyWrite)
+	var h apiHandlers
+	h.database, h.kvInit = a.assembleDatabaseHandler(cfg)
+	h.realtime = api.NewRealtimeHandler(cfg.Limits.RealtimeMaxConns)
+	// 函数面（执行器 + 触发器队列）先于数据写 handler：领域事件的订阅方在构造 fan-out 时
+	// 一次性登记（internal-ddd-hexagonal-implementation-plan §4、决策 D5）——记录事件先实时、后触发器，
+	// 对象事件只给触发器；之后不再有可变的 Add()。
+	h.functionRunner, h.functionTrigger = a.assembleFunctionPlane(cfg)
+	trig := newTriggerEventPublisher(a.triggerDispatcher)
+	recordSubs := []recordEventPublisher{h.realtime}
+	var objectSubs []objectEventPublisher
+	if trig != nil {
+		recordSubs = append(recordSubs, trig)
+		objectSubs = append(objectSubs, trig)
 	}
-	dbHandler := api.NewDatabaseHandler(
-		api.NewDatabaseServiceAdapter(a.catalog, dbbridge.RegistryFrom(a.registry), newProjectPurger(a.fileFactory, a.fileSyncer, a.registry, purgerSchemas)),
-		cfg.Instance.Writable,
-	)
-	// 项目 KV 初始化器（key-value-ducklake-plan §2）：建项目后立即建 kv schema。
-	// readonly 实例或无 registry 时为 nil（不初始化）；与种子库初始化共用同一实例。
-	kvInit := a.kvInitializer()
-	if a.fileFactory != nil {
-		f := a.fileFactory
-		dbHandler.SnapshotFor = func(databaseID string) *api.DatabaseSnapshot {
-			return snapshotFromFileFactory(f, databaseID)
-		}
-	}
-	// 数据库列表「数据量」列（v2.0 计划 §4-P1）：统计改为缓存 + 后台有界
-	// 并发刷新，列表请求不再同步逐库 Acquire + COUNT(*)（N+1 同步请求链）。
-	// 新鲜度 = TTL + 同步水位变化（写后失效）。
-	sqlSvcForStats := api.NewSQLServiceAdapter(a.catalog, dbbridge.RegistryFrom(a.registry), a.systemStore)
-	countRows := func(ctx context.Context, db catalog.Database) (int64, error) {
-		return api.CountDatabaseRows(ctx, sqlSvcForStats, db)
-	}
-	dbHandler.RowCountFor = countRows
-	var rowWatermark func(dbID string) (int64, int64)
-	if a.fileFactory != nil {
-		rowWatermark = a.fileFactory.SnapshotStatus
-	}
-	dbHandler.RowCounts = api.NewRowCountCache(api.RowCountCacheOptions{
-		Count:     countRows,
-		Watermark: rowWatermark,
-		Logger:    logger,
-	})
+	h.events = newEventFanout(recordSubs, objectSubs)
 
-	// Plan 6：SQL handler。readonly 实例 SQLHandler 为 nil，路由不挂载写操作；
-	// query 路由也只在 writable 实例提供（首期 readonly 不开放 SQL API）。
-	var sqlHandler *api.SQLHandler
-	var dataHandler *api.DataHandler
-	realtimeHandler := api.NewRealtimeHandler(cfg.Limits.RealtimeMaxConns)
-	recordEvents := &api.RecordEventFanout{}
-	recordEvents.Add(realtimeHandler)
-	var functionRunner *functionrun.Runner
-	var triggerEvents *api.TriggerEventPublisher
-	var functionTriggerHandler *api.FunctionTriggerHandler
-	if a.systemStore != nil {
-		functionRunner = functionrun.NewRunner(a.systemStore, cfg.Limits.MaxConcurrentGoRuns)
-		a.triggerDispatcher = trigger.NewDispatcher(a.systemStore, functionRunner, 1024, 4)
-		triggerEvents = api.NewTriggerEventPublisher(a.triggerDispatcher)
-		recordEvents.Add(triggerEvents)
-		functionTriggerHandler = api.NewFunctionTriggerHandler(a.systemStore, a.triggerDispatcher, cfg.Instance.Writable)
-	}
-	var collectionMetaHandler *api.CollectionMetaHandler
-	var schemaHandler *api.SchemaHandler
-	var kvHandler *api.KVHandler
-	var kvService api.KVService
+	// Plan 6：SQL handler。readonly 实例 SQLHandler 为 nil，路由不挂载写操作。
 	if cfg.Instance.Writable && a.registry != nil {
-		w := a.assembleWriteHandlers(cfg, dbHandler, recordEvents)
-		sqlHandler, dataHandler = w.sql, w.data
-		collectionMetaHandler, schemaHandler = w.collectionMeta, w.schema
-		kvService, kvHandler = w.kvService, w.kv
+		w := a.assembleWriteHandlers(cfg, h.database, h.events)
+		h.sql, h.data = w.sql, w.data
+		h.collectionMeta, h.schema = w.collectionMeta, w.schema
+		h.kvService, h.kv = w.kvService, w.kv
 	}
 
 	// 独立云沙盒模块：在 Agent 装配前创建，同一 Manager 同时供 Agent 与 API 使用。
-	terminal := a.assembleSandbox(ctx, cfg, logger)
+	h.terminal = a.assembleSandbox(ctx, cfg, logger)
 	a.step("sandbox assembled",
 		zap.Bool("sandbox_enabled", cfg.Sandbox.Enabled),
 		zap.Bool("sandbox_available", a.sandboxMgr != nil && a.sandboxMgr.Available()),
-		zap.Bool("terminal", terminal != nil),
+		zap.Bool("terminal", h.terminal != nil),
 	)
 
-	// 统一定时任务调度器（ui-cronjob-plan §5.4 + planv6.0 gocloudagent-cli-and-cronjob-unification-plan §2）：
-	// 同时承载云函数与 Agent 两类目标，仅在系统库齐备时创建。Agent 执行器仅在
-	// Cloud Agent 运行时可用时挂接；缺失时 agent 任务触发会落 failed 记录而非静默跳过。
-	var cronScheduler *cronjob.Scheduler
-	// planv6.7 v2：群定时执行器先创建，再交给 cron 执行器；api router 装配后 Attach。
-	var collabRunner *api.GroupCronRunner
-	runtime := a.cloudAgentRuntime()
-	if a.systemStore != nil {
-		cronScheduler = cronjob.NewScheduler(a.systemStore, &systemDBRunner{runner: functionRunner})
-		if runtime != nil {
-			var quota agentbridge.CronAgentQuota
-			if a.usageSvc != nil {
-				quota = a.usageSvc
-			}
-			collabRunner = api.NewGroupCronRunner()
-			cronScheduler.WithAgentRunner(agentbridge.NewCronAgentExecutor(a.systemStore, runtime, quota).WithGroupRunner(collabRunner))
-		}
-		a.cronScheduler = cronScheduler
-		cronScheduler.Start(a.ensureSchedulerCtx())
-	}
+	// 统一定时任务调度器同时承载云函数与 Agent；群定时执行器先于 cron 执行器创建。
+	// Agent 协作：确认表先于运行时构造并注入（router 不再回写 Runtime.Confirm）；
+	// 应用服务被 cron（群定时）、HTTP（run / 轮次）与关停流程共用（internal-ddd-hexagonal-implementation-plan §3.4）。
+	confirms := agentrun.NewConfirmHub()
+	h.runtime = a.cloudAgentRuntime(confirms)
+	a.agentRun = a.assembleAgentRun(h.runtime, confirms)
+	h.agentRun = a.agentRun
+	h.cronScheduler = a.assembleScheduler(h.functionRunner, h.runtime, h.agentRun)
 	a.step("cron scheduler started",
-		zap.Bool("enabled", cronScheduler != nil),
-		zap.Bool("cloud_agent_runtime", runtime != nil),
+		zap.Bool("enabled", h.cronScheduler != nil),
+		zap.Bool("cloud_agent_runtime", h.runtime != nil),
 	)
 
 	backupHandler, err := a.assembleBackup(cfg)
@@ -344,92 +290,19 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 		_ = a.Close(context.Background())
 		return nil, err
 	}
+	h.backup = backupHandler
 	a.step("backup assembled",
 		zap.Bool("backup_enabled", cfg.Backup.Enabled),
 		zap.Bool("handler", backupHandler != nil),
 		zap.String("schedule", cfg.Backup.Schedule),
 	)
+	a.startKVSweeper(cfg)
 
-	// KV TTL 后台清扫（key-value-ducklake-plan §4.5）：仅可写实例 + registry 齐备时创建。
-	if cfg.Instance.Writable && a.registry != nil {
-		kvSweeper := kv.NewSweeper(a.registry, 60*time.Second, dbbridge.LoggerFrom(logger))
-		a.kvSweeper = kvSweeper
-		kvSweeper.Start(a.ensureSchedulerCtx())
-	}
+	// 启动收敛：上一进程残留的 running 轮次落 interrupted；先于 HTTP 监听（Start 在 New 之后）。
+	h.agentRun.Converge(ctx)
 
-	deps := api.Dependencies{
-		Config:  cfg,
-		Logger:  logger,
-		Metrics: metrics,
-		// /metrics 输出源与 Metrics 同 registry（perfbench 抓 stage 指标依赖）。
-		MetricsRegistry: metricsGatherer(reg),
-		Health:          a.health,
-		Auth:            a.auth,
-		Sessions:        a.sessions,
-		// §8.2.6：终端用户服务（nil 时不挂 end-users 路由）。
-		EndUsers:               a.endUsers,
-		Users:                  a.users,
-		Catalog:                a.catalog,
-		Registry:               dbbridge.RegistryFrom(a.registry),
-		DatabaseHandler:        dbHandler,
-		SQLHandler:             sqlHandler,
-		DataHandler:            dataHandler,
-		CollectionMetaHandler:  collectionMetaHandler,
-		BackupHandler:          backupHandler,
-		RealtimeHandler:        realtimeHandler,
-		FunctionRunner:         functionRunner,
-		FunctionTriggerHandler: functionTriggerHandler,
-		TriggerEvents:          triggerEvents,
-		SchemaHandler:          schemaHandler,
-		KVHandler:              kvHandler,
-		KVService:              kvService,
-		KVInit:                 kvInit,
-		Cache:                  api.NewCacheService(a.cacheMgr),
-		Usage:                  api.NewUsageService(a.usageSvc),
-		Audit:                  api.NewAuditService(a.auditSvc),
-		LLM:                    api.NewLLMService(a.llmSvc),
-		S3FileStore:            a.fileStore,
-		System:                 a.systemStore,
-		CloudAgent:             runtime,
-		Delegations:            a.delegations,
-		CronScheduler:          cronScheduler,
-		CollabRunner:           collabRunner,
-		Sandbox:                a.sandboxMgr,
-		Images:                 a.imageStore,
-		SandboxUsage:           a.usageSvc,
-		Terminal:               terminal,
-	}
-	a.echo = api.NewRouter(deps)
-	if terminal != nil {
-		// 认证器需要 SandboxHandler（API Key 校验、项目解析），而 handler 在 NewRouter 里才构造，
-		// 所以认证器在这里挂上：用同一份 deps 构造一个只做认证的轻量 handler。
-		terminal.Server = a.bindSandboxSSHAuth(terminal, deps)
-	}
-	a.step("router assembled", zap.Int("routes", len(a.echo.Routes())))
-
-	writeTimeout := cfg.HTTP.WriteTimeout
-	if a.sandboxMgr != nil && a.sandboxMgr.Available() {
-		// 同步执行写超时须覆盖最长命令及启动预算。
-		minTimeout := cfg.Sandbox.ExecTimeoutMax + time.Minute
-		if minTimeout > writeTimeout {
-			writeTimeout = minTimeout
-		}
-	}
-	a.httpServer = &http.Server{
-		Addr:         cfg.HTTP.Address,
-		Handler:      a.echo,
-		ReadTimeout:  cfg.HTTP.ReadTimeout,
-		WriteTimeout: writeTimeout,
-		IdleTimeout:  cfg.HTTP.IdleTimeout,
-	}
-
-	// §8.1.7：独立观测监听（observability.metrics_address 非空时）。
-	if cfg.Observability.MetricsAddress != "" {
-		a.metricsServer = &http.Server{
-			Addr:    cfg.Observability.MetricsAddress,
-			Handler: api.NewObservabilityHandler(deps),
-		}
-	}
+	deps := a.buildAPIDeps(cfg, reg, h)
+	a.buildHTTPServers(cfg, deps)
 
 	logger.Info("simplebase initialized",
 		zap.String("http_address", cfg.HTTP.Address),
@@ -470,16 +343,7 @@ func (a *App) assembleDeps(ctx context.Context) error {
 		zap.String("s3_prefix", cfg.S3.Prefix),
 	)
 
-	s3cfg := objectstore.Config{
-		Endpoint:       cfg.S3.Endpoint,
-		Region:         cfg.S3.Region,
-		Bucket:         cfg.S3.Bucket,
-		Prefix:         cfg.S3.Prefix,
-		AccessKey:      cfg.S3.AccessKey,
-		SecretKey:      cfg.S3.SecretKey,
-		KMSKeyID:       cfg.S3.KMSKeyID,
-		ForcePathStyle: cfg.S3.ForcePathStyle,
-	}
+	s3cfg := s3ConfigFrom(cfg)
 
 	// 存储身份变更检测：改 storage 模式 / bucket / prefix 都等价于换了一个
 	// 完全不同的持久层，必须拒绝启动并提示先 reset。
@@ -487,51 +351,9 @@ func (a *App) assembleDeps(ctx context.Context) error {
 		return err
 	}
 	a.step("storage identity checked")
-
-	if cfg.Instance.Writable && (dbRemote || filesRemote) && s3cfg.Bucket != "" {
-		a.logger.Info("connecting object storage", zap.String("endpoint", s3cfg.Endpoint), zap.String("bucket", s3cfg.Bucket))
-		store, err := objectstore.NewClient(ctx, s3cfg, a.logger, a.metrics)
-		if err != nil {
-			return fmt.Errorf("create objectstore client: %w", err)
-		}
-		a.objectStore = store
-		a.step("object storage client ready")
-
-		// P0-3 启动探针：create-if-absent 条件写可用性验证（§4.5）。
-		// 探针失败 → 记 Fatal + 指标归零 → 禁用一切依赖互斥的能力，
-		// /health/ready 暴露原因；不让代码以为自己有保护。
-		if dbRemote {
-			probePrefix := objectstore.KeyBuilder{RootPrefix: cfg.S3.Prefix}.CatalogPrefix()
-			if bs, ok := store.(objectstore.BlobStore); ok {
-				res := objectstore.ProbePutIfAbsent(ctx, bs, probePrefix)
-				a.casSupported = res.CASSupported
-				if a.metrics != nil {
-					if res.CASSupported {
-						a.metrics.CASSupported.Set(1)
-					} else {
-						a.metrics.CASSupported.Set(0)
-					}
-				}
-				if !res.CASSupported {
-					a.logger.Error("objectstore create-if-absent probe FAILED; mutual-exclusion capabilities disabled",
-						zap.Error(res.Err),
-						zap.String("hint", "endpoint does not enforce create-if-absent (bucket versioning enabled on COS?)"),
-					)
-					// §3.3：配置要求写租约但探针失败时阻止启动——不得退化到
-					// 静默无保护的单写（可写实例 + 远端同步器 + 无互斥）。
-					if cfg.Instance.Lease.Enabled {
-						return fmt.Errorf("objectstore create-if-absent probe failed: %w; "+
-							"instance.lease.enabled=true 要求对象存储支持条件写，拒绝在无单写保护下启动可写实例 "+
-							"(hint: COS 存储桶开启版本控制会使 x-cos-forbid-overwrite 失效)", res.Err)
-					}
-				} else {
-					a.logger.Info("objectstore create-if-absent probe passed")
-				}
-			}
-		}
-		a.step("object storage probe done", zap.Bool("cas_supported", a.casSupported))
+	if err := a.connectObjectStore(ctx, cfg, s3cfg, dbRemote, filesRemote); err != nil {
+		return err
 	}
-
 	if err := a.assembleFileStore(ctx, cfg, s3cfg, filesRemote); err != nil {
 		return err
 	}
@@ -551,103 +373,23 @@ func (a *App) assembleDeps(ctx context.Context) error {
 	}
 
 	userCacheDir := cfg.Database.CacheDir
-	if fs, err := os.Stat(userCacheDir); err != nil || !fs.IsDir() {
-		if err := os.MkdirAll(userCacheDir, 0o755); err != nil {
-			return fmt.Errorf("create cache dir: %w", err)
-		}
+	if err := os.MkdirAll(userCacheDir, 0o755); err != nil {
+		return fmt.Errorf("create cache dir: %w", err)
 	}
 	userFactory := a.newUserDatabaseFactory(userCacheDir)
 	sysFactory := a.newSystemDatabaseFactory()
 	a.step("database factories ready", zap.String("engine", cfg.Database.Engine))
 
-	sysName := cfg.SystemDatabase.Name
-	if sysName == "" {
-		sysName = systemdb.DefaultName
-	}
-	a.logger.Info("booting system database",
-		zap.String("name", sysName),
-		zap.String("locator_dir", filepath.Join(cfg.Storage.DataDir, "_system")),
-	)
-	store, err := systemdb.Bootstrap(ctx, systemdb.BootstrapInput{
-		// locator 记录系统库 UUID，必须与 data_dir 同寿命：
-		// 放进 cache_dir 会在清缓存后重新生成一个空系统库。
-		LocatorDir: filepath.Join(cfg.Storage.DataDir, "_system"),
-		Name:       sysName,
-		Factory:    sysFactory,
-		Keys:       keys,
-		Logger:     a.logger,
-	})
+	store, err := a.bootSystemDatabase(ctx, cfg, keys, sysFactory)
 	if err != nil {
-		return fmt.Errorf("bootstrap system database: %w", err)
+		return err
 	}
 	a.systemStore = store
 	a.registerCloser(store)
-	a.step("system database bootstrapped",
-		zap.String("database_id", store.Meta().ID),
-		zap.String("project_id", store.Meta().ProjectID),
-	)
 
-	repo := store.CatalogRepo()
-	var descWriter catalog.DescriptorWriter
-	if a.objectStore != nil {
-		descWriter = a.objectStore
+	if err := a.assembleRegistryAndCache(ctx, cfg, userFactory); err != nil {
+		return err
 	}
-	ducklakeStore := objectstore.DuckLakeStorage{
-		Endpoint:       cfg.S3.Endpoint,
-		Region:         cfg.S3.Region,
-		Bucket:         cfg.S3.Bucket,
-		ForcePathStyle: cfg.S3.ForcePathStyle,
-		KMSKeyIDRef:    cfg.S3.KMSKeyID,
-	}
-	a.catalog = catalog.NewService(repo, keys, descWriter, ducklakeStore, a.logger)
-	a.catalog.SetDefaultEngine(cfg.Database.Engine)
-	if err := a.catalog.RepairDatabasesOnStartup(ctx); err != nil {
-		return fmt.Errorf("repair database availability: %w", err)
-	}
-	a.step("catalog service ready", zap.String("default_engine", cfg.Database.Engine))
-
-	// P1-1：per-database 写租约（multi-instance-consistency-plan §4.6）。
-	// 仅 writable + storage.database=s3 + 探针通过时启用；失租 → 释放该库句柄。
-	regOpts := registry.Options{
-		IdleTimeout: cfg.Database.IdleTimeout,
-		MaxOpen:     cfg.Database.MaxOpen,
-		Writable:    cfg.Instance.Writable,
-	}
-	a.assembleWriteLease(ctx, cfg, regOpts)
-
-	a.registry = registry.New(userFactory, dbbridge.ResolverFrom(a.catalog), regOpts, dbbridge.LoggerFrom(a.logger), dbbridge.ObserverFrom(a.metrics))
-	a.step("registry ready",
-		zap.Int("max_open", cfg.Database.MaxOpen),
-		zap.String("idle_timeout", cfg.Database.IdleTimeout.String()),
-		zap.Bool("write_lease", a.leaseMgr != nil),
-	)
-
-	// cache.Manager 只依赖 registry，先于 Evictor 创建以便接入容量淘汰。
-	a.cacheMgr, err = cache.NewManager(cache.Options{
-		Root:         cfg.Database.CacheDir,
-		DataRoot:     cfg.Storage.DataDir,
-		MaxBytes:     cfg.Database.CacheMaxBytes,
-		MaxDatabases: cfg.Database.CacheMaxDatabases,
-		Registry:     a.registry,
-		Closer:       a.registry,
-		Logger:       dbbridge.LoggerFrom(a.logger),
-		Observer:     dbbridge.ObserverFrom(a.metrics),
-	})
-	if err != nil {
-		return fmt.Errorf("create cache manager: %w", err)
-	}
-	a.step("cache manager ready",
-		zap.String("root", cfg.Database.CacheDir),
-		zap.Int64("max_bytes", cfg.Database.CacheMaxBytes),
-		zap.Int("max_databases", cfg.Database.CacheMaxDatabases),
-	)
-
-	// R1：周期回收空闲句柄，防止 max_open 打满后其他项目永久不可用。
-	// Shutdown 时先 Stop（停止新回收），再由 Close → registry.Shutdown 收尾。
-	// R1 第 3 条：cacheMgr 接入同一周期，缓存字节/数量超限按 LRU 淘汰
-	// （cache_max_bytes / cache_max_databases 配置自此生效）。
-	a.handleEvictor = registry.NewEvictor(a.registry, time.Minute, a.cacheMgr)
-	go a.handleEvictor.Run(a.ensureSchedulerCtx())
 
 	a.assembleAuthServices(store, cfg)
 	a.step("auth services ready")
@@ -656,10 +398,14 @@ func (a *App) assembleDeps(ctx context.Context) error {
 	}
 	a.step("system seed + maintenance started")
 
+	a.assembleUsageServices(cfg)
+	return nil
+}
+
+func (a *App) assembleUsageServices(cfg config.Config) {
 	catRepo := a.catalog.Repository()
 	a.usageSvc = usage.NewService(catRepo, a.logger)
 	a.auditSvc = audit.NewService(catRepo, a.logger)
-
 	if cfg.LLM.Enabled {
 		a.llmSvc = a.assembleLLMService(cfg)
 	}
@@ -667,11 +413,8 @@ func (a *App) assembleDeps(ctx context.Context) error {
 		zap.Bool("llm_enabled", cfg.LLM.Enabled),
 		zap.Int("llm_providers", len(cfg.LLM.Providers)),
 	)
-
-	return nil
 }
 
-// Start 启动 HTTP server。阻塞调用者直到 Shutdown。
 // Start 启动 HTTP server（阻塞直到关闭）；配置了独立观测监听时并行启动，
 // 监听失败视为启动失败（§8.1.7）。
 func (a *App) Start() error {
@@ -736,12 +479,21 @@ func (a *App) SystemStore() *systemdb.Store {
 	return a.systemStore
 }
 
-// Shutdown 优雅关闭：HTTP server → 调度器 → registry → catalog → LLM。
-// 超时由 ctx 控制。
+// agentShutdownGrace 是关停时等待 Agent run / 群轮次收尾落库的上限（计划 §3.4：常量，不新增配置项）。
+// 收尾只是几条系统库 UPDATE，10s 足够；超时记告警并列出残留轮次，不阻塞后续关停。
+const agentShutdownGrace = 10 * time.Second
+
+// Shutdown 优雅关闭：Agent run 开始收尾 → HTTP server → 观测监听 → 调度器 → 触发器 →
+// 等 Agent 收尾落库 → KV 清扫器 → 句柄回收器 → registry / catalog / LLM。超时由 ctx 控制。
 func (a *App) Shutdown(ctx context.Context) error {
 	a.logger.Info("shutdown started")
 	var firstErr error
 
+	// 第 0 步（D6-a）：先让在途 Agent run / 群轮次开始收尾（非阻塞），再关 HTTP ——
+	// 否则 httpServer.Shutdown 会被在途 LLM 调用拖满整个预算，后面的收尾等待拿不到时间。
+	if a.agentRun != nil {
+		a.agentRun.BeginShutdown()
+	}
 	if err := a.httpServer.Shutdown(ctx); err != nil {
 		a.logger.Error("http shutdown error", zap.String("err", err.Error()))
 		if firstErr == nil {
@@ -786,6 +538,17 @@ func (a *App) Shutdown(ctx context.Context) error {
 		case <-ctx.Done():
 			a.logger.Warn("trigger dispatcher stop timed out")
 		}
+	}
+
+	// 第 5 步（D6-a）：等 Agent run / 群轮次的收尾写库完成。用独立于主预算的收尾预算：
+	// 第 1 步可能被长期 SSE 占满，不能让「等收尾」因此拿不到时间；超时只告警、列出残留，不阻塞后续关停。
+	if a.agentRun != nil {
+		graceCtx, cancelGrace := context.WithTimeout(context.Background(), agentShutdownGrace)
+		if err := a.agentRun.Wait(graceCtx); err != nil {
+			a.logger.Warn("agent runs did not settle before deadline",
+				zap.String("err", err.Error()), zap.Any("active_turns", a.agentRun.ActiveTurns()))
+		}
+		cancelGrace()
 	}
 
 	// 停止 KV TTL 清扫器（schedulerCancel 已停其循环，此处等待退出）。

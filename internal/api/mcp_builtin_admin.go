@@ -1,3 +1,33 @@
+// 文件说明：mcp_builtin_admin.go — internal/api 中 mcpServerHandler.SetState、mcpServerHandler.TestBuiltin 等符号的实现
+//
+// 用法
+//
+//	(h *mcpServerHandler) SetState(c echo.Context) error  // SetState 是 PUT /mcp/builtin/:name/state：写项目级开关并记审计
+//	(h *mcpServerHandler) TestBuiltin(c echo.Context) error  // TestBuiltin 是 POST /mcp/builtin/:name/test：进程内连一次并列工具，不依赖 agent.mcp.enabled
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/mcp_builtin_admin.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//
+// 主要符号
+//
+//	type builtinToolDTO struct{…}
+//	type builtinServerDTO struct{…}
+//	(h *mcpServerHandler) builtinList(c echo.Context, pc ProjectContext) []builtinServerDTO
+//	toolDTOs(spec *mcp.ServerSpec) []builtinToolDTO
+//	type builtinStateBody struct{…}
+//	(h *mcpServerHandler) SetState(c echo.Context) error
+//	(h *mcpServerHandler) recordBuiltinAudit(c echo.Context, projectID, name string, enabled bool)
+//	(h *mcpServerHandler) TestBuiltin(c echo.Context) error
+//	... 另有 1 个顶层符号
+
 // mcp_builtin_admin.go — 内置 MCP 的展示与管理接口（planv6.7 §3.5）
 package api
 
@@ -79,9 +109,9 @@ type builtinStateBody struct {
 
 // SetState 是 PUT /mcp/builtin/:name/state：写项目级开关并记审计。
 func (h *mcpServerHandler) SetState(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	name := c.Param("name")
 	if h.builtin == nil || catalog.IsSystemProject(pc.ID) {
@@ -119,22 +149,14 @@ func (h *mcpServerHandler) recordBuiltinAudit(c echo.Context, projectID, name st
 	if enabled {
 		kind = "mcp.builtin.enable"
 	}
-	principal, _ := PrincipalFromContext(c.Request().Context())
-	_ = h.audit.Record(c.Request().Context(), AuditEvent{
-		ProjectID:   projectID,
-		PrincipalID: principal.APIKeyID,
-		Kind:        kind,
-		RequestID:   RequestIDFromContext(c.Request().Context()),
-		Status:      "ok",
-		Detail:      "name:" + name + ",enabled:" + strconv.FormatBool(enabled),
-	})
+	recordAudit(c, h.audit, kind, projectID, "ok", "name:"+name+",enabled:"+strconv.FormatBool(enabled))
 }
 
 // TestBuiltin 是 POST /mcp/builtin/:name/test：进程内连一次并列工具，不依赖 agent.mcp.enabled。
 func (h *mcpServerHandler) TestBuiltin(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	if h.builtin == nil || catalog.IsSystemProject(pc.ID) {
 		return WriteError(c, echo.NewHTTPError(http.StatusNotFound, "builtin mcp not available"))

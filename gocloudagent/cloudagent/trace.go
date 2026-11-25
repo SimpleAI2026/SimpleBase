@@ -1,3 +1,35 @@
+// 文件说明：trace.go — gocloudagent/cloudagent 中 Tracer、NewTracer 等符号的实现
+//
+// 用法
+//
+//	type Tracer struct{…}  // Tracer emits metadata by default and redacted payloads only when enabled.
+//	NewTracer(logger Logger, payload bool) Tracer  // NewTracer constructs a tracer for a provider or runtime.
+//	HashSummary(s string) string  // HashSummary returns a length and SHA-256 prefix without retaining content.
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/cloudagent/trace.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] callgate.go, callgate_test.go, confirmation.go, confirmation_test.go, errors.go 等 32 个
+//	[关键引用] Tracer ← mcptool.go, runtime.go；HashSummary ← mcptool.go, runtime.go
+//
+// 主要符号
+//
+//	const traceMaxChars
+//	type Tracer struct{…}
+//	NewTracer(logger Logger, payload bool) Tracer
+//	(r *Runtime) trace() Tracer
+//	(t Tracer) enabled() bool
+//	(t Tracer) Meta(msg string, fields ...zap.Field)
+//	(t Tracer) Warn(msg string, fields ...zap.Field)
+//	(t Tracer) Payload(msg, label, content string)
+//	... 另有 3 个顶层符号
+
 package cloudagent
 
 import (
@@ -17,8 +49,6 @@ type Tracer struct {
 	logger  Logger
 	payload bool
 }
-
-type tracer = Tracer
 
 // NewTracer constructs a tracer for a provider or runtime.
 func NewTracer(logger Logger, payload bool) Tracer {
@@ -64,8 +94,6 @@ func HashSummary(s string) string {
 	sum := sha256.Sum256([]byte(s))
 	return strconv.Itoa(len([]rune(s))) + ":" + hex.EncodeToString(sum[:8])
 }
-
-func hashSummary(s string) string { return HashSummary(s) }
 
 func (t Tracer) finish(req RunRequest, res RunResult) {
 	if !t.enabled() {

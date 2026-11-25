@@ -5,6 +5,7 @@
 //	NewAPIError(status int, code, message, requestID string) *APIError
 //	(e *APIError) Error() string
 //	Error(err error, requestID string) *APIError  // Error 编码已知的领域错误类型到 APIError
+//	errorHandler(deps Dependencies) echo.HTTPErrorHandler  // echo 的全局错误处理器：把任意 error 收敛成 WriteError 协议
 //	同包调用：Error() → agent_handler.go, agent_handler.go 等；WriteError() → agent_handler.go 等；NewAPIError() → agent_handler.go, api_keys_handler.go 等
 //
 // 调用架构
@@ -38,12 +39,15 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
+	"github.com/linkxzhou/SimpleBase/gocloudagent/group"
+	"github.com/linkxzhou/SimpleBase/gocloudagent/plan"
 	"github.com/linkxzhou/SimpleBase/godatabase"
 	"github.com/linkxzhou/SimpleBase/godatabase/kv"
 	"github.com/linkxzhou/SimpleBase/godatabase/lease"
 	"github.com/linkxzhou/SimpleBase/godatabase/sqlguard"
 	"github.com/linkxzhou/SimpleBase/gosandbox/vm"
 	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
+	"github.com/linkxzhou/SimpleBase/internal/agentrun"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
@@ -81,6 +85,16 @@ func NewAPIError(status int, code, message, requestID string) *APIError {
 			Code: code, Message: message, RequestID: requestID,
 		}},
 	}
+}
+
+// badRequest 构造 400 invalid_request；只封装这一种 code，其它 code 仍直接 NewAPIError。
+func badRequest(c echo.Context, msg string) *APIError {
+	return badRequestWithID(msg, requestID(c))
+}
+
+// badRequestWithID 供没有 Echo 上下文的纯校验函数构造同一种错误。
+func badRequestWithID(msg, rid string) *APIError {
+	return NewAPIError(http.StatusBadRequest, "invalid_request", msg, rid)
 }
 
 // Error 编码已知的领域错误类型到 APIError。未知错误返回 nil 由调用方兜底。
@@ -124,6 +138,16 @@ func Error(err error, requestID string) *APIError {
 	if errors.Is(err, context.DeadlineExceeded) {
 		return NewAPIError(http.StatusGatewayTimeout, "request_timeout", "request timed out", requestID)
 	}
+	// KV 命令表的参数错误（命令表不依赖 Echo，由 kvInvalidArgumentRaw 构造）。
+	var kvArg *kvInvalidArgError
+	if errors.As(err, &kvArg) {
+		return NewAPIError(http.StatusBadRequest, "kv_invalid_argument", kvArg.msg, requestID)
+	}
+	// 应用服务的「请求不合法且文案由底层错误决定」（迁移前写作 echo.NewHTTPError(400, err.Error())）。
+	var invalid *agentrun.InvalidError
+	if errors.As(err, &invalid) {
+		return NewAPIError(http.StatusBadRequest, "invalid_request", invalid.Message, requestID)
+	}
 	// 哨兵错误按 sentinelErrorMappings 的顺序匹配（顺序即优先级）。
 	for _, m := range sentinelErrorMappings {
 		if errors.Is(err, m.target) {
@@ -157,36 +181,54 @@ var sentinelErrorMappings = []struct {
 	{ErrMCPNameReserved, http.StatusBadRequest, "mcp_name_reserved", "mcp server name is reserved"},
 	// planv6.5：项目不可发布网站（sites 未开启 / 系统项目 / ID 不可作 DNS 标签）。
 	{ErrSiteNotPublishable, http.StatusBadRequest, "site_not_publishable", ErrSiteNotPublishable.Error()},
-	// planv6.7 cloud-agent-plan-mode：计划请求不合法 / 线程已有活动计划。
-	{ErrPlanInvalid, http.StatusBadRequest, "plan_invalid", ErrPlanInvalid.Error()},
-	{ErrPlanBusy, http.StatusConflict, "plan_busy", ErrPlanBusy.Error()},
 	// planv6.7 数据看板：Agent 生成图表的数据源上下文校验失败。
-	// planv6.7 AGC-NAV/AGC-ROUTE：标签与自动路由领域错误。
+	// planv6.7 AGC-NAV / v2：标签与群轮次领域错误。
 	{systemdb.ErrAgentTagNotFound, http.StatusNotFound, "agent_tag_not_found", "agent tag not found"},
 	{systemdb.ErrAgentTagConflict, http.StatusConflict, "agent_tag_conflict", "agent tag was modified, reload and retry"},
 	{systemdb.ErrAgentTagDuplicate, http.StatusConflict, "agent_tag_duplicate", "agent tag name already exists"},
 	{systemdb.ErrAgentTagBuiltin, http.StatusBadRequest, "agent_tag_builtin", "builtin agent tag cannot be deleted"},
 	{systemdb.ErrAgentTagLimit, http.StatusTooManyRequests, "agent_tag_limit_exceeded", "too many agent tags"},
-	{ErrNoAvailableAgent, http.StatusConflict, "no_available_agent", "no available agent for this thread"},
-	{ErrAgentNotInTag, http.StatusBadRequest, "agent_not_in_tag", "mentioned agent is not in this tag"},
-	{ErrRetryAgentUnavailable, http.StatusConflict, "retry_agent_unavailable", "the original agent is no longer available"},
+	{agentrun.ErrTurnsRequired, http.StatusBadRequest, "turns_required", agentrun.ErrTurnsRequired.Error()},
+	// Agent 协作用例的请求类错误（internal/agentrun 的领域错误；文案与迁移前逐字一致）。
+	{agentrun.ErrStopping, http.StatusServiceUnavailable, "service_stopping", "service is shutting down"},
+	{agentrun.ErrRunContentRequired, http.StatusBadRequest, "invalid_request", "content is required"},
+	{agentrun.ErrInvalidRetry, http.StatusBadRequest, "invalid_request", "invalid_retry"},
+	{agentrun.ErrMultipleAgents, http.StatusBadRequest, "multiple_agents_not_supported", "mention only one agent per run"},
+	{agentrun.ErrAgentSwitchRequired, http.StatusConflict, "agent_switch_required", "switch to the mentioned agent before sending"},
+	{agentrun.ErrCLISkillsUnavailable, http.StatusServiceUnavailable, "cli_skills_unavailable", "this agent requires CLI skills"},
+	{agentrun.ErrAgentSandboxUnavailable, http.StatusServiceUnavailable, "sandbox_unavailable", "sandbox is unavailable"},
+	{agentrun.ErrThreadNotFound, http.StatusNotFound, "not_found", "thread not found"},
+	{agentrun.ErrRunNotFound, http.StatusNotFound, "not_found", "run not found"},
+	{agentrun.ErrConfirmationNotFound, http.StatusNotFound, "not_found", "confirmation not found"},
+	{agentrun.ErrQuotaExceeded, http.StatusTooManyRequests, "quota_exceeded", "项目模型调用配额已用完"},
 	// planv6.7 v2：协作群领域错误。顺序按 HTTP 语义分组，具体到泛化。
 	{systemdb.ErrCollaborationUnavailable, http.StatusServiceUnavailable, "workspace_upgrade_required", "collaboration schema is not ready; run the schema bootstrap first"},
-	{ErrWorkspaceUpgradeRequired, http.StatusServiceUnavailable, "workspace_upgrade_required", "collaboration schema is not ready; run the schema bootstrap first"},
-	{ErrGroupArchived, http.StatusConflict, "group_archived", "this group has been archived"},
-	{ErrGroupMemberUnavailable, http.StatusBadRequest, "group_member_unavailable", "the target agent is not an available member of this group"},
+	{agentrun.ErrWorkspaceUpgradeRequired, http.StatusServiceUnavailable, "workspace_upgrade_required", "collaboration schema is not ready; run the schema bootstrap first"},
+	{agentrun.ErrGroupArchived, http.StatusConflict, "group_archived", "this group has been archived"},
+	{agentrun.ErrGroupMemberUnavailable, http.StatusBadRequest, "group_member_unavailable", "the target agent is not an available member of this group"},
 	{systemdb.ErrTurnBusy, http.StatusConflict, "turn_busy", "this thread already has an active turn"},
-	{ErrTurnBusy, http.StatusConflict, "turn_busy", "this thread already has an active turn"},
+	{agentrun.ErrTurnBusy, http.StatusConflict, "turn_busy", "this thread already has an active turn"},
 	{systemdb.ErrTurnConflict, http.StatusConflict, "turn_conflict", "agent turn was modified, reload and retry"},
-	{ErrTurnConflict, http.StatusConflict, "turn_conflict", "agent turn was modified, reload and retry"},
+	{agentrun.ErrTurnConflict, http.StatusConflict, "turn_conflict", "agent turn was modified, reload and retry"},
+	{group.ErrTurnBusy, http.StatusConflict, "turn_busy", "this thread already has an active turn"},
+	{group.ErrIllegalTransition, http.StatusConflict, "turn_conflict", "agent turn was modified, reload and retry"},
 	{systemdb.ErrTurnNotFound, http.StatusNotFound, "turn_not_found", "agent turn not found"},
 	{systemdb.ErrTaskNotFound, http.StatusNotFound, "task_not_found", "agent task not found"},
-	{ErrRoutingFailed, http.StatusBadGateway, "routing_failed", "routing failed"},
-	{ErrInvalidDispatchGraph, http.StatusBadRequest, "invalid_dispatch_graph", "invalid dispatch graph"},
-	{ErrHumanAssigneeRequired, http.StatusConflict, "human_assignee_required", "a human assignee is required"},
-	{ErrHumanTaskForbidden, http.StatusForbidden, "human_task_forbidden", "only the assignee or a project admin can resolve this task"},
-	{ErrTaskNotRetryable, http.StatusConflict, "task_not_retryable", "this task cannot be retried"},
-	{ErrCollaborationBudgetExceeded, http.StatusTooManyRequests, "collaboration_budget_exceeded", "collaboration budget exceeded"},
+	{agentrun.ErrRoutingFailed, http.StatusBadGateway, "routing_failed", "routing failed"},
+	{agentrun.ErrInvalidDispatchGraph, http.StatusBadRequest, "invalid_dispatch_graph", "invalid dispatch graph"},
+	{agentrun.ErrHumanAssigneeRequired, http.StatusConflict, "human_assignee_required", "a human assignee is required"},
+	{plan.ErrMemberMissing, http.StatusBadRequest, "agent_not_in_tag", "mentioned agent is not in this tag"},
+	{plan.ErrMentionMissing, http.StatusBadRequest, "invalid_dispatch_graph", "invalid dispatch graph"},
+	{plan.ErrHumanUnavailable, http.StatusConflict, "human_assignee_required", "a human assignee is required"},
+	{plan.ErrHumanDisabled, http.StatusConflict, "human_policy_disabled", "human tasks are disabled for this group"},
+	{plan.ErrInvalid, http.StatusBadRequest, "invalid_dispatch_graph", "invalid dispatch graph"},
+	{plan.ErrEmpty, http.StatusBadRequest, "invalid_dispatch_graph", "invalid dispatch graph"},
+	{plan.ErrTooLarge, http.StatusBadRequest, "invalid_dispatch_graph", "invalid dispatch graph"},
+	{plan.ErrTooDeep, http.StatusBadRequest, "invalid_dispatch_graph", "invalid dispatch graph"},
+	{group.ErrRoutingFailed, http.StatusBadGateway, "routing_failed", "routing failed"},
+	{agentrun.ErrHumanTaskForbidden, http.StatusForbidden, "human_task_forbidden", "only the assignee or a project admin can resolve this task"},
+	{agentrun.ErrTaskNotRetryable, http.StatusConflict, "task_not_retryable", "this task cannot be retried"},
+	{agentrun.ErrCollaborationBudgetExceeded, http.StatusTooManyRequests, "collaboration_budget_exceeded", "collaboration budget exceeded"},
 	// auth 错误
 	{auth.ErrMissingCredentials, http.StatusUnauthorized, "unauthenticated", "missing or malformed authorization header"},
 	{auth.ErrInvalidCredentials, http.StatusUnauthorized, "invalid_api_key", "invalid api key"},
@@ -249,7 +291,7 @@ func WriteError(c echo.Context, err error) error {
 	if err == nil {
 		return nil
 	}
-	rid := RequestIDFromContext(c.Request().Context())
+	rid := requestID(c)
 	if ae := Error(err, rid); ae != nil {
 		// 写租约获取在途：附带 Retry-After，客户端据此退避（perf §1.5）。
 		if ae.Body.Error.Code == "lease_acquiring" {
@@ -315,4 +357,60 @@ func httpStatusToCode(status int) string {
 	default:
 		return "http_error"
 	}
+}
+
+func errorHandler(deps Dependencies) echo.HTTPErrorHandler {
+	return func(err error, c echo.Context) {
+		if c.Response().Committed {
+			return
+		}
+		rid := requestID(c)
+		// E2B 兼容面（含认证 / BodyLimit 等中间件产生的错误）统一用 E2B 的错误体。
+		if isE2BPath(c.Request().URL.Path) {
+			_ = writeE2BErr(c, err)
+			return
+		}
+		// 业务错误统一通过 WriteError 写入；若 handler 未处理，此处兜底。
+		if apiErr := mapEchoError(err, rid); apiErr != nil {
+			if cErr := c.JSON(apiErr.HTTPStatus, apiErr.Body); cErr != nil && deps.Logger != nil {
+				deps.Logger.Error("write error", fieldString("err", cErr.Error()))
+			}
+			return
+		}
+		if he, ok := err.(*echo.HTTPError); ok {
+			if cErr := c.JSON(he.Code, map[string]any{
+				"error": map[string]any{
+					"code":       "http_error",
+					"message":    safeMessage(he),
+					"request_id": rid,
+				},
+			}); cErr != nil && deps.Logger != nil {
+				deps.Logger.Error("write http error", fieldString("err", cErr.Error()))
+			}
+			return
+		}
+		if deps.Logger != nil {
+			deps.Logger.Error("unhandled error",
+				fieldString("request_id", rid),
+				fieldString("err", err.Error()),
+			)
+		}
+		_ = c.JSON(http.StatusInternalServerError, map[string]any{
+			"error": map[string]any{
+				"code":       "internal_error",
+				"message":    "internal error",
+				"request_id": rid,
+			},
+		})
+	}
+}
+
+func safeMessage(he *echo.HTTPError) string {
+	if he.Message == nil {
+		return "error"
+	}
+	if s, ok := he.Message.(string); ok {
+		return s
+	}
+	return "error"
 }

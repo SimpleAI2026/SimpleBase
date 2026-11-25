@@ -1,3 +1,32 @@
+// 文件说明：oai_dto_test.go — internal/api 的单元测试（TestOpenAIRoutePaths、TestOpenAIRoutesRequireLLMInvoke 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestOpenAIRoutePaths|TestOpenAIRoutesRequireLLMInvoke|TestOpenAIRoutesRequireAuth|TestOAIErrorType'
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/oai_dto_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//
+// 主要符号
+//
+//	TestOpenAIRoutePaths(t *testing.T)
+//	openAIRoutes(all map[string]bool) []string
+//	TestOpenAIRoutesRequireLLMInvoke(t *testing.T)
+//	TestOpenAIRoutesRequireAuth(t *testing.T)
+//	TestOAIErrorType(t *testing.T)
+//	TestNormalizeFinishReason(t *testing.T)
+//	TestDecodeToolChoice(t *testing.T)
+//	TestToGatewayRequestCarriesToolChoice(t *testing.T)
+//	... 另有 2 个顶层符号
+
 package api
 
 import (

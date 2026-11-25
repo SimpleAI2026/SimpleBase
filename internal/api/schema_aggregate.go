@@ -8,6 +8,7 @@ package api
 import (
 	"context"
 	"errors"
+	collectionquery "github.com/linkxzhou/SimpleBase/internal/collection/query"
 	"net/http"
 	"strings"
 	"time"
@@ -21,24 +22,8 @@ import (
 
 // WithAggregateLimits 设置 SQL 表聚合的扫描上限与超时；非正数保持默认。
 func (h *SchemaHandler) WithAggregateLimits(timeout time.Duration, scan int) *SchemaHandler {
-	if timeout > 0 {
-		h.aggregateTimeout = timeout
-	}
-	if scan > 0 {
-		h.aggregateScan = scan
-	}
+	h.setAggregateLimits(timeout, scan)
 	return h
-}
-
-func (h *SchemaHandler) aggregateLimits() (time.Duration, int) {
-	timeout, scan := h.aggregateTimeout, h.aggregateScan
-	if timeout <= 0 {
-		timeout = defaultAggregateTimeout
-	}
-	if scan <= 0 {
-		scan = defaultAggregateScan
-	}
-	return timeout, scan
 }
 
 // AggregateTable: GET /v1/projects/:projectID/databases/:databaseID/schema/tables/:table/aggregate
@@ -53,7 +38,7 @@ func (h *SchemaHandler) AggregateTable(c echo.Context) error {
 	}
 	tableName, err = normalizeSchemaIdent(tableName)
 	if err != nil {
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "表名不合法", RequestIDFromContext(c.Request().Context())))
+		return WriteError(c, badRequest(c, "表名不合法"))
 	}
 
 	timeout, scanMax := h.aggregateLimits()
@@ -76,17 +61,17 @@ func (h *SchemaHandler) AggregateTable(c echo.Context) error {
 	if err != nil {
 		return WriteError(c, err)
 	}
-	columns := make([]sqlTableColumn, 0, len(cols))
+	columns := make([]collectionquery.SQLTableColumn, 0, len(cols))
 	for _, col := range cols {
-		columns = append(columns, sqlTableColumn{Name: col.Name, Kind: sqlColumnKind(col.Type)})
+		columns = append(columns, collectionquery.SQLTableColumn{Name: col.Name, Kind: collectionquery.SQLColumnKind(col.Type)})
 	}
 	var sensitive func(string) bool
 	if catalog.IsSystemDatabase(db) {
 		sensitive = isSystemSensitiveColumn
 	}
-	env := sqlTableEnv(dialect, columns, sensitive)
+	env := collectionquery.SQLTableEnv(dialect, columns, sensitive)
 
-	query, err := parseAggregateEnv(c.QueryParams(), sqlx.Ident(tableName), env)
+	query, err := collectionquery.ParseAggregateEnv(c.QueryParams(), sqlx.Ident(tableName), env)
 	if err != nil {
 		return validationAPIError(c, err)
 	}
@@ -123,8 +108,8 @@ func (h *SchemaHandler) AggregateTable(c echo.Context) error {
 		truncated = true
 		rows = rows[:query.Limit]
 	}
-	if query.needsSeriesFold && len(query.Columns) > 0 {
-		foldSeries(rows, len(query.Columns)-1)
+	if query.NeedsSeriesFold && len(query.Columns) > 0 {
+		collectionquery.FoldSeries(rows, len(query.Columns)-1)
 	}
 	serialized, err := godatabase.SerializeRows(rows)
 	if err != nil {
@@ -144,6 +129,6 @@ func (h *SchemaHandler) AggregateTable(c echo.Context) error {
 		Truncated:  truncated,
 		Scanned:    scanned,
 		DurationMS: result.Duration.Milliseconds(),
-		RequestID:  RequestIDFromContext(c.Request().Context()),
+		RequestID:  requestID(c),
 	})
 }

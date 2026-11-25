@@ -1,5 +1,34 @@
 //go:build linux
 
+// 文件说明：log_watch_test.go — gosandbox/box 的单元测试（TestSessionLogsPersist、TestSessionLogsTail 等）
+//
+// 用法
+//
+//	go test ./gosandbox/box -run 'TestSessionLogsPersist|TestSessionLogsTail|TestSessionLogsWithoutDir|TestSessionWatch'
+//
+// 调用架构
+//
+//	[上游] gosandbox/cmd, gosandbox/vm/box
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/box/log_watch_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] backpressure_test.go, copytree.go, deadline.go, egress_e2e_test.go, files.go 等 26 个
+//
+// 主要符号
+//
+//	newLoggedSession(t *testing.T) *Session
+//	TestSessionLogsPersist(t *testing.T)
+//	TestSessionLogsTail(t *testing.T)
+//	TestSessionLogsWithoutDir(t *testing.T)
+//	TestSessionWatch(t *testing.T)
+//	TestSessionWatchRecursive(t *testing.T)
+//	TestSessionWatchNotRecursive(t *testing.T)
+//	TestWatchClose(t *testing.T)
+//	... 另有 1 个顶层符号
+
 package box
 
 // log_watch_test.go：日志落盘回放与目录监听的端到端行为。

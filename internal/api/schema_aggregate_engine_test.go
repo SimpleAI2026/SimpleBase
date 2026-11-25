@@ -1,3 +1,33 @@
+// 文件说明：schema_aggregate_engine_test.go — internal/api 的单元测试（TestSQLTableAggregateRealEngines、TestSQLTableAggregatePointsRealEngines 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestSQLTableAggregateRealEngines|TestSQLTableAggregatePointsRealEngines|TestSQLTableAggregateScanLimitRealEngines|TestSQLTableAggregateRealEnginesRejectsUnsafeNames'
+//	同包调用：sqlRowsFixture() → schema_rows_filter_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/schema_aggregate_engine_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] sqlRowsFixture ← schema_rows_filter_test.go
+//
+// 主要符号
+//
+//	sqlSeededService(t *testing.T, engine string) realDataService
+//	sqlTestEcho(h *SchemaHandler) *echo.Echo
+//	sqlAggFixture(t *testing.T, engine string, scan int) func(table, query string) (int, aggResult, string)
+//	sqlRowsFixture(t *testing.T, engine string) func(table, query string) (int, string)
+//	TestSQLTableAggregateRealEngines(t *testing.T)
+//	TestSQLTableAggregatePointsRealEngines(t *testing.T)
+//	TestSQLTableAggregateScanLimitRealEngines(t *testing.T)
+//	TestSQLTableAggregateRealEnginesRejectsUnsafeNames(t *testing.T)
+
 package api
 
 import (
@@ -18,7 +48,7 @@ import (
 
 // sqlSeededService 在真实 DuckDB / SQLite 上建一张 SQL 表并灌入数据。
 // 不同引擎的列类型名不同（DuckDB: VARCHAR / DOUBLE / TIMESTAMP；SQLite: TEXT / REAL / TIMESTAMP），
-// 所以按引擎各写一份 DDL，才能验证 sqlColumnKind 对真实元数据的归类。
+// 所以按引擎各写一份 DDL，才能验证 query.SQLColumnKind 对真实元数据的归类。
 func sqlSeededService(t *testing.T, engine string) realDataService {
 	t.Helper()
 	dir := t.TempDir()

@@ -23,7 +23,7 @@ type writeHandlers struct {
 
 // assembleWriteHandlers 构造可写实例的 handler 组，并为 dbHandler 注入 InitSQL。
 // 调用方负责 Writable && registry != nil 判断；本方法不启动 goroutine、不注册 closer。
-func (a *App) assembleWriteHandlers(cfg config.Config, dbHandler *api.DatabaseHandler, recordEvents *api.RecordEventFanout) writeHandlers {
+func (a *App) assembleWriteHandlers(cfg config.Config, dbHandler *api.DatabaseHandler, events *eventFanout) writeHandlers {
 	var w writeHandlers
 	sqlLimits := api.SQLLimits{
 		QueryTimeout:       int64(cfg.Limits.QueryTimeout),
@@ -39,7 +39,7 @@ func (a *App) assembleWriteHandlers(cfg config.Config, dbHandler *api.DatabaseHa
 		f := a.fileFactory
 		w.sql.DurabilityFor = f.DurabilityFor
 	}
-	w.data = api.NewDataHandler(sqlService.(api.DataService), cfg.Instance.Writable).WithEvents(recordEvents).WithImportLimit(cfg.Limits.MaxImportBytes).WithAggregateLimits(cfg.Limits.QueryTimeout, 0)
+	w.data = api.NewDataHandler(sqlService.(api.DataService), cfg.Instance.Writable).WithEvents(events).WithImportLimit(cfg.Limits.MaxImportBytes).WithAggregateLimits(cfg.Limits.QueryTimeout, 0)
 	if a.systemStore != nil {
 		schemas := collection.NewRepository(a.systemStore.DB(), a.systemStore.NotifyWrite)
 		w.data.WithCollections(schemas, cfg.Limits.MaxFilterScanRows)

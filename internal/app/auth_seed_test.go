@@ -1,3 +1,26 @@
+// 文件说明：auth_seed_test.go — internal/app 的单元测试（TestB4_AuthServicesAndSeedAssembled、TestB4_SeedIdempotentOnSameDataDir 等）
+//
+// 用法
+//
+//	go test ./internal/app -run 'TestB4_AuthServicesAndSeedAssembled|TestB4_SeedIdempotentOnSameDataDir'
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/api/perfbench
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/app/auth_seed_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_shutdown_test.go, app.go, app_alerts.go, app_lease.go, app_test.go 等 41 个
+//
+// 主要符号
+//
+//	authSeedTestConfig(t *testing.T) config.Config
+//	TestB4_AuthServicesAndSeedAssembled(t *testing.T)
+//	TestB4_SeedIdempotentOnSameDataDir(t *testing.T)
+
 package app
 
 // b4_auth_seed_test.go：planv6.0 B4「auth/user/session、Seed、retention/flush」

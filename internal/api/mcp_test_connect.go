@@ -1,3 +1,25 @@
+// 文件说明：mcp_test_connect.go — internal/api 的内部实现（newMCPTestConnect 等）
+//
+// 用法
+//
+//	同包调用：newMCPTestConnect() → routes_agent.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/mcp_test_connect.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] newMCPTestConnect ← routes_agent.go
+//
+// 主要符号
+//
+//	newMCPTestConnect(deps Dependencies) func(ctx context.Context, srv systemdb.MCPServer) ([]string, error)
+
 package api
 
 import (

@@ -1,3 +1,27 @@
+// 文件说明：naming_test.go — gocloudagent/mcp 的单元测试（TestToolNameSanitizesAndPrefixes、TestToolNameTruncatesWithHashSuffix 等）
+//
+// 用法
+//
+//	go test ./gocloudagent/mcp -run 'TestToolNameSanitizesAndPrefixes|TestToolNameTruncatesWithHashSuffix|TestDisplayName|TestParseToolID'
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/cloudagent, gocloudagent/tools, internal/agentbridge 等 5 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/mcp/naming_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] adapter.go, adapter_test.go, client.go, http_transport.go, http_transport_test.go 等 10 个
+//
+// 主要符号
+//
+//	TestToolNameSanitizesAndPrefixes(t *testing.T)
+//	TestToolNameTruncatesWithHashSuffix(t *testing.T)
+//	TestDisplayName(t *testing.T)
+//	TestParseToolID(t *testing.T)
+
 package mcp
 
 import (

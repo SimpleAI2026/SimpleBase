@@ -70,7 +70,7 @@ func (h *AuthHandler) WithAudit(audit AuditService) *AuthHandler {
 }
 
 func (h *AuthHandler) guardAllow(c echo.Context, username string) error {
-	rid := RequestIDFromContext(c.Request().Context())
+	rid := requestID(c)
 	ip := c.RealIP()
 	switch h.guard.allow(ip, username) {
 	case loginSoftLocked:
@@ -136,14 +136,14 @@ type meProject struct {
 
 // Login: POST /v1/auth/login（免认证）。
 func (h *AuthHandler) Login(c echo.Context) error {
-	rid := RequestIDFromContext(c.Request().Context())
+	rid := requestID(c)
 	var req loginRequest
 	if err := c.Bind(&req); err != nil {
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "invalid json body", rid))
+		return WriteError(c, badRequest(c, "invalid json body"))
 	}
 	req.Username = strings.TrimSpace(req.Username)
 	if req.Username == "" || req.Password == "" {
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "username and password required", rid))
+		return WriteError(c, badRequest(c, "username and password required"))
 	}
 	if err := h.guardAllow(c, req.Username); err != nil {
 		return err
@@ -172,10 +172,10 @@ func (h *AuthHandler) Login(c echo.Context) error {
 
 // Refresh: POST /v1/auth/refresh（免认证，持 refresh_token）。
 func (h *AuthHandler) Refresh(c echo.Context) error {
-	rid := RequestIDFromContext(c.Request().Context())
+	rid := requestID(c)
 	var req refreshRequest
 	if err := c.Bind(&req); err != nil {
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "invalid json body", rid))
+		return WriteError(c, badRequest(c, "invalid json body"))
 	}
 	u, pair, err := h.sessions.Refresh(c.Request().Context(), req.RefreshToken, c.Request().UserAgent(), c.RealIP())
 	if err != nil {
@@ -202,14 +202,14 @@ type initialPasswordRequest struct {
 // → 吊销该用户全部会话 → 直接签发正式 TokenPair 返回。
 // 复用 loginGuard 的 ip / ip+username 两维度（不经 /v1 组 authMW）。
 func (h *AuthHandler) InitialPassword(c echo.Context) error {
-	rid := RequestIDFromContext(c.Request().Context())
+	rid := requestID(c)
 	var req initialPasswordRequest
 	if err := c.Bind(&req); err != nil {
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "invalid json body", rid))
+		return WriteError(c, badRequest(c, "invalid json body"))
 	}
 	req.Username = strings.TrimSpace(req.Username)
 	if req.Username == "" || req.OldPassword == "" || req.NewPassword == "" {
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "username, old_password and new_password required", rid))
+		return WriteError(c, badRequest(c, "username, old_password and new_password required"))
 	}
 	if err := h.guardAllow(c, req.Username); err != nil {
 		return err
@@ -255,14 +255,14 @@ func (h *AuthHandler) InitialPassword(c echo.Context) error {
 	}
 	h.guard.recordSuccess(req.Username)
 	if h.audit != nil {
-		_ = h.audit.Record(ctx, AuditEvent{Kind: "auth.password_initial", Detail: "user:" + u.ID})
+		_ = h.audit.Record(ctx, AuditEvent{Kind: "auth.password_initial", Detail: auth.Principal{UserID: u.ID}.Actor()})
 	}
 	return c.JSON(http.StatusOK, toTokenResponse(pair, u))
 }
 
 // Logout: POST /v1/auth/logout（需登录态）。
 func (h *AuthHandler) Logout(c echo.Context) error {
-	p, _ := PrincipalFromContext(c.Request().Context())
+	p := principalOf(c)
 	var req logoutRequest
 	_ = c.Bind(&req)
 	if err := h.sessions.Logout(c.Request().Context(), p.SessionID, req.RefreshToken); err != nil {
@@ -273,7 +273,7 @@ func (h *AuthHandler) Logout(c echo.Context) error {
 
 // Me: GET /v1/auth/me（需登录态）。
 func (h *AuthHandler) Me(c echo.Context) error {
-	rid := RequestIDFromContext(c.Request().Context())
+	rid := requestID(c)
 	p, ok := PrincipalFromContext(c.Request().Context())
 	if !ok || p.UserID == "" {
 		return WriteError(c, NewAPIError(http.StatusUnauthorized, "unauthenticated", "login required", rid))
@@ -320,14 +320,14 @@ func (h *AuthHandler) Me(c echo.Context) error {
 
 // ChangePassword: PUT /v1/auth/password（需登录态）。
 func (h *AuthHandler) ChangePassword(c echo.Context) error {
-	rid := RequestIDFromContext(c.Request().Context())
+	rid := requestID(c)
 	p, ok := PrincipalFromContext(c.Request().Context())
 	if !ok || p.UserID == "" {
 		return WriteError(c, NewAPIError(http.StatusUnauthorized, "unauthenticated", "login required", rid))
 	}
 	var req changePasswordRequest
 	if err := c.Bind(&req); err != nil {
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "invalid json body", rid))
+		return WriteError(c, badRequest(c, "invalid json body"))
 	}
 	if err := h.users.ChangePassword(c.Request().Context(), p.UserID, req.OldPassword, req.NewPassword); err != nil {
 		if errors.Is(err, auth.ErrInvalidCredentials) {

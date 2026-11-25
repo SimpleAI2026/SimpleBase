@@ -1,3 +1,35 @@
+// 文件说明：core.go — godatabase/kv 中 TypeID、ParseType 等符号的实现
+//
+// 用法
+//
+//	type TypeID int16  // TypeID 是 key 的类型标识（取值与 redka internal/core 对齐）
+//	ParseType(s string) (TypeID, bool)  // ParseType 解析 API/UI 传入的类型名；ok=false 表示非法类型名
+//	type KeyMeta struct{…}  // KeyMeta 描述 key 的元数据（对应 __sb_kv_keys 行）
+//	同包调用：dataTableFor() → key.go, ttl.go
+//
+// 调用架构
+//
+//	[上游] godatabase/cmd, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/kv/core.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] bugfix_test.go, collections_test.go, conn_schema_test.go, executor.go, export_test.go 等 20 个
+//	[关键引用] TypeID ← key.go, key_test.go；ParseType ← key_test.go；KeyMeta ← key.go
+//
+// 主要符号
+//
+//	type TypeID int16
+//	const TypeString / TypeList / TypeSet / TypeHash / TypeZSet
+//	const TypeAll
+//	(t TypeID) String() string
+//	ParseType(s string) (TypeID, bool)
+//	var ErrNotFound / ErrKeyType / ErrValueType / ErrKeyExists / ErrArgument
+//	type KeyMeta struct{…}
+//	dataTableFor(t TypeID) (string, error)
+
 package kv
 
 import (

@@ -1,5 +1,31 @@
 //go:build linux
 
+// 文件说明：egress_e2e_test.go — gosandbox/box 的单元测试（TestEgressBlocksMetadataAndPrivate、TestEgressAllowsPublic 等）
+//
+// 用法
+//
+//	go test ./gosandbox/box -run 'TestEgressBlocksMetadataAndPrivate|TestEgressAllowsPublic|TestEgressHidesHostLoopback|TestEgressKeepsSandboxLoopback'
+//
+// 调用架构
+//
+//	[上游] gosandbox/cmd, gosandbox/vm/box
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/box/egress_e2e_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] backpressure_test.go, copytree.go, deadline.go, files.go, handle.go 等 26 个
+//
+// 主要符号
+//
+//	newEgressSession(t *testing.T) *Session
+//	TestEgressBlocksMetadataAndPrivate(t *testing.T)
+//	requireEgressConfigured(t *testing.T, s *Session)
+//	TestEgressAllowsPublic(t *testing.T)
+//	TestEgressHidesHostLoopback(t *testing.T)
+//	TestEgressKeepsSandboxLoopback(t *testing.T)
+
 package box
 
 // egress_e2e_test.go：出网隔离的真机验收。

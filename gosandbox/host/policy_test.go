@@ -1,3 +1,34 @@
+// 文件说明：policy_test.go — gosandbox/host 的单元测试（TestValidate、TestIsolatesAndModes 等）
+//
+// 用法
+//
+//	go test ./gosandbox/host -run 'TestValidate|TestIsolatesAndModes|TestDeniesRead|TestBwrapArgsOrder'
+//	同包调用：basePolicy() → bwrap_args_extra_test.go, cgroup_linux_test.go；fakeExists() → bwrap_args_extra_test.go, mandatory_test.go；idx() → bwrap_args_extra_test.go, glob_test.go
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/tools, gosandbox/box, gosandbox/vm/box 等 5 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/host/policy_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] bwrap_args.go, bwrap_args_extra_test.go, cgroup.go, cgroup_linux.go, cgroup_linux_test.go 等 36 个
+//	[关键引用] basePolicy ← bwrap_args_extra_test.go, cgroup_linux_test.go；fakeExists ← bwrap_args_extra_test.go, mandatory_test.go；idx ← bwrap_args_extra_test.go, glob_test.go
+//
+// 主要符号
+//
+//	basePolicy() Policy
+//	TestValidate(t *testing.T)
+//	TestIsolatesAndModes(t *testing.T)
+//	TestDeniesRead(t *testing.T)
+//	fakeExists(present ...string) func(string) bool
+//	idx(args []string, seq ...string) int
+//	mustArgs(t *testing.T, in BwrapInput) []string
+//	TestBwrapArgsOrder(t *testing.T)
+//	... 另有 8 个顶层符号
+
 package host
 
 import (

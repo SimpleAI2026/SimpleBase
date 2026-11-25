@@ -1,3 +1,29 @@
+// 文件说明：prompt_test.go — gocloudagent/cli 的单元测试（TestLoadPromptTemplates、TestLoadPromptTemplatesMissingDir 等）
+//
+// 用法
+//
+//	go test ./gocloudagent/cli -run 'TestLoadPromptTemplates|TestLoadPromptTemplatesMissingDir|TestExpandPromptTemplate|TestExpandSlashCommand'
+//
+// 调用架构
+//
+//	[上游] gocloudagent
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/cli/prompt_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] agent_loop.go, agent_loop_test.go, budget_test.go, client.go, client_conn_reuse_test.go 等 39 个
+//
+// 主要符号
+//
+//	writeTemplate(t *testing.T, env []string, file, content string)
+//	TestLoadPromptTemplates(t *testing.T)
+//	TestLoadPromptTemplatesMissingDir(t *testing.T)
+//	TestExpandPromptTemplate(t *testing.T)
+//	TestExpandSlashCommand(t *testing.T)
+//	TestPromptTemplateDoesNotGrantSkillPermissions(t *testing.T)
+
 package cli
 
 import (

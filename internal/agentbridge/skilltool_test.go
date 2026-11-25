@@ -1,3 +1,30 @@
+// 文件说明：skilltool_test.go — internal/agentbridge 的单元测试（TestExecSimplebase_TextProtocolSkipsGate、TestExecSimplebase_HostFileRejected 等）
+//
+// 用法
+//
+//	go test ./internal/agentbridge -run 'TestExecSimplebase_TextProtocolSkipsGate|TestExecSimplebase_HostFileRejected|TestExecSimplebase_StdinLimit|TestSafeCLIFailureResponse'
+//
+// 调用架构
+//
+//	[上游] internal/agentrun, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/agentbridge/skilltool_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] access_db.go, access_llm.go, access_object.go, access_test.go, bridge_test.go 等 33 个
+//
+// 主要符号
+//
+//	TestExecSimplebase_TextProtocolSkipsGate(t *testing.T)
+//	type recordingWaiter struct{…}
+//	(w *recordingWaiter) Wait(ctx context.Context, runID, callID, initiator string, timeout time.Duration) (bool, ...
+//	TestExecSimplebase_HostFileRejected(t *testing.T)
+//	TestExecSimplebase_StdinLimit(t *testing.T)
+//	TestSafeCLIFailureResponse(t *testing.T)
+//	TestSubprocessCLI_DatabaseListReadOnly(t *testing.T)
+
 package agentbridge
 
 // cli_tool_planv6_test.go：planv6.0 §3.4/§3.5 单元测试。
@@ -8,7 +35,7 @@ package agentbridge
 
 import (
 	"context"
-	"errors"
+
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -21,87 +48,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/linkxzhou/SimpleBase/internal/auth"
+	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 )
 
-// gate 在 wait 超时后必须自清理（§3.4：结束 delete，防残留累积）。
-func TestCallGate_WaitCleanupOnTimeout(t *testing.T) {
-	g := &callGate{}
-	g.wait("r1", "c1", 10*time.Millisecond)
-	if n := g.size(); n != 0 {
-		t.Fatalf("wait 超时后登记残留 %d 条", n)
-	}
-}
-
-// gate 在 release 后同样清理。
-func TestCallGate_WaitCleanupOnRelease(t *testing.T) {
-	g := &callGate{}
-	go func() {
-		time.Sleep(5 * time.Millisecond)
-		g.release("r1", "c2")
-	}()
-	g.wait("r1", "c2", time.Second)
-	if n := g.size(); n != 0 {
-		t.Fatalf("wait release 后登记残留 %d 条", n)
-	}
-}
-
-// dropRun 只清本 run 的登记，其他 run 的登记必须保留。
-func TestCallGate_DropRun(t *testing.T) {
-	g := &callGate{}
-	g.release("run-1", "c3")
-	g.release("run-2", "c4")
-	g.dropRun("run-1")
-	if n := g.size(); n != 1 {
-		t.Fatalf("dropRun(run-1) 后应只剩 run-2 的 1 条登记，实际 %d", n)
-	}
-	g.dropRun("run-2")
-	if n := g.size(); n != 0 {
-		t.Fatalf("dropRun 后仍有 %d 条登记", n)
-	}
-}
-
-// GCL-9：run B 收尾的 dropRun 不能让 run A 正在 wait 的 call 错过 release。
-// 修复前 dropRun 把整张表置空，release 会为同一 call_id 新建 channel，等待者
-// 手里的旧 channel 收不到信号，只能等满超时。
-func TestCallGate_DropRunDoesNotStrandOtherRunWaiter(t *testing.T) {
-	g := &callGate{}
-	done := make(chan time.Duration, 1)
-	go func() {
-		start := time.Now()
-		g.wait("runA", "callA", 2*time.Second)
-		done <- time.Since(start)
-	}()
-	time.Sleep(50 * time.Millisecond) // 让 A 登记并进入等待
-	g.dropRun("runB")                 // 另一个 run 收尾
-	g.release("runA", "callA")        // A 的 tool_call 收束
-	select {
-	case d := <-done:
-		if d > 500*time.Millisecond {
-			t.Fatalf("run A 的等待被 run B 的 dropRun 拖到 %v（应在 release 后立即返回）", d)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("wait 未返回")
-	}
-}
-
 // text 协议跳过 gate：同一工具调用不再等待收束信号。
+// 注意：eino 没有公开的 call ID 注入器，这里 callID 恒为空，因此该用例只能证明
+// 「text 协议下 execSimplebase 不进入确认等待」，不能区分 text/native 的 gate 分支；
+// gate 本身的时序语义由 cloudagent.ToolCallGate 的单元测试保证。
 func TestExecSimplebase_TextProtocolSkipsGate(t *testing.T) {
 	var waits int32
 	rt := &RuntimeProvider{
 		ToolProtocol: "text",
 		Confirm:      &recordingWaiter{waitFn: func() { atomic.AddInt32(&waits, 1) }},
 	}
-	_ = rt
-	// text 协议下 execSimplebase 不进入 gate.wait：
-	// 通过观察 gate 内部状态验证（调用本身因未配置 APIBaseURL 返回错误，无妨）。
-	_, _ = rt.execSimplebase(context.Background(), RunRequest{RunID: "r", Context: RunContext{ProjectID: "p"}}, []string{"database", "list"}, "")
-	rt.mu.Lock()
-	empty := rt.gate == nil || rt.gate.size() == 0
-	rt.mu.Unlock()
-	if !empty {
-		t.Fatal("text 协议不应登记 gate")
-	}
+	// 调用本身因未配置 APIBaseURL 返回错误，无妨。
+	_, _ = rt.execSimplebase(context.Background(), cloudagent.RunRequest{RunID: "r", Context: RunContext{ProjectID: "p"}}, []string{"database", "list"}, "")
 	if atomic.LoadInt32(&waits) != 0 {
 		t.Fatal("text 协议不应等待确认")
 	}
@@ -118,23 +79,10 @@ func (w *recordingWaiter) Wait(ctx context.Context, runID, callID, initiator str
 	return false, nil
 }
 
-// 发起人标识：登录态用 UserID，API Key 用 apikey:<id>。
-func TestPrincipalKey(t *testing.T) {
-	if got := principalKey(auth.Principal{UserID: "u1"}); got != "u1" {
-		t.Fatalf("UserID 优先: %q", got)
-	}
-	if got := principalKey(auth.Principal{APIKeyID: "k1"}); got != "apikey:k1" {
-		t.Fatalf("API Key 前缀: %q", got)
-	}
-	if got := principalKey(auth.Principal{}); got != "" {
-		t.Fatalf("空主体: %q", got)
-	}
-}
-
 // execSimplebase 拒绝 --file 指向宿主机路径（§3.2/D3）。
 func TestExecSimplebase_HostFileRejected(t *testing.T) {
 	rt := &RuntimeProvider{}
-	out, err := rt.execSimplebase(context.Background(), RunRequest{RunID: "r", Context: RunContext{ProjectID: "p"}},
+	out, err := rt.execSimplebase(context.Background(), cloudagent.RunRequest{RunID: "r", Context: RunContext{ProjectID: "p"}},
 		[]string{"function", "create", "--name", "x", "--file", "/etc/hosts"}, "")
 	if err != nil {
 		t.Fatal(err)
@@ -147,7 +95,7 @@ func TestExecSimplebase_HostFileRejected(t *testing.T) {
 // stdin 超过 256KiB 返回 usage。
 func TestExecSimplebase_StdinLimit(t *testing.T) {
 	rt := &RuntimeProvider{}
-	out, err := rt.execSimplebase(context.Background(), RunRequest{RunID: "r", Context: RunContext{ProjectID: "p"}},
+	out, err := rt.execSimplebase(context.Background(), cloudagent.RunRequest{RunID: "r", Context: RunContext{ProjectID: "p"}},
 		[]string{"sql", "batch", "--file", "-"}, strings.Repeat("a", 257<<10))
 	if err != nil {
 		t.Fatal(err)
@@ -157,48 +105,18 @@ func TestExecSimplebase_StdinLimit(t *testing.T) {
 	}
 }
 
-func TestValidateCLIPathAndSafeFailure(t *testing.T) {
+// 分类逻辑在 cloudagent.ValidateExecutable / ProcessStartFailure 测试；这里只验证宿主：
+// 启动失败的响应不泄露二进制路径与委托令牌。
+func TestSafeCLIFailureResponse(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "missing-simplebase")
-	if got := ValidateCLIPath(missing); got != "not_found" {
-		t.Fatalf("missing CLI category = %q", got)
-	}
-	dir := t.TempDir()
-	if got := ValidateCLIPath(dir); got != "not_executable" {
-		t.Fatalf("directory CLI category = %q", got)
-	}
-	file := filepath.Join(t.TempDir(), "simplebase")
-	if err := os.WriteFile(file, []byte("not executable"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if got := ValidateCLIPath(file); got != "not_executable" {
-		t.Fatalf("CLI without exec bit category = %q", got)
-	}
-	if err := os.Chmod(file, 0700); err != nil {
-		t.Fatal(err)
-	}
-	if got := ValidateCLIPath(file); got != "" {
-		t.Fatalf("executable CLI category = %q", got)
-	}
-	for _, tc := range []struct {
-		err  error
-		want string
-	}{
-		{&os.PathError{Err: os.ErrNotExist}, "not_found"},
-		{&os.PathError{Err: os.ErrPermission}, "not_executable"},
-		{errors.New("bad executable format"), "invalid_binary"},
-	} {
-		if got := cliStartFailure(tc.err); got != tc.want {
-			t.Fatalf("CLI failure category = %q, want %q", got, tc.want)
-		}
-	}
 	if out, err := (&RuntimeProvider{APIBaseURL: "http://127.0.0.1:9", Issuer: stubIssuer{}, Policy: testPolicy{}, CLI: SubprocessCLI{Path: missing}}).execSimplebase(
-		context.Background(), RunRequest{RunID: "r", Context: RunContext{ProjectID: "p", Skills: []string{"database"}}}, []string{"database", "list"}, ""); err != nil || !strings.Contains(out, "cli_not_configured") {
+		context.Background(), cloudagent.RunRequest{RunID: "r", Context: RunContext{ProjectID: "p", Skills: []string{"database"}}}, []string{"database", "list"}, ""); err != nil || !strings.Contains(out, "cli_not_configured") {
 		// 没有委托令牌时不会启动 CLI；真实启动失败用下面的令牌测试。
 		t.Fatalf("missing delegation token: out=%s err=%v", out, err)
 	}
 	rt := &RuntimeProvider{APIBaseURL: "http://127.0.0.1:9", Issuer: stubIssuer{}, Policy: testPolicy{}, CLI: SubprocessCLI{Path: missing}}
 	rt.rememberToken("r", "test-token")
-	out, err := rt.execSimplebase(context.Background(), RunRequest{RunID: "r", Context: RunContext{ProjectID: "p", Skills: []string{"database"}}}, []string{"database", "list"}, "")
+	out, err := rt.execSimplebase(context.Background(), cloudagent.RunRequest{RunID: "r", Context: RunContext{ProjectID: "p", Skills: []string{"database"}}}, []string{"database", "list"}, "")
 	if err != nil || !strings.Contains(out, `"code":"cli_failed"`) || strings.Contains(out, missing) || strings.Contains(out, "test-token") {
 		t.Fatalf("unsafe CLI error response: %s / %v", out, err)
 	}
@@ -218,7 +136,7 @@ func TestSubprocessCLI_DatabaseListReadOnly(t *testing.T) {
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build CLI: %v: %s", err, output)
 	}
-	if category := ValidateCLIPath(cliPath); category != "" {
+	if category := cloudagent.ValidateExecutable(cliPath); category != "" {
 		t.Fatalf("built CLI unavailable: %s", category)
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -233,7 +151,7 @@ func TestSubprocessCLI_DatabaseListReadOnly(t *testing.T) {
 	defer server.Close()
 	rt := &RuntimeProvider{APIBaseURL: server.URL, Issuer: stubIssuer{}, Policy: testPolicy{}, CLI: SubprocessCLI{Path: cliPath}}
 	rt.rememberToken("r", "test-token")
-	out, err := rt.execSimplebase(context.Background(), RunRequest{RunID: "r", Context: RunContext{ProjectID: "p", Skills: []string{"database"}}}, []string{"database", "list"}, "")
+	out, err := rt.execSimplebase(context.Background(), cloudagent.RunRequest{RunID: "r", Context: RunContext{ProjectID: "p", Skills: []string{"database"}}}, []string{"database", "list"}, "")
 	if err != nil || !strings.Contains(out, `"ok":true`) || !strings.Contains(out, `"databases"`) {
 		t.Fatalf("CLI list: out=%s err=%v", out, err)
 	}

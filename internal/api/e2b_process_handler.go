@@ -4,7 +4,7 @@
 //
 //	(h *SandboxHandler) ProcStart(c echo.Context) error  // ProcStart 对应 process.Process/Start（服务端流）：启动进程并把事件流式返回
 //	(h *SandboxHandler) ProcConnect(c echo.Context) error  // ProcConnect 对应 process.Process/Connect：连接到已有进程，继续接收事件
-//	同包调用：event() → agent_handler.go, data_handler.go 等；end() → agent_handler.go, gocloudagent_access.go 等；stop() → kv_commands.go, oai_dto.go
+//	同包调用：event() → agent_handler.go, data_handler.go 等；end() → agent_handler.go 等；stop() → kv_commands.go, oai_dto.go
 //
 // 调用架构
 //
@@ -16,7 +16,7 @@
 //	         ▼
 //	[下游] gosandbox/vm, internal/e2bproto, internal/sandbox
 //	[同包] adapter.go, agent_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
-//	[关键引用] event() ← agent_handler.go, data_handler.go, event_fanout.go
+//	[关键引用] event() ← agent_handler.go, data_handler.go
 //
 // 主要符号
 //

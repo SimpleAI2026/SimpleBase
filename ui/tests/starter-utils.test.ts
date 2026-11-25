@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { genDnsSafeId, isDnsSafeProjectId } from '@/utils/project-id'
+import { genDnsSafeId } from '@/utils/project-id'
 import {
   clearPendingStarter,
   markStarterSent,
@@ -14,7 +14,6 @@ describe('genDnsSafeId', () => {
     for (let i = 0; i < 500; i++) {
       const id = genDnsSafeId()
       expect(id).toMatch(/^[a-z0-9]{8}$/)
-      expect(isDnsSafeProjectId(id)).toBe(true)
     }
   })
 
@@ -22,12 +21,6 @@ describe('genDnsSafeId', () => {
     const id = genDnsSafeId(() => new Uint8Array([255, 255, 255, 255, 255, 255, 255, 255]))
     expect(id).toMatch(/^[a-z0-9]+$/)
     expect(id).toHaveLength(8)
-  })
-
-  it('isDnsSafeProjectId 拒绝大写、连字符与错误长度', () => {
-    for (const bad of ['ABCDEFGH', 'abcd-efg', '-abcdefg', 'abcdefg-', 'abcdefg', 'abcdefghi', '']) {
-      expect(isDnsSafeProjectId(bad), bad).toBe(false)
-    }
   })
 
   it('没有 Web Crypto 时仍可生成', () => {

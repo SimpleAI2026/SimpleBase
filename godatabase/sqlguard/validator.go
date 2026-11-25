@@ -1,3 +1,24 @@
+// 文件说明：validator.go — godatabase/sqlguard 中 ErrEmptySQL 等符号的实现
+//
+// 用法
+//
+//	var ErrEmptySQL / ErrMultipleStatements / ErrNulChar / ErrSQLNotAllowed / ErrWriteInReadOnly
+//
+// 调用架构
+//
+//	[上游] godatabase/cmd, godatabase/ducklake, internal/agentbridge, internal/api
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/sqlguard/validator.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] classifier.go, classifier_test.go, reserved_prefix_test.go, split_test.go
+//
+// 主要符号
+//
+//	var ErrEmptySQL / ErrMultipleStatements / ErrNulChar / ErrSQLNotAllowed / ErrWriteInReadOnly
+
 package sqlguard
 
 import "errors"

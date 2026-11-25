@@ -77,15 +77,10 @@
       @action="project.openCreateModal()"
     />
     <SbAsyncRegion
+      :state="loadState"
       v-else
       block="lines"
       class="min-h-40"
-      :pending="modelsPending"
-      :show-skeleton="modelsSkeleton"
-      :show-empty="false"
-      :show-error="modelsFailed"
-      :refreshing="modelsRefreshing"
-      :error="modelsErrorText"
       @retry="loadServerDefaults"
     >
       <FieldGroup class="w-full">
@@ -282,14 +277,8 @@ const keyPlaceholder = computed(() =>
     : t('components.settingsPanel.apiKeyPlaceholder')
 )
 
-const {
-  pending: modelsPending,
-  showSkeleton: modelsSkeleton,
-  showError: modelsFailed,
-  refreshing: modelsRefreshing,
-  error: modelsErrorText,
-  run: runModels
-} = useLoadState({ fallback: 'components.settingsPanel.loadModelsFailed' })
+const loadState = useLoadState({ fallback: 'components.settingsPanel.loadModelsFailed' })
+const { run: runModels } = loadState
 
 async function loadServerDefaults(replace = false) {
   if (!project.id) return

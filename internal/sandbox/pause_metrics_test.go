@@ -1,3 +1,32 @@
+// 文件说明：pause_metrics_test.go — internal/sandbox 的单元测试（TestPauseFreezesAndResumeThaws、TestPauseTwiceIsConflict 等）
+//
+// 用法
+//
+//	go test ./internal/sandbox -run 'TestPauseFreezesAndResumeThaws|TestPauseTwiceIsConflict|TestPauseFallsBackToStopWhenFreezeUnavailable|TestPauseFallsBackWithoutPauser'
+//
+// 调用架构
+//
+//	[上游] internal/api, internal/app, internal/sandbox/sshd
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/sandbox/pause_metrics_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] create_test.go, errors.go, logs.go, manager.go, manager_exec.go 等 13 个
+//
+// 主要符号
+//
+//	type pausingDriver struct{…}
+//	(d *pausingDriver) Pause(context.Context, string) error
+//	(d *pausingDriver) Resume(context.Context, vm.Target) error
+//	(d *pausingDriver) CanFreeze() bool
+//	type meteredDriver struct{…}
+//	(d *meteredDriver) Metrics(context.Context, string) (vm.Metrics, error)
+//	pausingManager(t *testing.T, driver vm.Driver) (*Manager, *memStore, *pausingDriver)
+//	newRunningSandbox(t *testing.T, m *Manager) Sandbox
+//	... 另有 8 个顶层符号
+
 package sandbox
 
 // pause_metrics_test.go：Pause / Resume / Metrics 与空闲冻结的语义。

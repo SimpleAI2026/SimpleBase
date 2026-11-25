@@ -1,3 +1,34 @@
+// 文件说明：agent_skills_e2e_test.go — internal/api 的单元测试（TestAgentSkillsE2E 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestAgentSkillsE2E'
+//	同包调用：scriptLLM → agent_skills_router_e2e_test.go；toolDeltas() → agent_skills_router_e2e_test.go, agent_stream_debug_test.go；textDeltas() → agent_skills_router_e2e_test.go, agent_stream_debug_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/agent_skills_e2e_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] scriptLLM ← agent_skills_router_e2e_test.go；toolDeltas ← agent_skills_router_e2e_test.go, agent_stream_debug_test.go；textDeltas ← agent_skills_router_e2e_test.go, agent_stream_debug_test.go
+//
+// 主要符号
+//
+//	(d *skillData) reset()
+//	(d *skillData) count(method, pathPart string, only2xx bool) int
+//	(d *skillData) ServeHTTP(w http.ResponseWriter, r *http.Request)
+//	(d *skillData) record(method, path string, status int)
+//	pathMatchesProject(path, project string) bool
+//	skillWrite(method, path string, body []byte) bool
+//	skillPayload(method, path string) (int, string)
+//	writeAPI(w http.ResponseWriter, status int, code string)
+//	... 另有 24 个顶层符号
+
 package api
 
 import (
@@ -19,39 +50,11 @@ import (
 
 	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
+	"github.com/linkxzhou/SimpleBase/internal/agentrun"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
-
-func TestRunEventHubGapAndConfirmTimeout(t *testing.T) {
-	hub := newRunEventHub()
-	// 容量 2000。丢掉两条之后，客户端只看到 id=1 时中间的 id=2 已经不在环里。
-	for i := 0; i < 2002; i++ {
-		hub.append("run", cloudagent.Event{Type: "token", Content: "x"})
-	}
-	if _, gap, _, _ := hub.replay("run", 1); !gap {
-		t.Fatal("expected stream gap")
-	}
-	confirms := newConfirmHub()
-	ok, err := confirms.Wait(context.Background(), "run", "call", "u1", 30*time.Millisecond)
-	if ok || err != nil {
-		t.Fatalf("timeout approve=%v err=%v", ok, err)
-	}
-}
-
-type skillHit struct {
-	Method string
-	Path   string
-	Status int
-}
-
-type skillData struct {
-	mu     sync.Mutex
-	hits   []skillHit
-	reg    *auth.DelegationRegistry
-	secret string
-}
 
 func (d *skillData) reset() {
 	d.mu.Lock()
@@ -340,8 +343,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 	llm := &scriptLLM{}
-	confirms := newConfirmHub()
-	events := newRunEventHub()
+	confirms := agentrun.NewConfirmHub()
 	provider := &agentbridge.RuntimeProvider{
 		SkillsCLI: true, CLI: agentbridge.InProcessCLI{},
 		APIBaseURL: dataSrv.URL, Policy: agentbridge.NewCommandPolicy(), Issuer: agentbridge.NewDelegationIssuer(secret, reg),
@@ -351,7 +353,7 @@ func TestAgentSkillsE2E(t *testing.T) {
 		LLM: llm, Provider: provider, Confirm: confirms, ConfirmTimeout: 30 * time.Second,
 		ToolProtocol: "native", RunTimeout: 2 * time.Minute, MaxIterations: 8,
 	}
-	h := &cloudAgentHandler{store: store, runtime: rt, events: events, confirms: confirms}
+	h := &cloudAgentHandler{store: store, svc: agentrun.NewServiceWithStore(agentrun.Config{SkillsCLI: true}, store, rt, confirms), writable: true}
 	e := echo.New()
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
@@ -863,4 +865,17 @@ func callAndRun(t *testing.T, evs []sseEv) (string, string) {
 	}
 	t.Fatalf("no run id in %s", typesOf(evs))
 	return "", ""
+}
+
+type skillHit struct {
+	Method string
+	Path   string
+	Status int
+}
+
+type skillData struct {
+	mu     sync.Mutex
+	hits   []skillHit
+	reg    *auth.DelegationRegistry
+	secret string
 }

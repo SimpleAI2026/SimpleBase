@@ -5,7 +5,11 @@
        破坏性操作改用行内确认卡，不再打断对话。 -->
   <MessageScroller :follow-key="followKey">
     <slot v-if="!historyLoading && !messages.length && !sending" name="empty" />
-    <div v-for="(m, i) in messages" :key="i" :class="cn('flex items-start gap-2', m.role === 'user' && 'flex-row-reverse')">
+    <div
+      v-for="(m, i) in messages"
+      :key="m.id || `${m.role}:${m.taskId || ''}:${m.turnId || ''}:${i}`"
+      :class="cn('flex items-start gap-2', m.role === 'user' && 'flex-row-reverse')"
+    >
       <div
         :class="cn(
           'flex size-7 shrink-0 items-center justify-center rounded-full border border-border bg-card text-muted-foreground',
@@ -20,19 +24,19 @@
         </span>
       </div>
       <div class="flex min-w-0 max-w-[75%] flex-col gap-1 max-[768px]:max-w-[85%]">
-        <!-- planv6.7 AGC-ROUTE：assistant 气泡上方显示实际回答者与路由原因。 -->
+        <!-- assistant 气泡上方显示实际回答者；群轮次里带「来自 Plan」引用（hover 看该助手收到的指令）。 -->
         <p
-          v-if="m.role === 'assistant' && (m.agentId || m.routing)"
+          v-if="m.role === 'assistant' && m.agentId"
           data-agent-speaker
-          class="flex items-center gap-1 text-xs text-muted-foreground"
+          class="flex items-start gap-1 text-xs text-muted-foreground"
         >
-          <span v-if="m.routing">{{ t('components.conversation.routing') }}</span>
-          <template v-else>
-            <span class="truncate">{{ agentNames[m.agentId || ''] || t('components.conversation.unknownAgent') }}</span>
-            <span v-if="m.routeKind === 'mention'" class="rounded border border-border px-1">{{ t('components.conversation.routeMention') }}</span>
-            <span v-else-if="m.routeKind === 'fallback'" class="rounded border border-border px-1">{{ t('components.conversation.routeFallback') }}</span>
-            <span v-else-if="m.routeKind === 'retry'" class="rounded border border-border px-1">{{ t('components.conversation.routeRetry') }}</span>
-          </template>
+          <span class="truncate">{{ agentNames[m.agentId] || t('components.conversation.unknownAgent') }}</span>
+          <span
+            v-if="m.taskId && planInstructions?.[m.taskId]"
+            class="shrink-0 rounded border border-border px-1"
+            :title="planInstructions?.[m.taskId]"
+            data-plan-instruction
+          >{{ t('components.conversation.fromPlan') }}</span>
         </p>
         <div
           :class="cn(
@@ -108,8 +112,10 @@ interface Props {
   /** 历史尚未返回时不要画出空会话文案。 */
   historyLoading?: boolean
   confirmation?: ConfirmationPrompt | null
-  /** planv6.7 AGC-ROUTE：agentId → 显示名（已归档助手不在此表时显示中性占位）。 */
+  /** agentId → 显示名（已归档助手不在此表时显示中性占位）。 */
   agentNames?: Record<string, string>
+  /** 群轮次里 taskId → Plan 给该助手的指令（气泡上方「来自 Plan」引用的悬停全文）。 */
+  planInstructions?: Record<string, string>
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -117,7 +123,8 @@ const props = withDefaults(defineProps<Props>(), {
   canRetry: false,
   historyLoading: false,
   confirmation: null,
-  agentNames: () => ({})
+  agentNames: () => ({}),
+  planInstructions: () => ({})
 })
 defineEmits<{
   (e: 'retry'): void

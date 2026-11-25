@@ -1,3 +1,32 @@
+// 文件说明：sweeper.go — godatabase/kv 中 Sweeper、NewSweeper 等符号的实现
+//
+// 用法
+//
+//	type Sweeper struct{…}  // Sweeper 是实例级 TTL 后台清扫任务：周期遍历 registry 中已打开的可写库， 批量删除过期 key（merge-on-read 下控制 del...
+//	NewSweeper(reg *registry.Registry, interval time.Duration, logger godatabase.Logger) *Sweeper  // NewSweeper 构造清扫器
+//
+// 调用架构
+//
+//	[上游] godatabase/cmd, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/kv/sweeper.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] bugfix_test.go, collections_test.go, conn_schema_test.go, core.go, executor.go 等 20 个
+//	[关键引用] NewSweeper ← sweeper_test.go
+//
+// 主要符号
+//
+//	type Sweeper struct{…}
+//	NewSweeper(reg *registry.Registry, interval time.Duration, logger godatabase.Logger) *Sweeper
+//	(s *Sweeper) Start(ctx context.Context)
+//	(s *Sweeper) Close() error
+//	(s *Sweeper) SweepOnce(ctx context.Context) map[string]int64
+//	(s *Sweeper) loop(ctx context.Context, done chan struct{})
+//	(s *Sweeper) sweepProject(ctx context.Context, projectID string) (int64, error)
+
 package kv
 
 import (

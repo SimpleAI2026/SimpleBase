@@ -1,3 +1,33 @@
+// 文件说明：local_state.go — godatabase/ducklake 中 LocalState、ReadLocalState 等符号的实现
+//
+// 用法
+//
+//	type LocalState struct{…}  // LocalState 是本地 catalog 副本的水位文件（multi-instance-consistency-plan §4.3）
+//	ReadLocalState(cacheDir, databaseID string) (LocalState, bool)  // ReadLocalState 读取水位文件（catalog 工作副本位于 {cacheDir}/{databaseID} 时使用）
+//	SaveLocalState(cacheDir, databaseID string, st LocalState) error  // SaveLocalState 原子写入水位文件（catalog 工作副本位于 {cacheDir}/{databaseID} 时使用）
+//	同包调用：localStatePath() → engine_test.go, manifest_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app, internal/systemdb
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/ducklake/local_state.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] c4_syncer_lease_test.go, c4_syncer_ordering_test.go, catalog_syncer.go, catalog_syncer_test.go, coverage_test.go 等 35 个
+//	[关键引用] LocalState ← local_catalog.go, manifest_test.go；localStatePath ← engine_test.go, manifest_test.go；ReadLocalState ← c4_syncer_ordering_test.go, factory.go
+//
+// 主要符号
+//
+//	type LocalState struct{…}
+//	localStatePath(layout Layout) string
+//	ReadLocalState(cacheDir, databaseID string) (LocalState, bool)
+//	SaveLocalState(cacheDir, databaseID string, st LocalState) error
+//	readLocalStateAt(path string) (LocalState, bool)
+//	saveLocalStateAt(path string, st LocalState) error
+
 package ducklake
 
 import (

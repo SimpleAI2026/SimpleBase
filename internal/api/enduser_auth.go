@@ -24,12 +24,12 @@ func endUserAuth(secret string) echo.MiddlewareFunc {
 		return func(c echo.Context) error {
 			raw, err := auth.ExtractBearerToken(c.Request().Header.Get(echo.HeaderAuthorization))
 			if err != nil {
-				return WriteError(c, NewAPIError(401, "unauthorized", "end user token required", RequestIDFromContext(c.Request().Context())))
+				return WriteError(c, NewAPIError(401, "unauthorized", "end user token required", requestID(c)))
 			}
 			projectID := c.Param("projectID")
 			claims, err := auth.VerifyEndUserToken(secret, raw, projectID)
 			if err != nil {
-				return WriteError(c, NewAPIError(401, "unauthorized", "invalid end user token", RequestIDFromContext(c.Request().Context())))
+				return WriteError(c, NewAPIError(401, "unauthorized", "invalid end user token", requestID(c)))
 			}
 			ctx := context.WithValue(c.Request().Context(), endUserCtxKey{}, claims)
 			c.SetRequest(c.Request().WithContext(ctx))

@@ -127,9 +127,9 @@ func (h *DatabaseHandler) CreateDatabase(c echo.Context) error {
 	if !h.writable {
 		return WriteError(c, godatabase.ErrWriterUnavailable)
 	}
-	project, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	project, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	principal, ok := PrincipalFromContext(c.Request().Context())
 	if !ok {
@@ -145,7 +145,7 @@ func (h *DatabaseHandler) CreateDatabase(c echo.Context) error {
 	}
 	initSQL := strings.TrimSpace(req.InitSQL)
 	if initSQL != "" && dataModel != catalog.DataModelSQL {
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "初始化 SQL 只能用于 SQL 数据库", RequestIDFromContext(c.Request().Context())))
+		return WriteError(c, badRequest(c, "初始化 SQL 只能用于 SQL 数据库"))
 	}
 	stmts, err := prepareInitSQL(initSQL)
 	if err != nil {
@@ -187,7 +187,7 @@ func (h *DatabaseHandler) runInitSQL(c echo.Context, principal auth.Principal, p
 		}
 		if _, err := lease.Execute(c.Request().Context(), godatabase.Statement{SQL: stmt}); err != nil {
 			h.rollbackCreate(c, principal, project.ID, db.ID)
-			return NewAPIError(http.StatusBadRequest, "init_sql_failed", fmt.Sprintf("初始化 SQL 第 %d 条执行失败：%s", i+1, err.Error()), RequestIDFromContext(c.Request().Context()))
+			return NewAPIError(http.StatusBadRequest, "init_sql_failed", fmt.Sprintf("初始化 SQL 第 %d 条执行失败：%s", i+1, err.Error()), requestID(c))
 		}
 	}
 	return nil
@@ -206,9 +206,9 @@ func (h *DatabaseHandler) ListDatabases(c echo.Context) error {
 	if !ok {
 		return WriteError(c, auth.ErrMissingCredentials)
 	}
-	project, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	project, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 
 	page, err := parseListParams(c)
@@ -300,9 +300,9 @@ func (h *DatabaseHandler) GetDatabase(c echo.Context) error {
 	if !ok {
 		return WriteError(c, auth.ErrMissingCredentials)
 	}
-	project, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	project, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	databaseID := c.Param("databaseID")
 	if databaseID == "" {
@@ -329,9 +329,9 @@ func (h *DatabaseHandler) DeleteDatabase(c echo.Context) error {
 	if !ok {
 		return WriteError(c, auth.ErrMissingCredentials)
 	}
-	project, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	project, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	databaseID := c.Param("databaseID")
 	if databaseID == "" {

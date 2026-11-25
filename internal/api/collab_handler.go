@@ -19,18 +19,17 @@
 package api
 
 import (
-	"context"
-	"database/sql"
 	"errors"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
-	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
+	"github.com/linkxzhou/SimpleBase/gocloudagent/group"
+	"github.com/linkxzhou/SimpleBase/gocloudagent/plan"
+	"github.com/linkxzhou/SimpleBase/internal/agentrun"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
-	"github.com/linkxzhou/SimpleBase/internal/usage"
 )
 
 // workspaceCapabilitiesDTO 是能力探测的响应（前端据此决定是否露出协作控件）。
@@ -38,24 +37,26 @@ type workspaceCapabilitiesDTO struct {
 	ProtocolVersion int      `json:"protocol_version"`
 	Collaboration   bool     `json:"collaboration"`
 	ThreadKinds     []string `json:"thread_kinds"`
-	// Limits 与 cloudagent.DefaultPlanLimits 对齐，供前端做输入预校验。
-	MaxTasks       int `json:"max_tasks"`
-	MaxDepth       int `json:"max_depth"`
-	MaxInstruction int `json:"max_instruction"`
+	// Limits 与 plan.DefaultLimits 对齐，供前端做输入预校验。
+	MaxTasks        int      `json:"max_tasks"`
+	MaxDepth        int      `json:"max_depth"`
+	MaxInstruction  int      `json:"max_instruction"`
+	ConfirmPolicies []string `json:"confirm_policy"`
 	// MissingTables 非空表示未升级：前端应提示先建表而不是直接报错。
 	MissingTables []string `json:"missing_tables,omitempty"`
 }
 
 // WorkspaceCapabilities 返回协作协议的可用性（GET /agent-workspace-capabilities）。
 func (h *cloudAgentHandler) WorkspaceCapabilities(c echo.Context) error {
-	limits := cloudagent.DefaultPlanLimits()
+	limits := plan.DefaultLimits()
 	dto := workspaceCapabilitiesDTO{
-		ProtocolVersion: 2,
+		ProtocolVersion: 3,
 		ThreadKinds: []string{systemdb.ThreadKindChat, systemdb.ThreadKindAlert,
 			systemdb.ThreadKindStatistics, systemdb.ThreadKindScheduled},
-		MaxTasks: limits.MaxTasks, MaxDepth: limits.MaxDepth, MaxInstruction: limits.MaxInstruction,
+		MaxTasks: limits.MaxDispatches, MaxDepth: limits.MaxDepth, MaxInstruction: limits.MaxMessage,
+		ConfirmPolicies: []string{plan.ConfirmAuto, plan.ConfirmAlways, plan.ConfirmNever},
 	}
-	if err := h.store.CollabSchemaReady(c.Request().Context()); err != nil {
+	if err := h.svc.CollabSchemaReady(c.Request().Context()); err != nil {
 		if errors.Is(err, systemdb.ErrCollaborationUnavailable) {
 			dto.MissingTables = []string{
 				"sys_agent_thread_collab", "sys_agent_turns", "sys_agent_tasks",
@@ -70,6 +71,34 @@ func (h *cloudAgentHandler) WorkspaceCapabilities(c echo.Context) error {
 	return c.JSON(http.StatusOK, dto)
 }
 
+type planConfirmationBody struct {
+	Approve         bool        `json:"approve"`
+	Edits           []plan.Edit `json:"edits"`
+	ExpectedVersion int         `json:"expected_version"`
+}
+
+// ConfirmTurnPlan 批准 / 编辑后批准 / 拒绝整份 Plan，返回 202 快照。
+func (h *cloudAgentHandler) ConfirmTurnPlan(c echo.Context) error {
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
+	}
+	principal := principalOf(c)
+	if !h.canWritePrincipal(principal) {
+		return WriteError(c, echo.NewHTTPError(http.StatusForbidden, "write permission required"))
+	}
+	var body planConfirmationBody
+	if err := c.Bind(&body); err != nil {
+		return WriteError(c, err)
+	}
+	if err := h.svc.ConfirmTurnPlan(c.Request().Context(), pc.ID, principal, c.Param("turnID"), group.Approval{
+		Approve: body.Approve, Edits: body.Edits, ExpectedVersion: body.ExpectedVersion,
+	}); err != nil {
+		return WriteError(c, err)
+	}
+	return h.respondTurn(c, pc.ID, c.Param("turnID"))
+}
+
 // turnActionBody 是 POST /agent-turns/:turnID/actions 的请求体。
 type turnActionBody struct {
 	Action          string `json:"action"`
@@ -80,11 +109,11 @@ type turnActionBody struct {
 
 // TurnAction 处理取消 / 重试单个任务 / 恢复（POST /agent-turns/:turnID/actions）。
 func (h *cloudAgentHandler) TurnAction(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
-	principal, _ := PrincipalFromContext(c.Request().Context())
+	principal := principalOf(c)
 	if !h.canWritePrincipal(principal) {
 		return WriteError(c, echo.NewHTTPError(http.StatusForbidden, "write permission required"))
 	}
@@ -110,34 +139,11 @@ func (h *cloudAgentHandler) TurnAction(c echo.Context) error {
 	}
 }
 
-// cancelTurn 取消整轮：终止所有在执行的子 run，任务置 canceled，释放占用。
+// cancelTurn 通过轮次级 context 取消执行器，由引擎统一收尾。
 func (h *cloudAgentHandler) cancelTurn(c echo.Context, pc ProjectContext, turn systemdb.AgentTurn) error {
-	ctx := c.Request().Context()
-	tasks, err := h.store.ListAgentTasks(ctx, pc.ID, turn.ID)
-	if err != nil {
+	if err := h.svc.CancelTurn(c.Request().Context(), pc.ID, principalOf(c), turn.ID); err != nil {
 		return WriteError(c, err)
 	}
-	for i := range tasks {
-		if tasks[i].RunID != "" {
-			if h.runtime != nil {
-				h.runtime.CancelRun(tasks[i].RunID)
-			}
-			finished := time.Now().UTC()
-			_ = h.store.UpdateAgentRunStatus(ctx, pc.ID, tasks[i].RunID, systemdb.AgentRunCanceled, "canceled", nil, &finished)
-			_ = h.store.CancelRunApprovals(ctx, pc.ID, tasks[i].RunID)
-		}
-		switch tasks[i].Status {
-		case systemdb.TaskStatusRunning, systemdb.TaskStatusPending, systemdb.TaskStatusWaitingHuman:
-			tasks[i].Status = systemdb.TaskStatusCanceled
-			if _, err := h.store.UpdateAgentTask(ctx, tasks[i], 0); err != nil {
-				return WriteError(c, err)
-			}
-		}
-	}
-	if err := h.store.UpdateAgentTurnStatus(ctx, pc.ID, turn.ID, systemdb.TurnStatusCanceled, "", "canceled", 0); err != nil {
-		return WriteError(c, err)
-	}
-	h.releaseTurn(ctx, pc.ID, turn.ThreadID, turn.ID)
 	return h.respondTurn(c, pc.ID, turn.ID)
 }
 
@@ -158,158 +164,29 @@ func (h *cloudAgentHandler) retryTurnTask(c echo.Context, pc ProjectContext, tur
 		return WriteError(c, echo.NewHTTPError(http.StatusNotFound, "task not found"))
 	}
 	if task.TargetKind == systemdb.TaskTargetHuman {
-		return WriteError(c, ErrTaskNotRetryable)
+		return WriteError(c, agentrun.ErrTaskNotRetryable)
 	}
 	switch task.Status {
 	case systemdb.TaskStatusFailed, systemdb.TaskStatusInterrupted,
 		systemdb.TaskStatusBlocked, systemdb.TaskStatusCanceled:
 	default:
-		return WriteError(c, ErrTaskNotRetryable)
+		return WriteError(c, agentrun.ErrTaskNotRetryable)
 	}
 	if body.ExpectedVersion > 0 && task.Version != body.ExpectedVersion {
-		return WriteError(c, ErrTurnConflict)
+		return WriteError(c, agentrun.ErrTurnConflict)
 	}
-	if err := h.resetTaskSubtree(ctx, pc.ID, turn.ID, taskID); err != nil {
+	if err := h.svc.RetryTask(ctx, pc.ID, principalOf(c), taskID); err != nil {
 		return WriteError(c, err)
 	}
-	if err := h.store.UpdateAgentTurnStatus(ctx, pc.ID, turn.ID, systemdb.TurnStatusRunning, "", "", 0); err != nil {
-		return WriteError(c, err)
-	}
-	return h.continueTurn(c, pc, turn, principalOf(c))
+	return h.respondTurn(c, pc.ID, turn.ID)
 }
 
-// resetTaskSubtree 把目标任务与依赖它的未完成下游重置为 pending（人工任务不动）。
-func (h *cloudAgentHandler) resetTaskSubtree(ctx context.Context, projectID, turnID, rootID string) error {
-	tasks, err := h.store.ListAgentTasks(ctx, projectID, turnID)
-	if err != nil {
-		return err
-	}
-	reset := map[string]bool{rootID: true}
-	for changed := true; changed; {
-		changed = false
-		for _, t := range tasks {
-			if reset[t.ID] || t.TargetKind == systemdb.TaskTargetHuman ||
-				t.Status == systemdb.TaskStatusCompleted {
-				continue
-			}
-			for _, dep := range systemdb.UnmarshalAgentTaskDepends(t.DependsJSON) {
-				if reset[dep] {
-					reset[t.ID] = true
-					changed = true
-					break
-				}
-			}
-		}
-	}
-	for i := range tasks {
-		if !reset[tasks[i].ID] {
-			continue
-		}
-		tasks[i].Status = systemdb.TaskStatusPending
-		tasks[i].ErrorCode = ""
-		if _, err := h.store.UpdateAgentTask(ctx, tasks[i], 0); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// resumeTurn 恢复中断/等人的轮次：中断与阻塞的助手任务重新排队后继续推进。
+// resumeTurn 恢复中断/等人的轮次，后台推进由 Engine 负责。
 func (h *cloudAgentHandler) resumeTurn(c echo.Context, pc ProjectContext, turn systemdb.AgentTurn, principal auth.Principal) error {
-	ctx := c.Request().Context()
-	tasks, err := h.store.ListAgentTasks(ctx, pc.ID, turn.ID)
-	if err != nil {
+	if err := h.svc.ResumeTurn(c.Request().Context(), pc.ID, principal, turn.ID); err != nil {
 		return WriteError(c, err)
 	}
-	for i := range tasks {
-		if tasks[i].TargetKind == systemdb.TaskTargetHuman {
-			continue
-		}
-		if tasks[i].Status == systemdb.TaskStatusInterrupted || tasks[i].Status == systemdb.TaskStatusBlocked {
-			tasks[i].Status = systemdb.TaskStatusPending
-			tasks[i].ErrorCode = ""
-			if _, err := h.store.UpdateAgentTask(ctx, tasks[i], 0); err != nil {
-				return WriteError(c, err)
-			}
-		}
-	}
-	return h.continueTurn(c, pc, turn, principal)
-}
-
-// principalOf 从上下文取主体（内部续跑用；缺失时为零值）。
-func principalOf(c echo.Context) auth.Principal {
-	p, _ := PrincipalFromContext(c.Request().Context())
-	return p
-}
-
-// continueTurn 在既有轮次上继续推进（不新建轮次、不重复落用户消息）。
-func (h *cloudAgentHandler) continueTurn(c echo.Context, pc ProjectContext, turn systemdb.AgentTurn, principal auth.Principal) error {
-	ctx := c.Request().Context()
-	tc, err := h.turnContextOf(ctx, pc, turn, principal)
-	if err != nil {
-		return WriteError(c, err)
-	}
-	if h.usage != nil {
-		if err := h.usage.CheckQuota(ctx, pc.ID, "llm"); err != nil {
-			if errors.Is(err, usage.ErrQuotaExceeded) {
-				return WriteError(c, NewAPIError(http.StatusTooManyRequests, "quota_exceeded", "项目模型调用配额已用完", RequestIDFromContext(ctx)))
-			}
-			return WriteError(c, err)
-		}
-	}
-	// 重新抢占会话占用（等人期间已释放）。
-	if err := h.claimTurn(ctx, pc.ID, turn.ThreadID, turn.ID); err != nil {
-		return WriteError(c, err)
-	}
-	_ = h.store.UpdateAgentTurnStatus(ctx, pc.ID, turn.ID, systemdb.TurnStatusRunning, "", "", 0)
-	stream := h.openTurnStream(c, turn, len(mustTasks(ctx, h, pc.ID, turn.ID)))
-	defer stream.close()
-	advErr := h.advanceTurn(ctx, &tc, stream)
-	if advErr != nil && !errors.Is(advErr, errTurnWaitingHuman) {
-		h.failTurn(context.Background(), pc.ID, turn.ThreadID, turn.ID, advErr)
-	}
-	h.settleTurn(context.Background(), &tc, stream)
-	return nil
-}
-
-// turnContextOf 装配继续推进所需的上下文（会话、元数据、群配置、人身份）。
-func (h *cloudAgentHandler) turnContextOf(ctx context.Context, pc ProjectContext, turn systemdb.AgentTurn, principal auth.Principal) (turnContext, error) {
-	thread, err := h.store.GetAgentThread(ctx, pc.ID, turn.ThreadID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return turnContext{}, echo.NewHTTPError(http.StatusNotFound, "thread not found")
-	} else if err != nil {
-		return turnContext{}, err
-	}
-	ws, err := h.store.GetAgentThreadWorkspace(ctx, pc.ID, turn.ThreadID)
-	if err != nil {
-		return turnContext{}, err
-	}
-	collab, err := h.store.GetAgentThreadCollab(ctx, pc.ID, turn.ThreadID)
-	if err != nil {
-		return turnContext{}, err
-	}
-	var tag systemdb.AgentTag
-	if turn.TagID != "" {
-		if tag, err = h.resolveAgentTag(ctx, pc.ID, turn.TagID); err != nil {
-			// 群已归档：历史可读，但不再推进新工作。
-			return turnContext{}, ErrGroupArchived
-		}
-	}
-	tc := turnContext{pc: pc, principal: principal, thread: thread, ws: ws, collab: collab, tag: tag, turn: turn}
-	tc.humanID = principal.UserID
-	if humanPolicyDisabled(tag) {
-		tc.humanID = ""
-	}
-	return tc, nil
-}
-
-// mustTasks 是小工具：列表查询失败时返回 nil（仅用于取计数）。
-func mustTasks(ctx context.Context, h *cloudAgentHandler, projectID, turnID string) []systemdb.AgentTask {
-	tasks, err := h.store.ListAgentTasks(ctx, projectID, turnID)
-	if err != nil {
-		return nil
-	}
-	return tasks
+	return h.respondTurn(c, pc.ID, turn.ID)
 }
 
 // respondTurn 返回轮次最新快照。
@@ -322,7 +199,7 @@ func (h *cloudAgentHandler) respondTurn(c echo.Context, projectID, turnID string
 	if err != nil {
 		return WriteError(c, err)
 	}
-	return c.JSON(http.StatusOK, dto)
+	return c.JSON(http.StatusAccepted, dto)
 }
 
 // humanReplyBody 是 POST /agent-tasks/:taskID/replies 的请求体。
@@ -337,9 +214,9 @@ type humanReplyBody struct {
 //
 // 与工具审批严格分离：这里只写任务回复，不放行任何工具执行。
 func (h *cloudAgentHandler) ReplyHumanTask(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	principal, hasPrincipal := PrincipalFromContext(c.Request().Context())
 	ctx := c.Request().Context()
@@ -350,99 +227,45 @@ func (h *cloudAgentHandler) ReplyHumanTask(c echo.Context) error {
 		return WriteError(c, err)
 	}
 	if task.TargetKind != systemdb.TaskTargetHuman {
-		return WriteError(c, ErrTaskNotRetryable)
+		return WriteError(c, agentrun.ErrTaskNotRetryable)
 	}
 	// 接收人本人或超级管理员可处理。
 	//
 	// 注意：不能用 ProjectAdmin 作为「管理员例外」——RoleUser 的默认权限集里
 	// 就包含 ProjectAdmin（见 auth.PermissionsForRole），那等于项目内任何人
 	// 都能代答他人待办。这里只放行 RoleSuperAdmin。
-	caller := principalIdentity(principal)
+	caller := principal.Actor()
 	isOwner := task.AssigneeID != "" && task.AssigneeID == caller
 	isSuper := hasPrincipal && principal.Role == auth.RoleSuperAdmin
 	if !isOwner && !isSuper {
-		return WriteError(c, ErrHumanTaskForbidden)
+		return WriteError(c, agentrun.ErrHumanTaskForbidden)
 	}
-	if task.Status != systemdb.TaskStatusWaitingHuman && task.Status != systemdb.TaskStatusPending {
-		return WriteError(c, ErrTaskNotRetryable)
+	if task.Status != systemdb.TaskStatusWaitingHuman {
+		return WriteError(c, agentrun.ErrTaskNotRetryable)
 	}
 	var body humanReplyBody
 	if err := c.Bind(&body); err != nil {
 		return WriteError(c, err)
 	}
-	if err := h.applyHumanReply(ctx, pc, &task, body, caller); err != nil {
-		return WriteError(c, err)
-	}
-	turn, err := h.store.GetAgentTurn(ctx, pc.ID, task.TurnID)
-	if err != nil {
-		return WriteError(c, err)
-	}
-	// 回复后自动续跑；若另一轮已占用该会话，回复已记录，由前端稍后 resume。
-	tc, err := h.turnContextOf(ctx, pc, turn, principal)
-	if err != nil {
-		return WriteError(c, err)
-	}
-	if err := h.claimTurn(ctx, pc.ID, turn.ThreadID, turn.ID); err != nil {
-		dto, dErr := h.buildTurnDTO(ctx, pc.ID, turn)
-		if dErr != nil {
-			return WriteError(c, dErr)
-		}
-		return c.JSON(http.StatusAccepted, dto)
-	}
-	_ = h.store.UpdateAgentTurnStatus(ctx, pc.ID, turn.ID, systemdb.TurnStatusRunning, "", "", 0)
-	stream := h.openTurnStream(c, turn, len(mustTasks(ctx, h, pc.ID, turn.ID)))
-	defer stream.close()
-	advErr := h.advanceTurn(ctx, &tc, stream)
-	if advErr != nil && !errors.Is(advErr, errTurnWaitingHuman) {
-		h.failTurn(context.Background(), pc.ID, turn.ThreadID, turn.ID, advErr)
-	}
-	h.settleTurn(context.Background(), &tc, stream)
-	return nil
-}
-
-// applyHumanReply 校验并写入人工回复（人 task 的终态），后把回复作为历史消息落库。
-func (h *cloudAgentHandler) applyHumanReply(ctx context.Context, pc ProjectContext, task *systemdb.AgentTask, body humanReplyBody, caller string) error {
 	outcome := strings.TrimSpace(body.Outcome)
 	if outcome == "" {
-		outcome = systemdb.TaskReplyContinue
-	}
-	if outcome != systemdb.TaskReplyContinue && outcome != systemdb.TaskReplyUnable {
-		return echo.NewHTTPError(http.StatusBadRequest, "outcome must be continue or unable")
+		outcome = group.ReplyContinue
 	}
 	text := strings.TrimSpace(body.Text)
-	if n := len([]rune(text)); n > 8000 {
-		return echo.NewHTTPError(http.StatusBadRequest, "reply is too long (max 8000 characters)")
+	if outcome != group.ReplyContinue && outcome != group.ReplyUnable {
+		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "outcome must be continue or unable"))
+	}
+	if len([]rune(text)) > 8000 {
+		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "reply is too long (max 8000 characters)"))
 	}
 	if body.ExpectedVersion > 0 && task.Version != body.ExpectedVersion {
-		return ErrTurnConflict
+		return WriteError(c, agentrun.ErrTurnConflict)
 	}
-	task.ReplyText = text
-	task.ReplyOutcome = outcome
-	task.RepliedBy = caller
-	if outcome == systemdb.TaskReplyContinue {
-		task.Status = systemdb.TaskStatusCompleted
-	} else {
-		task.Status = systemdb.TaskStatusFailed
-		task.ErrorCode = "human_unable"
+	// 回复元数据、引擎状态迁移与消息落库都在 agentrun.ReplyHuman：状态只能由引擎状态机修改。
+	if err := h.svc.ReplyHuman(ctx, pc.ID, principal, task, text, outcome); err != nil {
+		return WriteError(c, err)
 	}
-	if _, err := h.store.UpdateAgentTask(ctx, *task, task.Version); err != nil {
-		return err
-	}
-	if text == "" {
-		return nil
-	}
-	// 人工回复进入会话历史（带前缀，跨助手投影可识别）。
-	msg, err := h.store.AppendAgentMessage(ctx, systemdb.AgentMessage{
-		ThreadID: task.ThreadID, ProjectID: pc.ID, Role: "user", Content: "[人工回复] " + text,
-	})
-	if err != nil {
-		return err
-	}
-	_ = h.store.AppendAgentMessageMeta(ctx, systemdb.AgentMessageMeta{
-		ProjectID: pc.ID, MessageID: msg.ID, TurnID: task.TurnID, TaskID: task.ID,
-		SpeakerKind: systemdb.TaskTargetHuman, SpeakerID: caller, Kind: systemdb.MessageKindHuman,
-	})
-	return nil
+	return h.respondTurn(c, pc.ID, task.TurnID)
 }
 
 // humanTaskDTO 是待办列表项。
@@ -461,15 +284,15 @@ type humanTaskDTO struct {
 
 // ListHumanTasks 返回待办列表与角标（GET /agent-human-tasks?assignee=me&status=pending）。
 func (h *cloudAgentHandler) ListHumanTasks(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
-	principal, _ := PrincipalFromContext(c.Request().Context())
+	principal := principalOf(c)
 	assignee := strings.TrimSpace(c.QueryParam("assignee"))
 	// "me" 解析为当前登录用户；API Key 主体没有「人」的身份，只能看全部。
 	if assignee == "me" {
-		assignee = principal.UserID
+		assignee = agentrun.HumanActorOf(principal)
 		if assignee == "" {
 			return c.JSON(http.StatusOK, map[string]any{"tasks": []humanTaskDTO{}, "pending": 0})
 		}

@@ -1,3 +1,32 @@
+// 文件说明：record_test.go — internal/usage 的单元测试（TestRecordDatabaseFlushAndQuotaBranches、TestLLMRecorderAdapter 等）
+//
+// 用法
+//
+//	go test ./internal/usage -run 'TestRecordDatabaseFlushAndQuotaBranches|TestLLMRecorderAdapter|TestAppendFlushThreshold'
+//
+// 调用架构
+//
+//	[上游] internal/agentrun, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/usage/record_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, service.go, service_test.go
+//
+// 主要符号
+//
+//	type stubRepo struct{…}
+//	(s *stubRepo) CreateTenant(context.Context, catalog.Tenant) error
+//	(s *stubRepo) CreateProject(context.Context, catalog.Project) error
+//	(s *stubRepo) GetProject(context.Context, string) (catalog.Project, error)
+//	(s *stubRepo) ListProjectsByTenant(context.Context, string) ([]catalog.Project, error)
+//	(s *stubRepo) HasDefaultDatabase(context.Context, string) (bool, error)
+//	(s *stubRepo) CreateDatabase(context.Context, catalog.Database) error
+//	(s *stubRepo) GetDatabase(context.Context, string, string) (catalog.Database, error)
+//	... 另有 21 个顶层符号
+
 package usage
 
 import (

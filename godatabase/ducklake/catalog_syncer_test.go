@@ -1,3 +1,32 @@
+// 文件说明：catalog_syncer_test.go — godatabase/ducklake 的单元测试（TestCatalogSyncerDebounceAndUpload、TestCatalogSyncFailureKeepsUnsyncedAgeAndManifest 等）
+//
+// 用法
+//
+//	go test ./godatabase/ducklake -run 'TestCatalogSyncerDebounceAndUpload|TestCatalogSyncFailureKeepsUnsyncedAgeAndManifest|TestCatalogSyncerInflightWriteEventuallySynced|TestEnsureLocalCatalogDownload'
+//
+// 调用架构
+//
+//	[上游] internal/app, internal/systemdb
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/ducklake/catalog_syncer_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] c4_syncer_lease_test.go, c4_syncer_ordering_test.go, catalog_syncer.go, coverage_test.go, edge_test.go 等 35 个
+//
+// 主要符号
+//
+//	TestCatalogSyncerDebounceAndUpload(t *testing.T)
+//	type failCatalogPutStore struct{…}
+//	(b *failCatalogPutStore) PutIfAbsent(ctx context.Context, key string, data []byte, ct string) (blob.ObjectInfo...
+//	TestCatalogSyncFailureKeepsUnsyncedAgeAndManifest(t *testing.T)
+//	type delayedSnapshotStore struct{…}
+//	(b *delayedSnapshotStore) PutIfAbsent(ctx context.Context, key string, data []byte, ct string) (blob.ObjectInf...
+//	TestCatalogSyncerInflightWriteEventuallySynced(t *testing.T)
+//	TestEnsureLocalCatalogDownload(t *testing.T)
+//	... 另有 3 个顶层符号
+
 package ducklake
 
 import (

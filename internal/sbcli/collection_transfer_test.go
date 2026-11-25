@@ -1,3 +1,24 @@
+// 文件说明：collection_transfer_test.go — internal/sbcli 的单元测试（TestDocumentTransferCLIAndAgentExportBoundary 等）
+//
+// 用法
+//
+//	go test ./internal/sbcli -run 'TestDocumentTransferCLIAndAgentExportBoundary'
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/agentbridge
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/sbcli/collection_transfer_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] cli_test.go, collection_transfer.go, commands.go, commands_admin.go, commands_backup.go 等 27 个
+//
+// 主要符号
+//
+//	TestDocumentTransferCLIAndAgentExportBoundary(t *testing.T)
+
 package sbcli
 
 import (

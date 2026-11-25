@@ -1,3 +1,32 @@
+// 文件说明：mandatory_test.go — gosandbox/host 的单元测试（TestForceDenyWritePathsOnlyExisting、TestForceDenyWritePathsNothingWhenGitMissing 等）
+//
+// 用法
+//
+//	go test ./gosandbox/host -run 'TestForceDenyWritePathsOnlyExisting|TestForceDenyWritePathsNothingWhenGitMissing|TestForceDenyWritePathsCoversWholeTable|TestForceDenyWritePathsExtraWritableRoot'
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/tools, gosandbox/box, gosandbox/vm/box 等 5 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/host/mandatory_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] bwrap_args.go, bwrap_args_extra_test.go, cgroup.go, cgroup_linux.go, cgroup_linux_test.go 等 36 个
+//
+// 主要符号
+//
+//	mandatoryPolicy() Policy
+//	TestForceDenyWritePathsOnlyExisting(t *testing.T)
+//	TestForceDenyWritePathsNothingWhenGitMissing(t *testing.T)
+//	TestForceDenyWritePathsCoversWholeTable(t *testing.T)
+//	TestForceDenyWritePathsExtraWritableRoot(t *testing.T)
+//	TestForceDenyWritePathsHomeOnlyWhenCovered(t *testing.T)
+//	TestForceDenyWritePathsModes(t *testing.T)
+//	TestReadOnlyPathsMergesAndDedups(t *testing.T)
+//	... 另有 5 个顶层符号
+
 package host
 
 import (

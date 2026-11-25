@@ -2,7 +2,7 @@ import { flushPromises } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'vue-sonner'
 import { api, resetApiMocks } from '@/test/api-mock'
-import { clickText, mountWithApp } from '@/test/helpers'
+import { clickText, mountWithApp, closeDialog, dialogEl, installJsdomPolyfills, realDialogStubs, inDialog, confirmAction, realAlertDialogStubs } from '@/test/helpers'
 import type { S3Object } from '@/services/types'
 
 vi.mock('@/services/api', async () => {
@@ -33,6 +33,8 @@ async function changeFile(wrapper: Awaited<ReturnType<typeof mountWithApp>>['wra
   await flushPromises()
 }
 
+installJsdomPolyfills()
+
 describe('S3Manager (对象存储)', () => {
   beforeEach(() => {
     resetApiMocks()
@@ -43,23 +45,22 @@ describe('S3Manager (对象存储)', () => {
   it('lists objects, previews them in a modal and deletes them', async () => {
     api.s3.listDetailed.mockResolvedValue(page([{ key: 'a.txt', size: 12, lastModified: '2024-01-01T00:00:00Z' }]))
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, text: async () => 'hello a' }))
-    const { wrapper } = await mountWithApp(S3Manager)
+    const { wrapper } = await mountWithApp(S3Manager, { stubs: { ...realDialogStubs, ...realAlertDialogStubs } })
     expect(wrapper.text()).toContain('a.txt')
     await clickText(wrapper, '打开')
     await flushPromises()
     expect(api.s3.presign).toHaveBeenCalledWith(expect.any(String), 'a.txt')
-    expect(wrapper.find('.sb-modal').exists()).toBe(true)
-    expect(wrapper.find('.sb-modal').text()).toContain('hello a')
-    await wrapper.get('.sb-modal-close').trigger('click')
-    await clickText(wrapper, '删除')
-    await flushPromises()
+    expect(dialogEl()).not.toBeNull()
+    expect(inDialog().text()).toContain('hello a')
+    await closeDialog()
+    await confirmAction(wrapper, '删除')
     expect(api.s3.remove).toHaveBeenCalled()
     expect(toast.success).toHaveBeenCalledWith('删除成功')
     await wrapper.get('.pager-next').trigger('click')
   })
 
   it('opens the file picker and uploads', async () => {
-    const { wrapper } = await mountWithApp(S3Manager)
+    const { wrapper } = await mountWithApp(S3Manager, { stubs: { ...realDialogStubs, ...realAlertDialogStubs } })
     const input = wrapper.get('input[type="file"]')
     const click = vi.fn(() => {
       Object.defineProperty(input.element, 'files', { value: [fileNamed('picked.txt')], configurable: true })
@@ -74,7 +75,7 @@ describe('S3Manager (对象存储)', () => {
 
   it('handles list / delete / presign errors and empty upload trigger', async () => {
     api.s3.listDetailed.mockRejectedValueOnce(new Error('list boom'))
-    const { wrapper } = await mountWithApp(S3Manager)
+    const { wrapper } = await mountWithApp(S3Manager, { stubs: { ...realDialogStubs, ...realAlertDialogStubs } })
     expect(toast.error).toHaveBeenCalledWith('list boom')
     api.s3.listDetailed.mockResolvedValueOnce(page([]))
     await clickText(wrapper, '刷新')
@@ -91,13 +92,12 @@ describe('S3Manager (对象存储)', () => {
     await flushPromises()
     await clickText(wrapper, '打开')
     await flushPromises()
-    await clickText(wrapper, '删除')
-    await flushPromises()
+    await confirmAction(wrapper, '删除')
     expect(toast.error).toHaveBeenCalledWith('rm')
   })
 
   it('validates keys and reports upload progress', async () => {
-    const { wrapper } = await mountWithApp(S3Manager)
+    const { wrapper } = await mountWithApp(S3Manager, { stubs: { ...realDialogStubs, ...realAlertDialogStubs } })
     await changeFile(wrapper, fileNamed('ok.txt'))
     const onProgress = api.s3.upload.mock.calls[0][3] as (pct: number) => void
     onProgress(50)
@@ -117,7 +117,7 @@ describe('S3Manager (对象存储)', () => {
 
   it('uploads into the current folder prefix (B7) but keeps root uploads for plain prefixes', async () => {
     api.s3.listDetailed.mockResolvedValue(page([], ['docs/']))
-    const { wrapper } = await mountWithApp(S3Manager)
+    const { wrapper } = await mountWithApp(S3Manager, { stubs: { ...realDialogStubs, ...realAlertDialogStubs } })
     await clickText(wrapper, 'docs/')
     await flushPromises()
     await changeFile(wrapper, fileNamed('a.txt'))
@@ -130,7 +130,7 @@ describe('S3Manager (对象存储)', () => {
 
   it('X4：进入子目录显示面包屑，点击上级逐级返回', async () => {
     api.s3.listDetailed.mockResolvedValue(page([], ['a/']))
-    const { wrapper } = await mountWithApp(S3Manager)
+    const { wrapper } = await mountWithApp(S3Manager, { stubs: { ...realDialogStubs, ...realAlertDialogStubs } })
     expect(wrapper.find('.sb-s3-crumbs').exists()).toBe(false)
     await wrapper.get('.ig-input').setValue('a/b/')
     await flushPromises()
@@ -150,7 +150,7 @@ describe('S3Manager (对象存储)', () => {
   it('X4：输入前缀 300ms 后自动查询，连续输入只发一次请求', async () => {
     vi.useFakeTimers()
     try {
-      const { wrapper } = await mountWithApp(S3Manager)
+      const { wrapper } = await mountWithApp(S3Manager, { stubs: { ...realDialogStubs, ...realAlertDialogStubs } })
       const before = api.s3.listDetailed.mock.calls.length
       const input = wrapper.get('.ig-input')
       await input.setValue('im')
@@ -168,7 +168,7 @@ describe('S3Manager (对象存储)', () => {
   })
 
   it('reloads when the project changes and ignores empty file picks', async () => {
-    const { wrapper, pinia } = await mountWithApp(S3Manager)
+    const { wrapper, pinia } = await mountWithApp(S3Manager, { stubs: { ...realDialogStubs, ...realAlertDialogStubs } })
     const input = wrapper.get('input[type="file"]')
     Object.defineProperty(input.element, 'files', { value: [], configurable: true })
     await input.trigger('change')
@@ -180,7 +180,7 @@ describe('S3Manager (对象存储)', () => {
 
   it('filters prefixes, opens folders and creates private links', async () => {
     api.s3.listDetailed.mockResolvedValue(page([{ key: 'images/a.png', size: 8, lastModified: '2024-01-01T00:00:00Z' }], ['images/icons/']))
-    const { wrapper } = await mountWithApp(S3Manager)
+    const { wrapper } = await mountWithApp(S3Manager, { stubs: { ...realDialogStubs, ...realAlertDialogStubs } })
     expect(wrapper.text()).toContain('images/icons/')
     await clickText(wrapper, 'images/icons/')
     expect(api.s3.listDetailed).toHaveBeenCalledWith(expect.any(String), 'images/icons/')
@@ -197,7 +197,7 @@ describe('S3Manager (对象存储)', () => {
   })
 
   it('handles non-Error responses and upload errors', async () => {
-    const { wrapper } = await mountWithApp(S3Manager)
+    const { wrapper } = await mountWithApp(S3Manager, { stubs: { ...realDialogStubs, ...realAlertDialogStubs } })
     api.s3.listDetailed.mockRejectedValueOnce('list')
     await s3vm(wrapper).load()
     api.s3.remove.mockRejectedValueOnce('rm')
@@ -226,7 +226,7 @@ describe('S3Manager (对象存储)', () => {
   })
 
   it('validates key variants and previews images', async () => {
-    const { wrapper: w } = await mountWithApp(S3Manager)
+    const { wrapper: w } = await mountWithApp(S3Manager, { stubs: { ...realDialogStubs, ...realAlertDialogStubs } })
     const vm = w.vm as any
     expect(vm.validateKey('')).toBeTruthy()
     expect(vm.validateKey('../x')).toBeTruthy()
@@ -257,14 +257,14 @@ describe('S3Manager (对象存储)', () => {
     }
 
     it('hides the public columns when the site domain is not configured', async () => {
-      const { wrapper } = await mountWithApp(S3Manager)
+      const { wrapper } = await mountWithApp(S3Manager, { stubs: { ...realDialogStubs, ...realAlertDialogStubs } })
       expect(wrapper.text()).not.toContain('外部访问')
       expect(wrapper.find('.sb-site-panel').exists()).toBe(false)
     })
 
     it('shows URLs for public paths without a publish step', async () => {
       api.s3.listDetailed.mockResolvedValue(sitePage(true))
-      const { wrapper } = await mountWithApp(S3Manager)
+      const { wrapper } = await mountWithApp(S3Manager, { stubs: { ...realDialogStubs, ...realAlertDialogStubs } })
       expect(wrapper.text()).toContain('外部访问')
       expect(wrapper.text()).toContain('访问 URL')
       expect(wrapper.text()).toContain(base + '/a.html')
@@ -280,7 +280,7 @@ describe('S3Manager (对象存储)', () => {
 
     it('toggles file and folder public access and rolls back on failure', async () => {
       api.s3.listDetailed.mockResolvedValue(sitePage(true))
-      const { wrapper } = await mountWithApp(S3Manager)
+      const { wrapper } = await mountWithApp(S3Manager, { stubs: { ...realDialogStubs, ...realAlertDialogStubs } })
       const switches = wrapper.findAll('.sb-public-switch')
       await switches[1].trigger('click') // docs/ folder → on
       await flushPromises()
@@ -304,7 +304,7 @@ describe('S3Manager (对象存储)', () => {
       const writeText = vi.fn().mockResolvedValue(undefined)
       vi.stubGlobal('navigator', { clipboard: { writeText } })
       api.s3.listDetailed.mockResolvedValue(sitePage(true))
-      const { wrapper } = await mountWithApp(S3Manager)
+      const { wrapper } = await mountWithApp(S3Manager, { stubs: { ...realDialogStubs, ...realAlertDialogStubs } })
       await wrapper.findAll('.sb-copy-url')[0].trigger('click')
       await flushPromises()
       expect(writeText).toHaveBeenCalledWith(base + '/blog/')
@@ -320,7 +320,7 @@ describe('S3Manager (对象存储)', () => {
 
     it('keeps public switches disabled when the project cannot publish', async () => {
       api.s3.listDetailed.mockResolvedValue(sitePage(false, { reason: 'site_domain_unconfigured' }))
-      const { wrapper } = await mountWithApp(S3Manager)
+      const { wrapper } = await mountWithApp(S3Manager, { stubs: { ...realDialogStubs, ...realAlertDialogStubs } })
       expect(wrapper.find('.sb-site-panel').exists()).toBe(false)
       expect(wrapper.findAll('.sb-public-switch').every((s) => s.attributes('disabled') !== undefined)).toBe(true)
       const vm = wrapper.vm as any
@@ -333,7 +333,7 @@ describe('S3Manager (对象存储)', () => {
         ...sitePage(true),
         site: { publishable: true, baseUrl: 'https://h.test/sites/proj0001', mode: 'path' }
       })
-      const { wrapper } = await mountWithApp(S3Manager)
+      const { wrapper } = await mountWithApp(S3Manager, { stubs: { ...realDialogStubs, ...realAlertDialogStubs } })
       expect(wrapper.find('.sb-site-mode').text()).toContain('站点地址：https://h.test/sites/proj0001')
       expect(wrapper.find('.sb-site-mode').text()).toContain('无法访问控制台登录态')
 
@@ -341,7 +341,7 @@ describe('S3Manager (对象存储)', () => {
         ...sitePage(true),
         site: { publishable: true, baseUrl: base, mode: 'subdomain' }
       })
-      const sub = await mountWithApp(S3Manager)
+      const sub = await mountWithApp(S3Manager, { stubs: { ...realDialogStubs, ...realAlertDialogStubs } })
       expect(sub.wrapper.find('.sb-site-mode').text()).toContain('站点地址：' + base)
       expect(sub.wrapper.find('.sb-site-mode').text()).not.toContain('控制台登录态')
 
@@ -349,14 +349,14 @@ describe('S3Manager (对象存储)', () => {
         ...sitePage(false, { reason: 'site_unavailable' }),
         site: { publishable: false, reason: 'site_unavailable', mode: 'path' }
       })
-      const off = await mountWithApp(S3Manager)
+      const off = await mountWithApp(S3Manager, { stubs: { ...realDialogStubs, ...realAlertDialogStubs } })
       expect(off.wrapper.find('.sb-site-mode').exists()).toBe(false)
       expect((off.wrapper.vm as any).publicHint('')).toBe('站点功能未配置')
     })
 
     it('falls back when folder meta is missing', async () => {
       api.s3.listDetailed.mockResolvedValue({ ...sitePage(true), folderMeta: undefined })
-      const { wrapper } = await mountWithApp(S3Manager)
+      const { wrapper } = await mountWithApp(S3Manager, { stubs: { ...realDialogStubs, ...realAlertDialogStubs } })
       expect(wrapper.text()).toContain('docs/')
       expect((wrapper.vm as any).publicHint('')).toBe('')
     })

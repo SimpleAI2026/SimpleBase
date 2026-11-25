@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'vue-sonner'
 import { ADMIN_PROJECT_ID } from '@/stores/project'
 import { api, resetApiMocks } from '@/test/api-mock'
-import { clickText, mountWithApp, sampleCron } from '@/test/helpers'
+import { clickText, mountWithApp, sampleCron, realDialogStubs, confirmAction, realAlertDialogStubs } from '@/test/helpers'
 
 vi.mock('@/services/api', async () => {
   const m = await import('@/test/api-mock')
@@ -13,6 +13,8 @@ vi.mock('@/services/api', async () => {
 import CronJobs from '@/pages/CronJobs.vue'
 
 const extraStubs = {
+  ...realDialogStubs,
+  ...realAlertDialogStubs,
   CronJobModal: {
     props: ['open', 'target'],
     emits: ['saved', 'update:open'],
@@ -87,13 +89,13 @@ describe('CronJobs (定时任务)', () => {
 
   it('toggles, triggers, edits, and deletes jobs', async () => {
     const { wrapper } = await mountWithApp(CronJobs, { stubs: extraStubs })
-    await wrapper.get('.switch').trigger('click')
+    await wrapper.get('[data-slot="switch"]').trigger('click')
     await flushPromises()
     expect(api.cronjobs.update).toHaveBeenCalled()
     expect(toast.success).toHaveBeenCalled()
 
     api.cronjobs.update.mockRejectedValueOnce(new Error('toggle'))
-    await wrapper.get('.switch').trigger('click')
+    await wrapper.get('[data-slot="switch"]').trigger('click')
     await flushPromises()
     expect(toast.error).toHaveBeenCalledWith('toggle')
 
@@ -111,12 +113,10 @@ describe('CronJobs (定时任务)', () => {
     expect(wrapper.get('.cj-modal').text()).toContain('new')
     await wrapper.get('.cj-close').trigger('click')
 
-    await clickText(wrapper, '删除')
-    await flushPromises()
+    await confirmAction(wrapper, '删除')
     expect(api.cronjobs.remove).toHaveBeenCalled()
     api.cronjobs.remove.mockRejectedValueOnce(new Error('rm'))
-    await clickText(wrapper, '删除')
-    await flushPromises()
+    await confirmAction(wrapper, '删除')
     expect(toast.error).toHaveBeenCalledWith('rm')
     await wrapper.get('.pager-next').trigger('click')
   })

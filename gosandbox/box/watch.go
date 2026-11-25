@@ -1,8 +1,41 @@
+// 文件说明：watch.go — gosandbox/box 中 WatchOptions、FileEvent 等符号的实现
+//
+// 用法
+//
+//	type WatchOptions struct{…}  // WatchOptions 是监听的参数
+//	type FileEvent struct{…}  // FileEvent 是一次文件变化
+//	type Watch struct{…}  // Watch 是一个进行中的目录监听
+//
+// 调用架构
+//
+//	[上游] gosandbox/cmd, gosandbox/vm/box
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/box/watch.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] backpressure_test.go, copytree.go, deadline.go, egress_e2e_test.go, files.go 等 26 个
+//	[关键引用] WatchOptions ← backpressure_test.go, lifecycle_test.go
+//
+// 主要符号
+//
+//	type WatchOptions struct{…}
+//	type FileEvent struct{…}
+//	type Watch struct{…}
+//	var ErrWatchOverflow
+//	(s *Session) Watch(ctx context.Context, path string, opt WatchOptions) (*Watch, error)
+//	(w *Watch) Events() <-chan FileEvent
+//	(w *Watch) Done() <-chan struct{}
+//	(w *Watch) Overflowed() bool
+//	... 另有 4 个顶层符号
+
 package box
 
 import (
 	"context"
 	"errors"
+	"io"
 	"sync"
 
 	"github.com/linkxzhou/SimpleBase/gosandbox/proto"
@@ -48,6 +81,9 @@ func (s *Session) Watch(ctx context.Context, path string, opt WatchOptions) (*Wa
 	if path == "" {
 		return nil, errors.New("box: empty watch path")
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if opt.Buffer <= 0 {
 		opt.Buffer = 64
 	}
@@ -60,27 +96,32 @@ func (s *Session) Watch(ctx context.Context, path string, opt WatchOptions) (*Wa
 	s.watches[id] = w
 	s.mu.Unlock()
 
-	if err := s.send(&proto.Msg{Kind: proto.KindWatch, ID: id, Path: path, Recursive: opt.Recursive}); err != nil {
-		s.dropWatch(id)
-		w.Close()
-		return nil, err
+	select {
+	case <-ctx.Done():
+		_ = w.Close()
+		return nil, ctx.Err()
+	case <-s.done:
+		_ = w.Close()
+		return nil, io.ErrClosedPipe
+	case s.out <- outFrame{msg: &proto.Msg{Kind: proto.KindWatch, ID: id, Path: path, Recursive: opt.Recursive}}:
 	}
-	// ctx 取消时自动关掉，避免调用方忘了。
-	if ctx.Done() != nil {
-		go func() {
-			select {
-			case <-ctx.Done():
-				_ = w.Close()
-			case <-w.done:
-			case <-s.done:
-			}
-		}()
-	}
+	go func() {
+		select {
+		case <-ctx.Done():
+		case <-s.done:
+		case <-w.done:
+			return
+		}
+		_ = w.Close()
+	}()
 	return w, nil
 }
 
 // Events 是事件通道。Close 之后通道关闭。
 func (w *Watch) Events() <-chan FileEvent { return w.events }
+
+// Done 在监听终止时关闭，不需要先消费积压事件。
+func (w *Watch) Done() <-chan struct{} { return w.done }
 
 // Overflowed 报告是否丢过事件。
 func (w *Watch) Overflowed() bool {
@@ -91,6 +132,11 @@ func (w *Watch) Overflowed() bool {
 
 // deliver 收一条事件（由 Session 的读循环调用）。
 func (w *Watch) deliver(entries []proto.Entry) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.closed {
+		return
+	}
 	for _, e := range entries {
 		path := e.Target
 		if path == "" {
@@ -101,30 +147,23 @@ func (w *Watch) deliver(entries []proto.Entry) {
 		default:
 			// 通道满：丢掉这一条并标记。让 agent 阻塞在写帧上会拖住
 			// 整个沙盒的事件循环，比丢事件严重得多。
-			w.mu.Lock()
 			w.overflow = true
-			w.mu.Unlock()
 		}
 	}
 }
 
 // Close 停止监听。
 func (w *Watch) Close() error {
-	var err error
 	w.closeOnce.Do(func() {
 		w.mu.Lock()
 		w.closed = true
-		w.mu.Unlock()
-		w.sess.dropWatch(w.id)
 		close(w.events)
 		close(w.done)
-		// 通知 agent 停掉内核侧的监听；连接已断时忽略。
-		err = w.sess.send(&proto.Msg{Kind: proto.KindUnwatch, ID: w.id})
+		w.mu.Unlock()
+		w.sess.dropWatch(w.id)
+		w.sess.queueCleanup(&proto.Msg{Kind: proto.KindUnwatch, ID: w.id})
 	})
-	if errors.Is(err, errClosedPipe) {
-		return nil
-	}
-	return err
+	return nil
 }
 
 // dropWatch 从 Session 的表里删掉。
@@ -140,6 +179,3 @@ func (s *Session) watch(id string) *Watch {
 	defer s.mu.Unlock()
 	return s.watches[id]
 }
-
-// errClosedPipe 是 send 在连接关闭时返回的错误（与 io.ErrClosedPipe 同义）。
-var errClosedPipe = errors.New("box: closed pipe")

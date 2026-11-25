@@ -1,5 +1,36 @@
 //go:build unix
 
+// 文件说明：local_test.go — gosandbox/vm/local 的单元测试（TestNewRejectsRelativeRoot、TestLifecycleStatusStopRemove 等）
+//
+// 用法
+//
+//	go test ./gosandbox/vm/local -run 'TestNewRejectsRelativeRoot|TestLifecycleStatusStopRemove|TestInvalidVMNameRejected|TestPublicNetworkRejected'
+//	同包调用：newTestDriver() → start_test.go；target() → start_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/vm/local/local_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] exec.go, export_test.go, files.go, local.go, metrics.go 等 8 个
+//	[关键引用] newTestDriver ← start_test.go；target ← start_test.go
+//
+// 主要符号
+//
+//	newTestDriver(t *testing.T, run func(context.Context, host.Policy, host.Command) (host.Result, error)) *Driver
+//	target(name string) vm.Target
+//	TestNewRejectsRelativeRoot(t *testing.T)
+//	TestLifecycleStatusStopRemove(t *testing.T)
+//	TestInvalidVMNameRejected(t *testing.T)
+//	TestPublicNetworkRejected(t *testing.T)
+//	TestFileRoundTripAndPaths(t *testing.T)
+//	TestReadFileLimit(t *testing.T)
+//	... 另有 15 个顶层符号
+
 package local
 
 import (

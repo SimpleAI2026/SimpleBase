@@ -1,3 +1,36 @@
+// 文件说明：mcp_servers.go — internal/systemdb 中 MCPServer、MCPToolPolicy 等符号的实现
+//
+// 用法
+//
+//	type MCPServer struct{…}  // MCPServer 是 sys_mcp_servers 一行
+//	type MCPToolPolicy struct{…}  // MCPToolPolicy 是单个工具的权限标记
+//	ParseMCPToolPolicies(raw string) map[string]MCPToolPolicy  // ParseMCPToolPolicies 解析 tools_policy_json
+//	ParseMCPHeaders(raw string) map[string]string  // ParseMCPHeaders 解析 headers_json（含凭据，禁止记日志）
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app 等 8 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/systemdb/mcp_servers.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_approvals.go, agent_approvals_test.go, agent_collab.go, agent_collab_cron.go, agent_collab_test.go 等 54 个
+//	[关键引用] MCPServer ← mcp_servers_test.go；ParseMCPToolPolicies ← mcp_servers_test.go；ParseMCPHeaders ← mcp_servers_test.go
+//
+// 主要符号
+//
+//	const MCPTransportHTTP
+//	type MCPServer struct{…}
+//	type MCPToolPolicy struct{…}
+//	const mcpServerColumns
+//	(s *Store) CreateMCPServer(ctx context.Context, m MCPServer) (MCPServer, error)
+//	(s *Store) ListMCPServers(ctx context.Context, projectID string) ([]MCPServer, error)
+//	(s *Store) GetMCPServer(ctx context.Context, projectID, id string) (MCPServer, error)
+//	(s *Store) GetMCPServerByName(ctx context.Context, projectID, name string) (MCPServer, error)
+//	... 另有 6 个顶层符号
+
 // mcp_servers.go — sys_mcp_servers 的读写（项目级外部 MCP Server 配置）。
 //
 // 凭据口径与 sys_llm_settings.api_key 一致：HeadersJSON 只服务端内部使用，
@@ -12,7 +45,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"strings"
 	"time"
 
@@ -51,9 +83,11 @@ const mcpServerColumns = `id, project_id, name, transport, url, headers_json, ti
 
 // CreateMCPServer 写入一个 Server 配置。
 func (s *Store) CreateMCPServer(ctx context.Context, m MCPServer) (MCPServer, error) {
-	if s == nil || s.db == nil {
-		return MCPServer{}, ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return MCPServer{}, connErr
 	}
+
 	now := time.Now().UTC()
 	if m.ID == "" {
 		m.ID = uuid.NewString()
@@ -76,7 +110,7 @@ func (s *Store) CreateMCPServer(ctx context.Context, m MCPServer) (MCPServer, er
 	if m.Enabled {
 		enabled = 1
 	}
-	_, err := s.db.ExecContext(ctx,
+	_, err := sqlDB.ExecContext(ctx,
 		`INSERT INTO sys_mcp_servers(id, project_id, name, transport, url, headers_json, timeout_s, enabled, tools_policy_json, created_at, updated_at, archived_at)
 		 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
 		m.ID, m.ProjectID, m.Name, m.Transport, m.URL, m.HeadersJSON, int64(m.TimeoutS), enabled, m.ToolsPolicyJSON, now, now)
@@ -89,69 +123,39 @@ func (s *Store) CreateMCPServer(ctx context.Context, m MCPServer) (MCPServer, er
 
 // ListMCPServers 列出项目内未归档的 Server。
 func (s *Store) ListMCPServers(ctx context.Context, projectID string) ([]MCPServer, error) {
-	if s == nil || s.db == nil {
-		return nil, ErrUnavailable
-	}
-	rows, err := s.db.QueryContext(ctx,
+	return queryList(ctx, s, scanMCPServer,
 		`SELECT `+mcpServerColumns+` FROM sys_mcp_servers
 		 WHERE project_id = ? AND archived_at IS NULL ORDER BY created_at ASC`, projectID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := make([]MCPServer, 0)
-	for rows.Next() {
-		m, err := scanMCPServer(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, m)
-	}
-	return out, rows.Err()
 }
 
 // GetMCPServer 按 ID 取未归档 Server。
 func (s *Store) GetMCPServer(ctx context.Context, projectID, id string) (MCPServer, error) {
-	if s == nil || s.db == nil {
-		return MCPServer{}, ErrUnavailable
-	}
-	row := s.db.QueryRowContext(ctx,
+	return queryOne(ctx, s, scanMCPServer,
 		`SELECT `+mcpServerColumns+` FROM sys_mcp_servers
 		 WHERE id = ? AND project_id = ? AND archived_at IS NULL`, id, projectID)
-	m, err := scanMCPServer(row)
-	if errors.Is(err, sql.ErrNoRows) {
-		return MCPServer{}, sql.ErrNoRows
-	}
-	return m, err
 }
 
 // GetMCPServerByName 按名称取未归档 Server（Agent 的 mcp: 引用用的是名称）。
 func (s *Store) GetMCPServerByName(ctx context.Context, projectID, name string) (MCPServer, error) {
-	if s == nil || s.db == nil {
-		return MCPServer{}, ErrUnavailable
-	}
-	row := s.db.QueryRowContext(ctx,
+	return queryOne(ctx, s, scanMCPServer,
 		`SELECT `+mcpServerColumns+` FROM sys_mcp_servers
 		 WHERE project_id = ? AND name = ? AND archived_at IS NULL`, projectID, name)
-	m, err := scanMCPServer(row)
-	if errors.Is(err, sql.ErrNoRows) {
-		return MCPServer{}, sql.ErrNoRows
-	}
-	return m, err
 }
 
 // UpdateMCPServer 更新可变字段。
 func (s *Store) UpdateMCPServer(ctx context.Context, m MCPServer) (MCPServer, error) {
-	if s == nil || s.db == nil {
-		return MCPServer{}, ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return MCPServer{}, connErr
 	}
+
 	now := time.Now().UTC()
 	m.UpdatedAt = now
 	enabled := int64(0)
 	if m.Enabled {
 		enabled = 1
 	}
-	res, err := s.db.ExecContext(ctx,
+	res, err := sqlDB.ExecContext(ctx,
 		`UPDATE sys_mcp_servers SET name=?, transport=?, url=?, headers_json=?, timeout_s=?, enabled=?, tools_policy_json=?, updated_at=?
 		 WHERE id=? AND project_id=? AND archived_at IS NULL`,
 		m.Name, m.Transport, m.URL, m.HeadersJSON, int64(m.TimeoutS), enabled, m.ToolsPolicyJSON, now, m.ID, m.ProjectID)
@@ -167,32 +171,16 @@ func (s *Store) UpdateMCPServer(ctx context.Context, m MCPServer) (MCPServer, er
 
 // ArchiveMCPServer 软删。
 func (s *Store) ArchiveMCPServer(ctx context.Context, projectID, id string) error {
-	if s == nil || s.db == nil {
-		return ErrUnavailable
-	}
 	now := time.Now().UTC()
-	res, err := s.db.ExecContext(ctx,
+	return s.execAffectOne(ctx,
 		`UPDATE sys_mcp_servers SET archived_at=?, updated_at=? WHERE id=? AND project_id=? AND archived_at IS NULL`,
 		now, now, id, projectID)
-	if err != nil {
-		return err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return sql.ErrNoRows
-	}
-	s.notifyWrite(ctx)
-	return nil
 }
 
 // CountMCPServers 返回项目内未归档数量（配额校验用）。
 func (s *Store) CountMCPServers(ctx context.Context, projectID string) (int, error) {
-	if s == nil || s.db == nil {
-		return 0, ErrUnavailable
-	}
-	var n int64
-	err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM sys_mcp_servers WHERE project_id = ? AND archived_at IS NULL`, projectID).Scan(&n)
-	return int(n), err
+	return s.countRows(ctx,
+		`SELECT COUNT(*) FROM sys_mcp_servers WHERE project_id = ? AND archived_at IS NULL`, projectID)
 }
 
 // ParseMCPToolPolicies 解析 tools_policy_json。

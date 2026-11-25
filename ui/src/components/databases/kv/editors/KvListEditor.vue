@@ -1,16 +1,6 @@
 <template>
   <div class="flex flex-col gap-3">
-    <SbAsyncRegion
-      class="flex flex-col gap-3"
-      block="spinner"
-      :pending="pending"
-      :show-skeleton="showSkeleton"
-      :show-empty="false"
-      :show-error="showError"
-      :refreshing="refreshing"
-      :error="error"
-      @retry="load"
-    >
+    <SbAsyncRegion class="flex flex-col gap-3" block="spinner" :state="state" @retry="load">
       <div class="overflow-x-auto rounded-md border border-border/70">
         <Table>
           <TableHeader>
@@ -52,16 +42,13 @@
 </template>
 
 <script setup lang="ts">
-import { errorMessage } from '@/utils/format'
-import { ref, watch } from 'vue'
+import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { api } from '../../../../services/api'
 import SbAsyncRegion from '../../../SbAsyncRegion.vue'
-import { useLoadState } from '@/composables/useLoadState'
+import { useKvEditor } from '@/composables/useKvEditor'
 
 const props = defineProps<{
   projectId: string
@@ -75,49 +62,37 @@ const { t } = useI18n()
 
 const elems = ref<string[]>([])
 const pushValue = ref('')
-const { pending, showSkeleton, showError, refreshing, error, run } = useLoadState({ fallback: 'components.kvList.loadFailed' })
 const editIndex = ref(-1)
 const editValue = ref('')
 
-function load() {
-  return run(async () => {
-    // v1 展示前 200 个元素
-    const r = (await api.kv.exec(props.projectId, {
-      type: 'cmd',
-      argvs: ['LRANGE', props.kvKey, '0', '199']
-    })) as string[]
-    elems.value = Array.isArray(r) ? r : []
-    return true
+const { state, load, mutate } = useKvEditor({
+  projectId: () => props.projectId,
+  kvKey: () => props.kvKey,
+  fallback: 'components.kvList.loadFailed',
+  // v1 展示前 200 个元素
+  read: () => ({ type: 'cmd', argvs: ['LRANGE', props.kvKey, '0', '199'] }),
+  parse: (r) => (Array.isArray(r) ? (r as string[]) : []),
+  apply: (list) => {
+    elems.value = list
+  },
+  changed: () => emit('changed')
+})
+
+function push(side: 'front' | 'back') {
+  if (!pushValue.value) return
+  void mutate({ type: 'List', args: { key: props.kvKey, elems: [pushValue.value], side } }, {
+    failKey: 'components.kvList.insertFailed',
+    onSuccess: () => {
+      pushValue.value = ''
+    }
   })
 }
 
-async function push(side: 'front' | 'back') {
-  if (!pushValue.value) return
-  try {
-    await api.kv.exec(props.projectId, {
-      type: 'List',
-      args: { key: props.kvKey, elems: [pushValue.value], side }
-    })
-    pushValue.value = ''
-    await load()
-    emit('changed')
-  } catch (e) {
-    toast.error(errorMessage(e, t('components.kvList.insertFailed')))
-  }
-}
-
-async function pop(side: 'front' | 'back') {
-  try {
-    const r = await api.kv.exec(props.projectId, {
-      type: 'cmd',
-      argvs: [side === 'front' ? 'LPOP' : 'RPOP', props.kvKey]
-    })
-    toast.success(t('components.kvList.popped', { value: r ?? '' }))
-    await load()
-    emit('changed')
-  } catch (e) {
-    toast.error(errorMessage(e, t('components.kvList.popFailed')))
-  }
+function pop(side: 'front' | 'back') {
+  void mutate({ type: 'cmd', argvs: [side === 'front' ? 'LPOP' : 'RPOP', props.kvKey] }, {
+    failKey: 'components.kvList.popFailed',
+    onSuccess: (r) => toast.success(t('components.kvList.popped', { value: r ?? '' }))
+  })
 }
 
 function startEdit(i: number, el: string) {
@@ -125,19 +100,12 @@ function startEdit(i: number, el: string) {
   editValue.value = el
 }
 
-async function saveEdit(i: number) {
-  try {
-    await api.kv.exec(props.projectId, {
-      type: 'cmd',
-      argvs: ['LSET', props.kvKey, String(i), editValue.value]
-    })
-    editIndex.value = -1
-    await load()
-    emit('changed')
-  } catch (e) {
-    toast.error(errorMessage(e, t('components.kvList.saveFailed')))
-  }
+function saveEdit(i: number) {
+  void mutate({ type: 'cmd', argvs: ['LSET', props.kvKey, String(i), editValue.value] }, {
+    failKey: 'components.kvList.saveFailed',
+    onSuccess: () => {
+      editIndex.value = -1
+    }
+  })
 }
-
-watch(() => props.kvKey, () => void load(), { immediate: true })
 </script>

@@ -1,3 +1,32 @@
+// 文件说明：moretypes.go — gofunction/testdata 中 Vertex 等符号的实现
+//
+// 用法
+//
+//	type Vertex struct{…}
+//
+// 调用架构
+//
+//	[上游] 仅测试引用：gofunction/internal/interp
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/testdata/moretypes.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] basic.go, basics.go, controlflow.go, flowcontrol.go, funclist.go 等 13 个
+//
+// 主要符号
+//
+//	(__testSet) Pointers() interface{}
+//	type Vertex struct{…}
+//	(__testSet) Structs() interface{}
+//	(__testSet) StructsFields() interface{}
+//	(__testSet) StructsPointers() interface{}
+//	(__testSet) StructLiterals() interface{}
+//	(__testSet) Array() interface{}
+//	(__testSet) Slice() interface{}
+//	... 另有 18 个顶层符号
+
 package testdata
 
 import (

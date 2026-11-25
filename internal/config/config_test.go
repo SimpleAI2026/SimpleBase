@@ -1,3 +1,34 @@
+// 文件说明：config_test.go — internal/config 的单元测试（TestLoadRejectsEmptyAddress、TestLoadRejectsInvalidEngine 等）
+//
+// 用法
+//
+//	go test ./internal/config -run 'TestLoadRejectsEmptyAddress|TestLoadRejectsInvalidEngine|TestLoadRejectsEmptyCacheDir|TestLoadRejectsWritableMissingS3Bucket'
+//	同包调用：setRequiredEnvs() → load_test.go, normalize_test.go
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/api, internal/api/perfbench, internal/app 等 6 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/config/config_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] agent_config_test.go, backup.go, config.go, config_agent_types.go, config_example_test.go 等 24 个
+//	[关键引用] setRequiredEnvs ← load_test.go, normalize_test.go
+//
+// 主要符号
+//
+//	setRequiredEnvs(t *testing.T, writable bool, s3Incomplete bool)
+//	boolStr(b bool) string
+//	TestLoadRejectsEmptyAddress(t *testing.T)
+//	TestLoadRejectsInvalidEngine(t *testing.T)
+//	TestLoadRejectsEmptyCacheDir(t *testing.T)
+//	TestLoadRejectsWritableMissingS3Bucket(t *testing.T)
+//	TestLoadRejectsInvalidTimeout(t *testing.T)
+//	TestLoadSucceedsWithCompleteConfig(t *testing.T)
+//	... 另有 2 个顶层符号
+
 package config
 
 import (

@@ -1,4 +1,34 @@
+// 文件说明：run_types.go — gocloudagent/cloudagent 中 Event、EventStep 等符号的实现
+//
+// 用法
+//
+//	type Event struct{…}  // Event is a streaming run event for SSE/NDJSON.
+//	type EventStep struct{…}  // EventStep is one agent or human step in a collaboration route.
+//	type RunRequest struct{…}  // RunRequest starts a single-agent turn. Context is reserved for the configured Ru...
+//	type RunResult struct{…}  // RunResult is the completed assistant turn.
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/cloudagent/run_types.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] callgate.go, callgate_test.go, confirmation.go, confirmation_test.go, errors.go 等 32 个
+//	[关键引用] Event ← confirmation.go, confirmation_test.go；RunRequest ← mcpaccess.go, mcptool.go；RunResult ← runtime.go, trace.go
+//
+// 主要符号
+//
+//	type Event struct{…}
+//	type EventStep struct{…}
+//	type RunRequest struct{…}
+//	type RunResult struct{…}
+
 package cloudagent
+
+import "encoding/json"
 
 // Event is a streaming run event for SSE/NDJSON.
 type Event struct {
@@ -30,6 +60,9 @@ type Event struct {
 	HumanID          string      `json:"human_id,omitempty"`
 	HumanName        string      `json:"human_name,omitempty"`
 	TaskID           string      `json:"task_id,omitempty"`
+	// Decision 是 plan 工具记录的结构化计划（v3 `plan` 帧的 decision 字段）：宿主的规划工具
+	// 经 Emit 下发，Runtime 不解释其内容。群轮次由 group 的 broker 承载，不走这里。
+	Decision json.RawMessage `json:"decision,omitempty"`
 }
 
 // EventStep is one agent or human step in a collaboration route.

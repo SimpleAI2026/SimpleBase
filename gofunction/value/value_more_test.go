@@ -1,3 +1,32 @@
+// 文件说明：value_more_test.go — gofunction/value 的单元测试（TestRValueHelpers、TestPackageEmptyAndUnpackageScalar 等）
+//
+// 用法
+//
+//	go test ./gofunction/value -run 'TestRValueHelpers|TestPackageEmptyAndUnpackageScalar|TestConverterRejects|TestMapIterValueAPI'
+//
+// 调用架构
+//
+//	[上游] gofunction/internal/interp
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/value/value_more_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] external.go, iter_test.go, tuple.go, value.go, value_test.go
+//
+// 主要符号
+//
+//	TestRValueHelpers(t *testing.T)
+//	TestPackageEmptyAndUnpackageScalar(t *testing.T)
+//	TestConverterRejects(t *testing.T)
+//	TestMapIterValueAPI(t *testing.T)
+//	TestExternalValueAPI(t *testing.T)
+//	TestExternalValueStoreUnaddressable(t *testing.T)
+//	TestExternalValueNilKindsAndAddrStore(t *testing.T)
+//	TestMapIterNextPointerMap(t *testing.T)
+//	... 另有 1 个顶层符号
+
 package value
 
 import (

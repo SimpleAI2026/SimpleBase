@@ -37,18 +37,22 @@ type PublicPath struct {
 
 // DeleteProjectSite 删除项目全部公开路径（项目删除时调用）。
 func (s *Store) DeleteProjectSite(ctx context.Context, projectID string) error {
-	if s == nil || s.db == nil {
-		return ErrUnavailable
+	_, connErr := s.conn()
+	if connErr != nil {
+		return connErr
 	}
+
 	return s.DeletePublicPathsUnder(ctx, projectID, "")
 }
 
 // ListPublicPaths 列出项目全部公开路径（按 path 升序）。
 func (s *Store) ListPublicPaths(ctx context.Context, projectID string) ([]PublicPath, error) {
-	if s == nil || s.db == nil {
-		return nil, ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return nil, connErr
 	}
-	rows, err := s.db.QueryContext(ctx,
+
+	rows, err := sqlDB.QueryContext(ctx,
 		`SELECT id, project_id, path, kind, created_by, created_at
 		 FROM sys_site_published_paths WHERE project_id = ? ORDER BY path ASC`, projectID)
 	if err != nil {
@@ -69,11 +73,13 @@ func (s *Store) ListPublicPaths(ctx context.Context, projectID string) ([]Public
 // SetPublicPath 设置路径外部访问。public=false 删除该行；重复打开幂等。
 // 路径合法性（ValidateFileKey、folder 以 "/" 结尾）由调用方保证。
 func (s *Store) SetPublicPath(ctx context.Context, projectID, path, kind string, public bool, actor string) error {
-	if s == nil || s.db == nil {
-		return ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return connErr
 	}
+
 	if !public {
-		if _, err := s.db.ExecContext(ctx,
+		if _, err := sqlDB.ExecContext(ctx,
 			`DELETE FROM sys_site_published_paths WHERE project_id = ? AND path = ? AND kind = ?`,
 			projectID, path, kind); err != nil {
 			return err
@@ -82,7 +88,7 @@ func (s *Store) SetPublicPath(ctx context.Context, projectID, path, kind string,
 		return nil
 	}
 	var n int64
-	if err := s.db.QueryRowContext(ctx,
+	if err := sqlDB.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM sys_site_published_paths WHERE project_id = ? AND path = ? AND kind = ?`,
 		projectID, path, kind).Scan(&n); err != nil {
 		return err
@@ -90,7 +96,7 @@ func (s *Store) SetPublicPath(ctx context.Context, projectID, path, kind string,
 	if n > 0 {
 		return nil
 	}
-	if _, err := s.db.ExecContext(ctx,
+	if _, err := sqlDB.ExecContext(ctx,
 		`INSERT INTO sys_site_published_paths(id, project_id, path, kind, created_by, created_at)
 		 VALUES(?, ?, ?, ?, ?, ?)`,
 		uuid.NewString(), projectID, path, kind, actor, time.Now().UTC()); err != nil {
@@ -107,14 +113,16 @@ func (s *Store) DeletePublicFile(ctx context.Context, projectID, key string) err
 
 // DeletePublicPathsUnder 删除 prefix 下（含 prefix 本身）的全部公开行；prefix="" 删除整个项目。
 func (s *Store) DeletePublicPathsUnder(ctx context.Context, projectID, prefix string) error {
-	if s == nil || s.db == nil {
-		return ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return connErr
 	}
+
 	var err error
 	if prefix == "" {
-		_, err = s.db.ExecContext(ctx, `DELETE FROM sys_site_published_paths WHERE project_id = ?`, projectID)
+		_, err = sqlDB.ExecContext(ctx, `DELETE FROM sys_site_published_paths WHERE project_id = ?`, projectID)
 	} else {
-		_, err = s.db.ExecContext(ctx,
+		_, err = sqlDB.ExecContext(ctx,
 			`DELETE FROM sys_site_published_paths WHERE project_id = ? AND substr(path, 1, ?) = ?`,
 			projectID, int64(len(prefix)), prefix)
 	}

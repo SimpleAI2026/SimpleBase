@@ -1,3 +1,34 @@
+// 文件说明：login_auth_test.go — internal/auth 的单元测试（TestPasswordHashVerify、TestJWTRoundTrip 等）
+//
+// 用法
+//
+//	go test ./internal/auth -run 'TestPasswordHashVerify|TestJWTRoundTrip|TestRolePermissions|TestUserServiceLoginAndPrincipal'
+//	同包调用：memUserRepo → observer_test.go, principal_singleflight_test.go；newMemUserRepo() → cached_user_test.go, observer_test.go；newMemSessionRepo() → cached_user_test.go, observer_test.go
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/api/perfbench 等 9 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/auth/login_auth_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] api_key_repository.go, authenticate_middleware_test.go, cache.go, cache_test.go, cached_user_test.go 等 31 个
+//	[关键引用] memUserRepo ← observer_test.go, principal_singleflight_test.go；newMemUserRepo ← cached_user_test.go, observer_test.go；newMemSessionRepo ← cached_user_test.go, observer_test.go
+//
+// 主要符号
+//
+//	type memUserRepo struct{…}
+//	newMemUserRepo() *memUserRepo
+//	(m *memUserRepo) Create(_ context.Context, u User) error
+//	(m *memUserRepo) GetByID(_ context.Context, id string) (User, error)
+//	(m *memUserRepo) GetByUsername(_ context.Context, username string) (User, error)
+//	(m *memUserRepo) List(_ context.Context, limit int, _ string) ([]User, string, error)
+//	(m *memUserRepo) Update(_ context.Context, u User) error
+//	(m *memUserRepo) CountByUsername(_ context.Context, username string) (int, error)
+//	... 另有 20 个顶层符号
+
 package auth
 
 import (

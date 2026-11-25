@@ -1,3 +1,38 @@
+// 文件说明：lease.go — godatabase/lease 中 Config、Payload 等符号的实现
+//
+// 用法
+//
+//	type Config struct{…}  // Config 控制租约行为（对应 config.InstanceLeaseConfig）
+//	type Payload struct{…}  // Payload 是 lease/{epoch}.json 的载荷
+//	IsHeld(err error) bool  // IsHeld 判定错误是否为「他人持租」
+//	type Manager struct{…}  // Manager 管理一批 per-database 租约并驱动续约循环
+//	type Logger = godatabase.Logger  // Logger 是租约包的日志接口（C7：与 godatabase.Logger 统一， *zap.Logger 及宿主 observability.Logger...
+//	NewManager(store blob.Store, keys blob.KeyBuilder, cfg Config) *Manager  // NewManager 构造租约管理器
+//
+// 调用架构
+//
+//	[上游] internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/lease/lease.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] gate.go, gate_test.go, lease_test.go
+//	[关键引用] Config ← lease_test.go；Payload ← lease_test.go；IsHeld ← lease_test.go
+//
+// 主要符号
+//
+//	type Config struct{…}
+//	(c Config) normalized() Config
+//	type Payload struct{…}
+//	var ErrLeaseHeld
+//	var ErrAcquiring
+//	IsHeld(err error) bool
+//	type storeProxy struct{…}
+//	(p *storeProxy) leaseKey(epoch int64) (string, error)
+//	... 另有 19 个顶层符号
+
 package lease
 
 import (
@@ -67,7 +102,6 @@ type storeProxy struct {
 	keys         blob.KeyBuilder
 	project      string
 	db           string
-	ownerID      string
 	projectScope bool
 }
 
@@ -210,16 +244,25 @@ func (m *Manager) Acquire(ctx context.Context, projectID, dbID, instanceID strin
 	if m == nil || !m.cfg.Enabled {
 		return nil, errors.New("lease: manager disabled")
 	}
+	// B25：StopAll 后拒绝新 Acquire（旧实现返回 held=true 但续约因 stopCh
+	// 已关闭立即退出，调用方误以为持租成功）。
+	select {
+	case <-m.stopCh:
+		return nil, errors.New("lease: manager stopped")
+	default:
+	}
 	p := &storeProxy{
 		store:        m.store,
 		keys:         m.keys,
 		project:      projectID,
 		db:           dbID,
-		ownerID:      fmt.Sprintf("%s/%d/%s", instanceID, m.pid, m.bootID),
 		projectScope: m.projectScope,
 	}
+	// ownerID 仅用于构造 Payload 与本次获取/续约期间的身份比对，
+	// 不需要长期保存在代理上。
+	ownerID := fmt.Sprintf("%s/%d/%s", instanceID, m.pid, m.bootID)
 	pl := Payload{
-		OwnerID:    p.ownerID,
+		OwnerID:    ownerID,
 		InstanceID: instanceID,
 		Hostname:   m.hostname,
 		PID:        m.pid,
@@ -233,7 +276,7 @@ func (m *Manager) Acquire(ctx context.Context, projectID, dbID, instanceID strin
 	}
 
 	next := maxEpoch + 1
-	if maxEpoch > 0 && cur != nil && cur.OwnerID != p.ownerID {
+	if maxEpoch > 0 && cur != nil && cur.OwnerID != ownerID {
 		// 同 PID 重启（ownerID 前缀一致但 bootID 不同）：明确提示而非含糊的「他人持租」。
 		if cur.InstanceID == instanceID && cur.PID == m.pid && cur.BootID != m.bootID {
 			m.logf("lease: previous holder has same instance/pid (crash or restart of this process), waiting for TTL=%s grace=%s before takeover", m.cfg.TTL, m.cfg.Grace)
@@ -266,13 +309,13 @@ func (m *Manager) Acquire(ctx context.Context, projectID, dbID, instanceID strin
 		return nil, err
 	}
 
-	l := &Lease{DatabaseID: dbID, ProjectID: projectID, Epoch: next, held: true, onLost: onLost}
+	// B25：cancel 必须在发布到 m.leases 之前就绪，否则 StopAll 可在
+	// 「已插入 map、尚未设置 cancel」的间隙观察到 cancel=nil。
+	ctx2, cancel := context.WithCancel(context.Background())
+	l := &Lease{DatabaseID: dbID, ProjectID: projectID, Epoch: next, held: true, onLost: onLost, cancel: cancel}
 	m.mu.Lock()
 	m.leases[m.ScopeKey(projectID, dbID)] = l
 	m.mu.Unlock()
-
-	ctx2, cancel := context.WithCancel(context.Background())
-	l.cancel = cancel
 	go m.renewLoop(ctx2, p, l, pl)
 	return l, nil
 }
@@ -327,16 +370,29 @@ func (m *Manager) renewLoop(ctx context.Context, p *storeProxy, l *Lease, pl Pay
 			return
 		case <-ticker.C:
 		}
+		// B3：续约 I/O 不得在 l.mu 内执行——远端阻塞时 Stop 拿不到锁、
+		// cancel 无法送达。锁内只读写状态，PutIfAbsent 在锁外。
 		l.mu.Lock()
-		next := l.Epoch + 1
-		pl2 := pl
-		pl2.RenewedAt = time.Now().UTC().Format(time.RFC3339Nano)
-		err := p.putIfAbsent(ctx, next, pl2)
-		if err == nil {
-			l.Epoch = next
+			next := l.Epoch + 1
+			pl2 := pl
+			pl2.RenewedAt = time.Now().UTC().Format(time.RFC3339Nano)
+			stopped := !l.held // Stop 已置 held=false：不再发起续约
 			l.mu.Unlock()
-			continue
-		}
+			if stopped {
+				return
+			}
+			err := p.putIfAbsent(ctx, next, pl2)
+			l.mu.Lock()
+			if !l.held {
+				// Stop 发生在 I/O 期间：不推进水位（Stop 后不得重新变为持租）。
+				l.mu.Unlock()
+				return
+			}
+			if err == nil {
+				l.Epoch = next
+				l.mu.Unlock()
+				continue
+			}
 		// §3.4：任何续写失败（含网络错误）都无法再从远端权威水位证明
 		// 自己持租——fail closed：标失租并回调 onLost，而不是只在
 		// precondition 冲突时才处理（网络错误后旧 handle 继续写无保护）。

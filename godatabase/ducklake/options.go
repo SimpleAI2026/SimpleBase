@@ -1,3 +1,38 @@
+// 文件说明：options.go — godatabase/ducklake 中 NormalizeCatalogEngine、IsValidCatalogEngine 等符号的实现
+//
+// 用法
+//
+//	NormalizeCatalogEngine(engine string) string  // NormalizeCatalogEngine normalizes a configured catalog engine.
+//	IsValidCatalogEngine(engine string) bool  // IsValidCatalogEngine reports whether engine is supported.
+//	type Options struct{…}  // Options configures a DuckLake factory without depending on host configuration ty...
+//	type CatalogSyncOptions struct{…}  // CatalogSyncOptions controls catalog snapshot publication.
+//	type MaintenanceOptions struct{…}  // MaintenanceOptions controls periodic DuckLake maintenance.
+//	DefaultOptions() Options  // DefaultOptions returns the standalone library defaults.
+//
+// 调用架构
+//
+//	[上游] internal/app, internal/systemdb
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/ducklake/options.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] c4_syncer_lease_test.go, c4_syncer_ordering_test.go, catalog_syncer.go, catalog_syncer_test.go, coverage_test.go 等 35 个
+//	[关键引用] NormalizeCatalogEngine ← catalog_syncer.go, extension.go；IsValidCatalogEngine ← factory.go, instance_format.go；Options ← coverage_test.go, engine_test.go
+//
+// 主要符号
+//
+//	const DefaultLakeAlias
+//	const EngineDuckDB / EngineSQLite
+//	NormalizeCatalogEngine(engine string) string
+//	IsValidCatalogEngine(engine string) bool
+//	type Options struct{…}
+//	type CatalogSyncOptions struct{…}
+//	(o CatalogSyncOptions) nextDelay() time.Duration
+//	type MaintenanceOptions struct{…}
+//	... 另有 6 个顶层符号
+
 package ducklake
 
 import (
@@ -56,6 +91,20 @@ type CatalogSyncOptions struct {
 	Interval     time.Duration
 	MaxLag       time.Duration
 	KeepVersions int
+}
+
+// nextDelay 是同步调度的唯一延迟策略：debounce 模式用 Debounce；
+// interval 模式用 min(Interval, MaxLag)（连续写入不推迟已有计时器，
+// 只在无计时器时按此延迟预约）。失败退避（>=1s）由调用方叠加。
+func (o CatalogSyncOptions) nextDelay() time.Duration {
+	if o.Mode == "interval" {
+		delay := o.Interval
+		if o.MaxLag < delay {
+			delay = o.MaxLag
+		}
+		return delay
+	}
+	return o.Debounce
 }
 
 // MaintenanceOptions controls periodic DuckLake maintenance.

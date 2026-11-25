@@ -9,12 +9,7 @@
     @update:open="onOpenChange"
   >
     <SbAsyncRegion
-      :pending="pending"
-      :show-skeleton="showSkeleton"
-      :show-empty="showEmpty"
-      :show-error="showError"
-      :refreshing="refreshing"
-      :error="error"
+      :state="loadState"
       :empty-description="t('pages.traces.detail.empty')"
       @retry="load"
     >
@@ -124,9 +119,10 @@ function onOpenChange(v: boolean) {
 }
 
 const spans = ref<LLMTrace[]>([])
-const { pending, showSkeleton, showEmpty, showError, refreshing, error, run, reset } = useLoadState({
+const loadState = useLoadState({
   fallback: 'pages.traces.loadFailed'
 })
+const { run, reset } = loadState
 
 const summary = computed(() => {
   if (spans.value.length === 0) return []

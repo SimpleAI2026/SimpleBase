@@ -1,3 +1,34 @@
+// 文件说明：gofunction_handler_test.go — internal/api 的单元测试（TestGoFunction_CreateListGetUpdateDelete、TestGoFunction_CreateInvalidSignature 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestGoFunction_CreateListGetUpdateDelete|TestGoFunction_CreateInvalidSignature|TestGoFunction_CreateDuplicate409|TestGoFunction_ReadOnly503'
+//	同包调用：setupGoFunctionTestRouter() → cronjob_handler_test.go；postJSON() → agent_skills_e2e_test.go, cronjob_handler_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/gofunction_handler_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] setupGoFunctionTestRouter ← cronjob_handler_test.go；postJSON ← agent_skills_e2e_test.go, cronjob_handler_test.go
+//
+// 主要符号
+//
+//	const testGoFunctionSrc
+//	setupGoFunctionTestRouter(t *testing.T, writable bool, projectID string) (*echo.Echo, *systemdb.Store)
+//	postJSON(t *testing.T, e *echo.Echo, method, path, body string) *httptest.ResponseRecorder
+//	TestGoFunction_CreateListGetUpdateDelete(t *testing.T)
+//	TestGoFunction_CreateInvalidSignature(t *testing.T)
+//	TestGoFunction_CreateDuplicate409(t *testing.T)
+//	TestGoFunction_ReadOnly503(t *testing.T)
+//	TestGoFunction_AdminProjectProtected(t *testing.T)
+//	... 另有 4 个顶层符号
+
 package api
 
 import (
@@ -448,7 +479,7 @@ func TestRecordAuditHelpers(t *testing.T) {
 	req2 = req2.WithContext(WithPrincipal(req2.Context(), auth.Principal{APIKeyID: "k"}))
 	c2 := e.NewContext(req2, httptest.NewRecorder())
 	gh2.recordAudit(c2, "p", "update:fn")
-	if aud.last.PrincipalID != "k" {
+	if aud.last.PrincipalID != "key:k" {
 		t.Fatalf("principal=%q", aud.last.PrincipalID)
 	}
 
@@ -457,7 +488,7 @@ func TestRecordAuditHelpers(t *testing.T) {
 	aud2 := &fakeAudit{}
 	ch2 := NewCronJobHandler(nil, true, nil, aud2)
 	ch2.recordAudit(c2, "p", "create:job")
-	if aud2.last.Kind != "cronjob" || aud2.last.PrincipalID != "k" {
+	if aud2.last.Kind != "cronjob" || aud2.last.PrincipalID != "key:k" {
 		t.Fatalf("cron audit=%+v", aud2.last)
 	}
 }

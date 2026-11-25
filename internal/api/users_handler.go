@@ -79,7 +79,7 @@ type userListItem struct {
 
 // List: GET /v1/users
 func (h *UsersHandler) List(c echo.Context) error {
-	rid := RequestIDFromContext(c.Request().Context())
+	rid := requestID(c)
 	p, ok := PrincipalFromContext(c.Request().Context())
 	if !ok {
 		return WriteError(c, NewAPIError(http.StatusUnauthorized, "unauthenticated", "login required", rid))
@@ -126,7 +126,7 @@ func (h *UsersHandler) List(c echo.Context) error {
 
 // Create: POST /v1/users（仅 superadminl1）。
 func (h *UsersHandler) Create(c echo.Context) error {
-	rid := RequestIDFromContext(c.Request().Context())
+	rid := requestID(c)
 	p, ok := PrincipalFromContext(c.Request().Context())
 	if !ok {
 		return WriteError(c, NewAPIError(http.StatusUnauthorized, "unauthenticated", "login required", rid))
@@ -136,7 +136,7 @@ func (h *UsersHandler) Create(c echo.Context) error {
 	}
 	var req createUserRequest
 	if err := c.Bind(&req); err != nil {
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "invalid json body", rid))
+		return WriteError(c, badRequest(c, "invalid json body"))
 	}
 	u, err := h.users.Create(c.Request().Context(), auth.CreateUserInput{
 		Username:    req.Username,
@@ -144,7 +144,7 @@ func (h *UsersHandler) Create(c echo.Context) error {
 		Role:        auth.Role(req.Role),
 		DisplayName: req.DisplayName,
 		Email:       req.Email,
-		CreatedBy:   p.UserID,
+		CreatedBy:   p.Actor(),
 	})
 	if err != nil {
 		return WriteError(c, mapUserErr(err, rid))
@@ -154,7 +154,7 @@ func (h *UsersHandler) Create(c echo.Context) error {
 
 // Get: GET /v1/users/:id
 func (h *UsersHandler) Get(c echo.Context) error {
-	rid := RequestIDFromContext(c.Request().Context())
+	rid := requestID(c)
 	p, ok := PrincipalFromContext(c.Request().Context())
 	if !ok {
 		return WriteError(c, NewAPIError(http.StatusUnauthorized, "unauthenticated", "login required", rid))
@@ -172,7 +172,7 @@ func (h *UsersHandler) Get(c echo.Context) error {
 
 // Patch: PATCH /v1/users/:id（仅 superadminl1）。
 func (h *UsersHandler) Patch(c echo.Context) error {
-	rid := RequestIDFromContext(c.Request().Context())
+	rid := requestID(c)
 	p, ok := PrincipalFromContext(c.Request().Context())
 	if !ok {
 		return WriteError(c, NewAPIError(http.StatusUnauthorized, "unauthenticated", "login required", rid))
@@ -186,7 +186,7 @@ func (h *UsersHandler) Patch(c echo.Context) error {
 	}
 	var req patchUserRequest
 	if err := c.Bind(&req); err != nil {
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "invalid json body", rid))
+		return WriteError(c, badRequest(c, "invalid json body"))
 	}
 	in := auth.UpdateUserInput{
 		DisplayName:        req.DisplayName,
@@ -217,7 +217,7 @@ func (h *UsersHandler) Patch(c echo.Context) error {
 
 // Delete: DELETE /v1/users/:id（软删 = disable）。
 func (h *UsersHandler) Delete(c echo.Context) error {
-	rid := RequestIDFromContext(c.Request().Context())
+	rid := requestID(c)
 	p, ok := PrincipalFromContext(c.Request().Context())
 	if !ok {
 		return WriteError(c, NewAPIError(http.StatusUnauthorized, "unauthenticated", "login required", rid))
@@ -258,7 +258,7 @@ func mapUserErr(err error, rid string) error {
 	case errors.Is(err, auth.ErrUserDisabled):
 		return NewAPIError(http.StatusForbidden, "user_disabled", "user disabled", rid)
 	case errors.Is(err, auth.ErrInvalidCredentials):
-		return NewAPIError(http.StatusBadRequest, "invalid_request", "invalid username", rid)
+		return badRequestWithID("invalid username", rid)
 	default:
 		return err
 	}

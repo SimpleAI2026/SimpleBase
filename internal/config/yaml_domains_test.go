@@ -1,3 +1,26 @@
+// 文件说明：yaml_domains_test.go — internal/config 的单元测试（TestR2_YAMLHTTPDomain、TestR2_YAMLLimitsDomain 等）
+//
+// 用法
+//
+//	go test ./internal/config -run 'TestR2_YAMLHTTPDomain|TestR2_YAMLLimitsDomain|TestR2_YAMLSandboxDomain'
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/api, internal/api/perfbench, internal/app 等 6 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/config/yaml_domains_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] agent_config_test.go, backup.go, config.go, config_agent_types.go, config_example_test.go 等 24 个
+//
+// 主要符号
+//
+//	TestR2_YAMLHTTPDomain(t *testing.T)
+//	TestR2_YAMLLimitsDomain(t *testing.T)
+//	TestR2_YAMLSandboxDomain(t *testing.T)
+
 package config
 
 // r2_yaml_domains_test.go：planv6.0 R2-B1 表征测试（提取前先行）。

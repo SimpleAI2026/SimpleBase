@@ -109,9 +109,11 @@ func (s *Store) RecordLog(ev LogEvent) {
 
 // FlushLogs 将缓冲日志写入 sys_log_events（批量单事务，§7.2 P3.2）。
 func (s *Store) FlushLogs(ctx context.Context) error {
-	if s == nil || s.db == nil {
+	_, connErr := s.conn()
+	if connErr != nil {
 		return nil
 	}
+
 	return s.flushLogsBatch(ctx, s.drainLogs())
 }
 
@@ -119,9 +121,11 @@ func (s *Store) FlushLogs(ctx context.Context) error {
 // perf §1 P1-D：From 为空时默认取最近 24h（不超过 retention），
 // 让 DuckLake 有机会按 occurred_at 做文件剪枝，避免全表扫描。
 func (s *Store) QueryLogs(ctx context.Context, q LogQuery) ([]LogEvent, error) {
-	if s == nil || s.db == nil {
-		return nil, ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return nil, connErr
 	}
+
 	q.Limit = limit.Normalize(q.Limit, 100, 500)
 	if q.From.IsZero() {
 		q.From = time.Now().UTC().Add(-24 * time.Hour)
@@ -152,7 +156,7 @@ func (s *Store) QueryLogs(ctx context.Context, q LogQuery) ([]LogEvent, error) {
 	sqlStr += " ORDER BY occurred_at DESC LIMIT ?"
 	args = append(args, int64(q.Limit))
 	start := time.Now()
-	rows, err := s.db.QueryContext(ctx, sqlStr, args...)
+	rows, err := sqlDB.QueryContext(ctx, sqlStr, args...)
 	s.observeReadPart("query_logs", "query", time.Since(start), err)
 	if err != nil {
 		s.observeRead("query_logs", time.Since(start), 0, err)
@@ -188,10 +192,12 @@ type LogLevelCount struct {
 
 // LogLevelStats 按 level 计数当前项目（含 project_id 为空的全局行）。
 func (s *Store) LogLevelStats(ctx context.Context, projectID string) ([]LogLevelCount, error) {
-	if s == nil || s.db == nil {
-		return nil, ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return nil, connErr
 	}
-	rows, err := s.db.QueryContext(ctx,
+
+	rows, err := sqlDB.QueryContext(ctx,
 		`SELECT level, COUNT(*) FROM sys_log_events
 		 WHERE project_id = ? OR project_id IS NULL
 		 GROUP BY level ORDER BY level`, projectID)
@@ -212,13 +218,15 @@ func (s *Store) LogLevelStats(ctx context.Context, projectID string) ([]LogLevel
 
 // GetRetention 读取保留策略；缺省 14 天。
 func (s *Store) GetRetention(ctx context.Context, projectID string) (Retention, error) {
-	if s == nil || s.db == nil {
-		return Retention{}, ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return Retention{}, connErr
 	}
+
 	var r Retention
 	var keep int64
 	var project sql.NullString
-	err := s.db.QueryRowContext(ctx,
+	err := sqlDB.QueryRowContext(ctx,
 		`SELECT scope, project_id, keep_days, updated_at FROM sys_log_retention
 		 WHERE (scope = 'project' AND project_id = ?) OR scope = 'global'
 		 ORDER BY CASE WHEN scope = 'project' THEN 0 ELSE 1 END LIMIT 1`,
@@ -238,22 +246,24 @@ func (s *Store) GetRetention(ctx context.Context, projectID string) (Retention, 
 
 // PutRetention 写入项目保留天数。
 func (s *Store) PutRetention(ctx context.Context, projectID string, keepDays int) error {
-	if s == nil || s.db == nil {
-		return ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return connErr
 	}
+
 	if keepDays <= 0 {
 		keepDays = s.defaultKeep()
 	}
 	now := time.Now().UTC()
 	var existing string
-	err := s.db.QueryRowContext(ctx,
+	err := sqlDB.QueryRowContext(ctx,
 		`SELECT scope FROM sys_log_retention WHERE scope = 'project' AND project_id = ?`, projectID).Scan(&existing)
 	if err == nil {
-		_, err = s.db.ExecContext(ctx,
+		_, err = sqlDB.ExecContext(ctx,
 			`UPDATE sys_log_retention SET keep_days=?, updated_at=? WHERE scope='project' AND project_id=?`,
 			int64(keepDays), now, projectID)
 	} else if errors.Is(err, sql.ErrNoRows) {
-		_, err = s.db.ExecContext(ctx,
+		_, err = sqlDB.ExecContext(ctx,
 			`INSERT INTO sys_log_retention(scope, project_id, keep_days, updated_at) VALUES('project', ?, ?, ?)`,
 			projectID, int64(keepDays), now)
 	}

@@ -16,15 +16,6 @@ func cmdFunctionList(ctx context.Context, c *gosdk.Client, _ loadedConfig, _ []s
 	return decodeRaw(raw), err
 }
 
-func cmdFunctionGet(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
-	name, err := one(args, "name")
-	if err != nil {
-		return nil, err
-	}
-	raw, err := c.GetFunction(ctx, name)
-	return decodeRaw(raw), err
-}
-
 func cmdFunctionCreate(ctx context.Context, c *gosdk.Client, cfg loadedConfig, args []string, stdin io.Reader) (any, error) {
 	f, _, err := mustFlags(args, "name", "file", "description", "source-b64", "activate")
 	if err != nil {
@@ -64,17 +55,6 @@ func cmdFunctionUpdate(ctx context.Context, c *gosdk.Client, _ loadedConfig, arg
 	}
 	raw, err := c.UpdateFunction(ctx, name, *f["description"])
 	return decodeRaw(raw), err
-}
-
-func cmdFunctionDelete(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
-	name, err := one(args, "name")
-	if err != nil {
-		return nil, err
-	}
-	if err := c.DeleteFunction(ctx, name); err != nil {
-		return nil, err
-	}
-	return map[string]any{"ok": true}, nil
 }
 
 func cmdFunctionVersions(ctx context.Context, c *gosdk.Client, cfg loadedConfig, args []string, stdin io.Reader) (any, error) {

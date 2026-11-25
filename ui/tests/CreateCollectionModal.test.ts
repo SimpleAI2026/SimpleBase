@@ -2,7 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'vue-sonner'
 import { api, resetApiMocks } from '@/test/api-mock'
-import { readyDb, uiStubs } from '@/test/helpers'
+import { readyDb, uiStubs, cancelModal, inDialog, installJsdomPolyfills, modalOkDisabled, mountDialog, okModal, realDialogStubs } from '@/test/helpers'
 import CreateCollectionModal from '@/components/modal/CreateCollectionModal.vue'
 
 vi.mock('@/services/api', async () => {
@@ -10,20 +10,26 @@ vi.mock('@/services/api', async () => {
   return { api: m.api }
 })
 
+installJsdomPolyfills()
+
 describe('CreateCollectionModal', () => {
   beforeEach(() => resetApiMocks())
 
   it('validates collection names and submits', async () => {
-    const w = mount(CreateCollectionModal, {
+    const w = await mountDialog(CreateCollectionModal, {
       props: { open: true, projectId: 'p1', database: readyDb },
-      global: { stubs: uiStubs }
+      global: { stubs: { ...uiStubs, ...realDialogStubs } }
     })
-    await w.get('.sb-ok').trigger('click')
+    // 名称为空 / 非法时「确定」禁用；空名称的提示只能由回车触发。
+    expect(modalOkDisabled()).toBe(true)
+    await inDialog().get('#collection-name').trigger('keydown.enter')
     expect(toast.warning).toHaveBeenCalledWith('请输入集合名称')
-    await w.get('#collection-name').setValue('1bad')
-    expect(w.text()).toContain('字母开头')
-    await w.get('#collection-name').setValue('users')
-    await w.get('.sb-ok').trigger('click')
+    await inDialog().get('#collection-name').setValue('1bad')
+    expect(inDialog().text()).toContain('字母开头')
+    expect(modalOkDisabled()).toBe(true)
+    await inDialog().get('#collection-name').setValue('users')
+    expect(modalOkDisabled()).toBe(false)
+    await okModal()
     await flushPromises()
     expect(api.db.createCollection).toHaveBeenCalled()
     expect(w.emitted('created')?.[0]).toEqual(['users'])
@@ -31,21 +37,24 @@ describe('CreateCollectionModal', () => {
     api.db.createCollection.mockRejectedValueOnce(new Error('exists'))
     await w.setProps({ open: false })
     await w.setProps({ open: true })
-    await w.get('#collection-name').setValue('users')
-    await w.get('.sb-ok').trigger('click')
+    await inDialog().get('#collection-name').setValue('users')
+    await okModal()
     await flushPromises()
     expect(toast.error).toHaveBeenCalledWith('exists')
 
-    const noDb = mount(CreateCollectionModal, {
+    // 同一页面同时只有一个真实对话框：先卸载上一个再挂新的
+    w.unmount()
+    const noDb = await mountDialog(CreateCollectionModal, {
       props: { open: true, projectId: 'p1', database: null },
-      global: { stubs: uiStubs }
+      global: { stubs: { ...uiStubs, ...realDialogStubs } }
     })
-    await noDb.get('#collection-name').setValue('x')
-    await noDb.get('.sb-ok').trigger('click')
+    await inDialog().get('#collection-name').setValue('x')
+    // 没有选中数据库时即使名称合法也不能提交
+    expect(modalOkDisabled()).toBe(true)
   })
   it('closes on cancel', async () => {
-    const w = mount(CreateCollectionModal, { props: { open: true, projectId: 'p', database: readyDb }, global: { stubs: uiStubs } })
-    await w.get('.sb-cancel').trigger('click')
+    const w = await mountDialog(CreateCollectionModal, { props: { open: true, projectId: 'p', database: readyDb }, global: { stubs: { ...uiStubs, ...realDialogStubs } } })
+    await cancelModal()
     expect(w.emitted('update:open')).toBeTruthy()
     w.unmount()
   })

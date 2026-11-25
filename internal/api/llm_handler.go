@@ -48,8 +48,8 @@ type LLMHandler struct {
 // ChatCompletions 处理 POST .../v1/chat/completions。
 // 非流式返回 chat.completion；stream:true 时返回 SSE 并以 [DONE] 收尾。
 func (h *LLMHandler) ChatCompletions(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
+	pc, err := requireProject(c)
+	if err != nil {
 		return writeOAIError(c, http.StatusInternalServerError, "internal_error", "project context missing")
 	}
 	var req oaiChatRequest
@@ -154,8 +154,8 @@ func (h *LLMHandler) stream(c echo.Context, projectID string, req oaiChatRequest
 
 // ListModels 处理 GET .../v1/models，返回严格 OpenAI list。
 func (h *LLMHandler) ListModels(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
+	pc, err := requireProject(c)
+	if err != nil {
 		return writeOAIError(c, http.StatusInternalServerError, "internal_error", "project context missing")
 	}
 	models, err := h.svc.ProviderModels(c.Request().Context(), pc.ID)
@@ -166,21 +166,7 @@ func (h *LLMHandler) ListModels(c echo.Context) error {
 }
 
 func (h *LLMHandler) recordAudit(c echo.Context, projectID, kind, status string) {
-	if h.audit == nil {
-		return
-	}
-	principal, ok := PrincipalFromContext(c.Request().Context())
-	pID := ""
-	if ok {
-		pID = string(principal.APIKeyID)
-	}
-	_ = h.audit.Record(context.Background(), AuditEvent{
-		ProjectID:   projectID,
-		PrincipalID: pID,
-		Kind:        kind,
-		RequestID:   c.Response().Header().Get(echo.HeaderXRequestID),
-		Status:      status,
-	})
+	recordAudit(c, h.audit, kind, projectID, status, "")
 }
 
 // persistChat 把一次非流式对话落到系统库（sys_llm_sessions / sys_llm_messages）。
@@ -193,17 +179,13 @@ func (h *LLMHandler) persistChat(c echo.Context, projectID string, req oaiChatRe
 		return
 	}
 	ctx := context.Background()
-	createdBy := ""
-	if p, ok := PrincipalFromContext(c.Request().Context()); ok {
-		createdBy = p.APIKeyID
-	}
 	sess, err := h.store.CreateLLMSession(ctx, systemdb.LLMSession{
-		ProjectID: projectID, Provider: resp.Provider, Model: resp.Model, CreatedBy: createdBy,
+		ProjectID: projectID, Provider: resp.Provider, Model: resp.Model, CreatedBy: principalOf(c).Actor(),
 	})
 	if err != nil {
 		return
 	}
-	rid := RequestIDFromContext(c.Request().Context())
+	rid := requestID(c)
 	if len(req.Messages) > 0 {
 		last := req.Messages[len(req.Messages)-1]
 		_, _ = h.store.AppendLLMMessage(ctx, systemdb.LLMMessage{

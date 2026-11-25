@@ -1,3 +1,29 @@
+// 文件说明：interp_test.go — gofunction/internal/interp 的单元测试（TestRunWithContextRecover、TestExecutorTimeoutAndInterruptProgram 等）
+//
+// 用法
+//
+//	go test ./gofunction/internal/interp -run 'TestRunWithContextRecover|TestExecutorTimeoutAndInterruptProgram|TestRuntimeZeroValueUsable|TestExecutorTimeoutInterruptsExecution'
+//
+// 调用架构
+//
+//	[上游] gofunction
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/internal/interp/interp_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] bench_test.go, cachetest_test.go, call.go, call_test.go, cheap_test.go 等 40 个
+//
+// 主要符号
+//
+//	TestRunWithContextRecover(t *testing.T)
+//	TestExecutorTimeoutAndInterruptProgram(t *testing.T)
+//	TestRuntimeZeroValueUsable(t *testing.T)
+//	TestExecutorTimeoutInterruptsExecution(t *testing.T)
+//	TestExecutorInterruptCancelsRunning(t *testing.T)
+//	TestExecutorNilVMSequence(t *testing.T)
+
 package interp
 
 // 本文件承载运行时/执行器混合场景。

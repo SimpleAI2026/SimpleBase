@@ -1,3 +1,35 @@
+// 文件说明：snapshot.go — gosandbox/snapshot 中 Info、Store 等符号的实现
+//
+// 用法
+//
+//	type Info struct{…}  // Info 是一个快照的元数据
+//	type Store struct{…}  // Store 是快照的持久层
+//	Open(root string) (*Store, error)  // Open 打开（或创建）快照 store
+//
+// 调用架构
+//
+//	[上游] gosandbox/vm/box, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/snapshot/snapshot.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] multidir.go, paths.go, snapshot_test.go
+//	[关键引用] Open ← snapshot_test.go
+//
+// 主要符号
+//
+//	var ErrNotFound / ErrEmpty
+//	type Info struct{…}
+//	type Store struct{…}
+//	Open(root string) (*Store, error)
+//	(s *Store) load() error
+//	(s *Store) save() error
+//	(s *Store) blobPath(digest string) (string, error)
+//	(s *Store) Create(ctx context.Context, boxDir, name, label string) (Info, error)
+//	... 另有 8 个顶层符号
+
 package snapshot
 
 import (

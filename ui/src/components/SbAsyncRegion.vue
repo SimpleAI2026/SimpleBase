@@ -1,17 +1,21 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, unref } from 'vue'
+import type { MaybeRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { HTMLAttributes } from 'vue'
 import { cn } from '@/lib/utils'
 import { TableEmpty } from '@/components/ui/table'
-import SbBlockSkeleton from './SbBlockSkeleton.vue'
-import SbEmptyState from './SbEmptyState.vue'
-import SbErrorState from './SbErrorState.vue'
-import SbTableSkeleton from './SbTableSkeleton.vue'
+import SbBlockSkeleton from '@/components/SbBlockSkeleton.vue'
+import SbEmptyState from '@/components/SbEmptyState.vue'
+import SbErrorState from '@/components/SbErrorState.vue'
+import SbTableSkeleton from '@/components/SbTableSkeleton.vue'
+import type { AsyncRegionState } from '@/components/async-region-state'
 
 interface Props {
   /** `tbody` 时骨架和空行留在表格里，避免把表头换掉。 */
   as?: 'div' | 'tbody'
+  /** 直接传 `useLoadState()` 的结果；传了就忽略下面散装的 pending / show* / refreshing / error。 */
+  state?: AsyncRegionState
   pending?: boolean
   showSkeleton?: boolean
   showEmpty?: boolean
@@ -47,17 +51,39 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 
+/** 六个状态的唯一读取入口：有 state 以它为准，否则用散装 props。 */
+const view = computed(() => {
+  const s = props.state
+  return s
+    ? {
+        pending: unref(s.pending),
+        showSkeleton: unref(s.showSkeleton),
+        showEmpty: unref(s.showEmpty),
+        showError: unref(s.showError),
+        refreshing: unref(s.refreshing),
+        error: unref(s.error)
+      }
+    : {
+        pending: props.pending,
+        showSkeleton: props.showSkeleton,
+        showEmpty: props.showEmpty,
+        showError: props.showError,
+        refreshing: props.refreshing,
+        error: props.error
+      }
+})
+
 const reserving = computed(
   () =>
-    props.pending &&
-    !props.refreshing &&
-    !props.showSkeleton &&
-    !props.showEmpty &&
-    !props.showError
+    view.value.pending &&
+    !view.value.refreshing &&
+    !view.value.showSkeleton &&
+    !view.value.showEmpty &&
+    !view.value.showError
 )
-const showPlaceholder = computed(() => props.showSkeleton || reserving.value)
-const busy = computed(() => props.pending || props.showSkeleton || props.refreshing)
-const rootClass = computed(() => cn(props.refreshing && 'opacity-80', props.class))
+const showPlaceholder = computed(() => view.value.showSkeleton || reserving.value)
+const busy = computed(() => view.value.pending || view.value.showSkeleton || view.value.refreshing)
+const rootClass = computed(() => cn(view.value.refreshing && 'opacity-80', props.class))
 </script>
 
 <template>
@@ -72,12 +98,12 @@ const rootClass = computed(() => cn(props.refreshing && 'opacity-80', props.clas
     </tr>
     <p v-else-if="busy" class="sr-only">{{ t('common.loading') }}</p>
 
-    <!-- 错误态唯一实现：SbErrorState（此前 tbody 与 div 两个分支各写一遍） -->
-    <template v-if="showError">
+    <!-- 错误态唯一实现：SbErrorState -->
+    <template v-if="view.showError">
       <TableEmpty v-if="as === 'tbody'" :colspan="columns">
-        <SbErrorState variant="inline" :description="error" @retry="emit('retry')" />
+        <SbErrorState variant="inline" :description="view.error" @retry="emit('retry')" />
       </TableEmpty>
-      <SbErrorState v-else variant="block" :description="error" @retry="emit('retry')" />
+      <SbErrorState v-else variant="block" :description="view.error" @retry="emit('retry')" />
     </template>
 
     <template v-else-if="showPlaceholder">
@@ -93,7 +119,7 @@ const rootClass = computed(() => cn(props.refreshing && 'opacity-80', props.clas
       </div>
     </template>
 
-    <template v-else-if="showEmpty">
+    <template v-else-if="view.showEmpty">
       <TableEmpty v-if="as === 'tbody'" :colspan="columns">
         <slot name="empty">
           <SbEmptyState

@@ -1,3 +1,28 @@
+// 文件说明：testhelp_test.go — gosandbox/image 的测试辅助代码
+//
+// 用法
+//
+//	同包调用：newTestClient() → pull_test.go；readFileIn() → pull_test.go
+//
+// 调用架构
+//
+//	[上游] gosandbox/vm/box, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/image/testhelp_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] arch.go, import.go, manifest.go, manifest_test.go, pull.go 等 16 个
+//	[关键引用] newTestClient ← pull_test.go；readFileIn ← pull_test.go
+//
+// 主要符号
+//
+//	newTestClient(srvURL string) *Client
+//	type rewriteTransport struct{…}
+//	(rt *rewriteTransport) RoundTrip(r *http.Request) (*http.Response, error)
+//	readFileIn(t *testing.T, root, name string) (string, error)
+
 package image
 
 // testhelp_test.go：测试用的小工具。

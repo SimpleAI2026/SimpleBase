@@ -29,6 +29,7 @@ package api
 import (
 	"context"
 	"errors"
+	"github.com/linkxzhou/SimpleBase/internal/collection/query"
 	"net/http"
 	"strconv"
 	"strings"
@@ -69,7 +70,7 @@ func (h *SchemaHandler) ListTableRows(c echo.Context) error {
 	}
 	tableName, err = normalizeSchemaIdent(tableName)
 	if err != nil {
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "表名不合法", RequestIDFromContext(c.Request().Context())))
+		return WriteError(c, badRequest(c, "表名不合法"))
 	}
 
 	ctx, cancel := h.withQueryTimeout(c.Request().Context())
@@ -105,15 +106,15 @@ func (h *SchemaHandler) ListTableRows(c echo.Context) error {
 	var whereSQL string
 	var whereArgs []any
 	if raw := strings.TrimSpace(c.QueryParam("filter")); raw != "" {
-		columns := make([]sqlTableColumn, 0, len(cols))
+		columns := make([]query.SQLTableColumn, 0, len(cols))
 		for _, col := range cols {
-			columns = append(columns, sqlTableColumn{Name: col.Name, Kind: sqlColumnKind(col.Type)})
+			columns = append(columns, query.SQLTableColumn{Name: col.Name, Kind: query.SQLColumnKind(col.Type)})
 		}
 		var sensitive func(string) bool
 		if system {
 			sensitive = isSystemSensitiveColumn
 		}
-		whereSQL, whereArgs, err = sqlTableEnv(dialect, columns, sensitive).filter(raw)
+		whereSQL, whereArgs, err = query.SQLTableEnv(dialect, columns, sensitive).Filter(raw)
 		if err != nil {
 			return validationAPIError(c, err)
 		}
@@ -186,7 +187,7 @@ func (h *SchemaHandler) withQueryTimeout(ctx context.Context) (context.Context, 
 func parseSchemaPage(c echo.Context) (int, int, error) {
 	limit, ok := parseQueryLimit(c, schemaRowsDefaultLimit, schemaRowsMaxLimit)
 	if !ok {
-		return 0, 0, NewAPIError(http.StatusBadRequest, "invalid_request", "invalid limit or offset", RequestIDFromContext(c.Request().Context()))
+		return 0, 0, badRequest(c, "invalid limit or offset")
 	}
 	raw := strings.TrimSpace(c.QueryParam("offset"))
 	if raw == "" {
@@ -194,13 +195,13 @@ func parseSchemaPage(c echo.Context) (int, int, error) {
 	}
 	offset, err := strconv.Atoi(raw)
 	if err != nil || offset < 0 || offset > schemaRowsMaxOffset {
-		return 0, 0, NewAPIError(http.StatusBadRequest, "invalid_request", "invalid limit or offset", RequestIDFromContext(c.Request().Context()))
+		return 0, 0, badRequest(c, "invalid limit or offset")
 	}
 	return limit, offset, nil
 }
 
 func tableNotFound(c echo.Context) error {
-	return NewAPIError(http.StatusNotFound, "table_not_found", "table not found", RequestIDFromContext(c.Request().Context()))
+	return NewAPIError(http.StatusNotFound, "table_not_found", "table not found", requestID(c))
 }
 
 func (h *SchemaHandler) loadTableColumns(ctx context.Context, db catalog.Database, lease SQLLease, table string) ([]schemaColumnJSON, error) {

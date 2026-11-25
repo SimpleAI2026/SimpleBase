@@ -1,3 +1,28 @@
+// 文件说明：errors_test.go — gocloudagent/cloudagent 的单元测试（TestAgentClassifyErrorDoesNotExposeUpstreamDetails 等）
+//
+// 用法
+//
+//	go test ./gocloudagent/cloudagent -run 'TestAgentClassifyErrorDoesNotExposeUpstreamDetails'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/cloudagent/errors_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] callgate.go, callgate_test.go, confirmation.go, confirmation_test.go, errors.go 等 32 个
+//
+// 主要符号
+//
+//	TestAgentClassifyErrorDoesNotExposeUpstreamDetails(t *testing.T)
+//	type timeoutErr struct{…}
+//	(timeoutErr) Error() string
+//	(timeoutErr) Timeout() bool
+//	(timeoutErr) Temporary() bool
+
 package cloudagent
 
 import (

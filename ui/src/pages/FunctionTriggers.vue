@@ -28,12 +28,7 @@
             <SbAsyncRegion
               as="tbody"
               :columns="5"
-              :pending="pending"
-              :show-skeleton="showSkeleton"
-              :show-empty="showEmpty"
-              :show-error="showError"
-              :refreshing="refreshing"
-              :error="error"
+              :state="loadState"
               :empty-title="isAdmin ? t('pages.functionTriggers.emptyAdminTitle') : t('pages.functionTriggers.empty')"
               :empty-description="isAdmin ? t('pages.functionTriggers.emptyAdminDesc') : t('pages.functionTriggers.emptyDesc')"
               :empty-action-text="canWrite ? t('pages.functionTriggers.create') : undefined"
@@ -57,12 +52,12 @@
                 <TableCell>
                   <Switch
                     :model-value="item.enabled"
-                    :disabled="!auth.canWrite || toggling.has(item.id)"
+                    :disabled="!canWrite || toggling.has(item.id)"
                     @update:model-value="toggle(item, $event)"
                   />
                 </TableCell>
                 <TableCell>
-                  <div v-if="auth.canWrite" class="flex flex-wrap justify-center gap-1">
+                  <div v-if="canWrite" class="flex flex-wrap justify-center gap-1">
                     <ConfirmAction
                       v-if="item.kind === 'http' && item.enabled"
                       :title="t('pages.functionTriggers.invokeConfirm')"
@@ -94,7 +89,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
 import { toast } from 'vue-sonner'
@@ -102,9 +97,10 @@ import { PlusIcon } from '@lucide/vue'
 import { api } from '@/services/api'
 import type { FunctionTrigger } from '@/services/types'
 import { useProjectStore } from '@/stores/project'
-import { useAuthStore } from '@/stores/auth'
 import { errorMessage } from '@/utils/format'
 import { useLoadState } from '@/composables/useLoadState'
+import { useCanWrite } from '@/composables/useCanWrite'
+import { useProjectReload } from '@/composables/useProjectReload'
 import { usePagination } from '@/composables/usePagination'
 import PageContainer from '@/components/PageContainer.vue'
 import ProjectScope from '@/components/ProjectScope.vue'
@@ -120,10 +116,8 @@ import { Table, TableCell, TableHead, TableHeader, TableRow } from '@/components
 
 const { t } = useI18n()
 const project = useProjectStore()
-const auth = useAuthStore()
 const { projectId, isAdmin } = storeToRefs(project)
-/** 写入口：系统项目与只读角色都隐藏（planv6.7 ui-simplify-ux-plan S2）。 */
-const canWrite = computed(() => !isAdmin.value && auth.canWrite)
+const canWrite = useCanWrite()
 const records = ref<FunctionTrigger[]>([])
 const toggling = ref(new Set<string>())
 const invoking = ref(new Set<string>())
@@ -132,9 +126,10 @@ const modalOpen = ref(false)
 let listRequest = 0
 
 const { page, pageSize, total, pageCount, items: paged } = usePagination(records)
-const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
+const loadState = useLoadState({
   fallback: 'pages.functionTriggers.loadFailed'
 })
+const { pending, run } = loadState
 
 function load() {
   const currentProject = projectId.value
@@ -152,11 +147,11 @@ function load() {
   })
 }
 function openCreate() {
-  if (isAdmin.value || !auth.canWrite) return
+  if (!canWrite.value) return
   modalOpen.value = true
 }
 async function toggle(item: FunctionTrigger, enabled: boolean) {
-  if (!auth.canWrite || toggling.value.has(item.id)) return
+  if (!canWrite.value || toggling.value.has(item.id)) return
   toggling.value.add(item.id)
   try {
     const updated = await api.triggers.patch(projectId.value, item.id, { enabled })
@@ -169,7 +164,7 @@ async function toggle(item: FunctionTrigger, enabled: boolean) {
   }
 }
 async function invoke(item: FunctionTrigger) {
-  if (!auth.canWrite || invoking.value.has(item.id)) return
+  if (!canWrite.value || invoking.value.has(item.id)) return
   invoking.value.add(item.id)
   try {
     await api.triggers.invoke(projectId.value, item.id, {})
@@ -181,7 +176,7 @@ async function invoke(item: FunctionTrigger) {
   }
 }
 async function remove(item: FunctionTrigger) {
-  if (!auth.canWrite || removing.value.has(item.id)) return
+  if (!canWrite.value || removing.value.has(item.id)) return
   removing.value.add(item.id)
   try {
     await api.triggers.remove(projectId.value, item.id)
@@ -194,9 +189,5 @@ async function remove(item: FunctionTrigger) {
   }
 }
 
-watch(projectId, () => {
-  modalOpen.value = false
-  page.value = 1
-  void load()
-}, { immediate: true })
+useProjectReload(projectId, load, { onSwitch: () => { modalOpen.value = false; page.value = 1 } })
 </script>

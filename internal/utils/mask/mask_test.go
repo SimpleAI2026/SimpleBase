@@ -1,3 +1,25 @@
+// 文件说明：mask_test.go — internal/utils/mask 的单元测试（TestIsSensitiveKey、TestSecret 等）
+//
+// 用法
+//
+//	go test ./internal/utils/mask -run 'TestIsSensitiveKey|TestSecret'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/sbcli, internal/systemdb
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/utils/mask/mask_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] mask.go
+//
+// 主要符号
+//
+//	TestIsSensitiveKey(t *testing.T)
+//	TestSecret(t *testing.T)
+
 package mask
 
 import "testing"

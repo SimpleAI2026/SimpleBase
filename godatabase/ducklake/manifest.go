@@ -1,3 +1,38 @@
+// 文件说明：manifest.go — godatabase/ducklake 中 Manifest、IsManifestChainBroken 等符号的实现
+//
+// 用法
+//
+//	type Manifest struct{…}  // Manifest 是 catalog 指针序列的一项（multi-instance-consistency-plan §4.4）
+//	IsManifestChainBroken(err error) bool  // IsManifestChainBroken 判定错误是否为 manifest 断链
+//	ReadLatestManifest(ctx context.Context, store blob.Store, remote RemoteStorage, projectID, databaseID string, ...  // ReadLatestManifest 返回当前最大 seq 的 manifest
+//	WriteManifest(ctx context.Context, store blob.Store, remote RemoteStorage, projectID, databaseID string, m Man...  // WriteManifest 用 PutIfAbsent 写入 manifest/{seq}.json
+//	NewManifest(seq, snapshotID int64, snapshotKey, catalogEngine string, writerEpoch int64, size int64, sha256 st...  // NewManifest 构造带时间戳与引擎/校验信息的 manifest
+//	同包调用：readLatestManifestAnchored() → local_catalog.go, syncer_publish.go；getManifestAt() → manifest_chain_test.go, syncer_prune.go
+//
+// 调用架构
+//
+//	[上游] internal/app, internal/systemdb
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/ducklake/manifest.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] c4_syncer_lease_test.go, c4_syncer_ordering_test.go, catalog_syncer.go, catalog_syncer_test.go, coverage_test.go 等 35 个
+//	[关键引用] Manifest ← catalog_syncer_test.go, local_catalog.go；IsManifestChainBroken ← manifest_chain_test.go, manifest_test.go；ReadLatestManifest ← c4_syncer_lease_test.go, c4_syncer_ordering_test.go
+//
+// 主要符号
+//
+//	type Manifest struct{…}
+//	var ErrManifestChainBroken
+//	IsManifestChainBroken(err error) bool
+//	const maxManifestSeqProbe
+//	ReadLatestManifest(ctx context.Context, store blob.Store, remote RemoteStorage, projectID, databaseID string, ...
+//	manifestExistsBeyond(ctx context.Context, store blob.Store, kb blob.KeyBuilder, projectID, databaseID string, ...
+//	readLatestManifestAnchored(ctx context.Context, store blob.Store, remote RemoteStorage, projectID, databaseID ...
+//	getManifestAt(ctx context.Context, store blob.Store, kb blob.KeyBuilder, projectID, databaseID string, seq int...
+//	... 另有 2 个顶层符号
+
 package ducklake
 
 import (
@@ -150,6 +185,18 @@ func manifestExistsBeyond(ctx context.Context, store blob.Store, kb blob.KeyBuil
 		probe *= 2
 	}
 	return false, nil
+}
+
+// readLatestManifestAnchored 是锚点失效回退规则的唯一实现：先用锚点 O(1) 探测
+// 读远端最新 manifest；仅当返回断链错误且锚点 > 0（远端被重置/回退）时，退化
+// 到全链发现再判一次，仍断链则 fail closed（§3.1：不得退回旧镜像）。
+// 普通 GET/解码错误不触发重探。
+func readLatestManifestAnchored(ctx context.Context, store blob.Store, remote RemoteStorage, projectID, databaseID string, anchor int64) (*Manifest, error) {
+	latest, err := ReadLatestManifest(ctx, store, remote, projectID, databaseID, anchor)
+	if err != nil && anchor > 0 && IsManifestChainBroken(err) {
+		latest, err = ReadLatestManifest(ctx, store, remote, projectID, databaseID, 0)
+	}
+	return latest, err
 }
 
 func getManifestAt(ctx context.Context, store blob.Store, kb blob.KeyBuilder, projectID, databaseID string, seq int64) (*Manifest, error) {

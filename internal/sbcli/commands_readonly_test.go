@@ -1,3 +1,27 @@
+// 文件说明：commands_readonly_test.go — internal/sbcli 的单元测试（TestCommandReadOnlyReconcilesDispatch、TestCommandReadOnlyFailClosed 等）
+//
+// 用法
+//
+//	go test ./internal/sbcli -run 'TestCommandReadOnlyReconcilesDispatch|TestCommandReadOnlyFailClosed|TestCommandReadOnlyWithArgvSubActions'
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/agentbridge
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/sbcli/commands_readonly_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] cli_test.go, collection_transfer.go, collection_transfer_test.go, commands.go, commands_admin.go 等 27 个
+//
+// 主要符号
+//
+//	var commandReadOnlyExpectation
+//	TestCommandReadOnlyReconcilesDispatch(t *testing.T)
+//	TestCommandReadOnlyFailClosed(t *testing.T)
+//	TestCommandReadOnlyWithArgvSubActions(t *testing.T)
+
 package sbcli
 
 import (

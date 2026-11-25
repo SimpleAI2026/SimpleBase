@@ -7,7 +7,7 @@ import { setI18nLocale } from '@/locales'
 import { useAuthStore } from '@/stores/auth'
 import { useProjectStore } from '@/stores/project'
 import { api, resetApiMocks } from '@/test/api-mock'
-import { uiStubs } from '@/test/helpers'
+import { uiStubs, dialogEl, inDialog, installJsdomPolyfills, okModal, realDialogStubs, waitDialog } from '@/test/helpers'
 import Home from '@/pages/Home.vue'
 import { savePendingStarter } from '@/utils/starter-storage'
 
@@ -33,10 +33,12 @@ async function mountHome(opts: { apiKey?: boolean } = {}) {
   })
   await router.push('/')
   await router.isReady()
-  const wrapper = mount(Home, { global: { plugins: [router, pinia], stubs: { ...uiStubs, RouterLink: false, LoginModal: { template: '<div data-login />' } } } })
+  const wrapper = mount(Home, { attachTo: document.body, global: { plugins: [router, pinia], stubs: { ...uiStubs, ...realDialogStubs, RouterLink: false, LoginModal: { template: '<div data-login />' } } } })
   await flushPromises()
   return { wrapper, router }
 }
+
+installJsdomPolyfills()
 
 describe('Home：一句话建应用', () => {
   beforeEach(() => {
@@ -57,9 +59,10 @@ describe('Home：一句话建应用', () => {
 
   it('点卡片打开确认弹窗（还没建项目）', async () => {
     const { wrapper } = await mountHome({ apiKey: true })
-    expect(wrapper.find('.sb-modal').exists()).toBe(false)
+    expect(dialogEl()).toBeNull()
     await wrapper.get('[data-starter="dashboard"]').trigger('click')
-    expect(wrapper.find('.sb-modal').exists()).toBe(true)
+    await waitDialog()
+    expect(dialogEl()).not.toBeNull()
     expect(api.projects.create).not.toHaveBeenCalled()
   })
 
@@ -68,7 +71,7 @@ describe('Home：一句话建应用', () => {
     api.projects.list.mockResolvedValue([])
     const { wrapper, router } = await mountHome({ apiKey: true })
     await wrapper.get('[data-starter="dashboard"]').trigger('click')
-    await wrapper.get('.sb-ok').trigger('click')
+    await okModal()
     await flushPromises()
     expect(api.projects.create).toHaveBeenCalledTimes(1)
     expect(api.projects.create.mock.calls[0][0].id).toMatch(/^[a-z0-9]{8}$/)
@@ -80,11 +83,11 @@ describe('Home：一句话建应用', () => {
   it('未登录：关闭确认弹窗、打开登录框并记住意图，不建项目', async () => {
     const { wrapper } = await mountHome({ apiKey: false })
     await wrapper.get('[data-starter="notice"]').trigger('click')
-    await wrapper.get('.sb-ok').trigger('click')
+    await okModal()
     await flushPromises()
     expect(api.projects.create).not.toHaveBeenCalled()
     expect(useAuthStore().loginOpen).toBe(true)
-    expect(wrapper.find('.sb-modal').exists()).toBe(false)
+    expect(dialogEl()).toBeNull()
     expect(sessionStorage.getItem('sb_pending_starter')).toContain('notice')
   })
 
@@ -96,8 +99,8 @@ describe('Home：一句话建应用', () => {
     auth.user = { id: 'u', username: 'a', role: 'user' } as never
     auth.accessToken = 't'
     await flushPromises()
-    expect(wrapper.find('.sb-modal').exists()).toBe(true)
-    expect((wrapper.get('#starter-project-name').element as HTMLInputElement).value).toBe('我的作品集')
+    expect(dialogEl()).not.toBeNull()
+    expect((inDialog().get('#starter-project-name').element as HTMLInputElement).value).toBe('我的作品集')
     // 只续跑一次：pending 已被消费
     expect(sessionStorage.getItem('sb_pending_starter')).toBeNull()
   })
@@ -105,7 +108,7 @@ describe('Home：一句话建应用', () => {
   it('进入页面时已有 pending 且已登录：自动续跑', async () => {
     savePendingStarter({ templateId: 'notice', name: '公告', engine: 'duckdb' })
     const { wrapper } = await mountHome({ apiKey: true })
-    expect(wrapper.find('.sb-modal').exists()).toBe(true)
+    expect(dialogEl()).not.toBeNull()
   })
 
   it('建项目失败：提示错误，不跳转', async () => {
@@ -113,7 +116,7 @@ describe('Home：一句话建应用', () => {
     const err = vi.spyOn(toast, 'error').mockImplementation(() => '' as never)
     const { wrapper, router } = await mountHome({ apiKey: true })
     await wrapper.get('[data-starter="dashboard"]').trigger('click')
-    await wrapper.get('.sb-ok').trigger('click')
+    await okModal()
     await flushPromises()
     expect(err).toHaveBeenCalledWith('配额不足')
     expect(router.currentRoute.value.name).toBe('home')
@@ -121,8 +124,8 @@ describe('Home：一句话建应用', () => {
 
   it('原有首屏与文档入口不受影响', async () => {
     const { wrapper } = await mountHome()
-    expect(wrapper.find('h1').text()).toContain('为 SaaS 构建的 AI 工作台')
-    expect(wrapper.find('main a[href="/console/agents"]').text()).toContain('进入工作台')
-    expect(wrapper.findAll('[data-capability]').map((n) => n.attributes('data-capability'))).toEqual(['agent', 'ship', 'cost'])
+    expect(inDialog().find('h1').text()).toContain('为 SaaS 构建的 AI 工作台')
+    expect(inDialog().find('main a[href="/console/agents"]').text()).toContain('进入工作台')
+    expect(inDialog().findAll('[data-capability]').map((n) => n.attributes('data-capability'))).toEqual(['agent', 'ship', 'cost'])
   })
 })

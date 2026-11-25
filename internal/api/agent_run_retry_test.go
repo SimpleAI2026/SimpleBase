@@ -1,3 +1,29 @@
+// 文件说明：agent_run_retry_test.go — internal/api 的单元测试（TestC1_RetryNonLatestRunRejected、TestC1_RetryUnknownRunRejected 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestC1_RetryNonLatestRunRejected|TestC1_RetryUnknownRunRejected|TestC1_RetryRunFromOtherThreadRejected|TestC1_RetryHistoryExcludesOldRunMessages'
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/agent_run_retry_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//
+// 主要符号
+//
+//	c1FailScript() fakellm.Script
+//	TestC1_RetryNonLatestRunRejected(t *testing.T)
+//	TestC1_RetryUnknownRunRejected(t *testing.T)
+//	TestC1_RetryRunFromOtherThreadRejected(t *testing.T)
+//	TestC1_RetryHistoryExcludesOldRunMessages(t *testing.T)
+//	TestC1_ClaimFailureLeavesNoRunRow(t *testing.T)
+
 package api
 
 // c1_run_validation_test.go：planv6.0 C1 表征测试（零生产修改）。

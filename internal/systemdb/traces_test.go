@@ -1,3 +1,32 @@
+// 文件说明：traces_test.go — internal/systemdb 的单元测试（TestRecordAndQueryLLMTraces、TestQueryLLMTracesFilters 等）
+//
+// 用法
+//
+//	go test ./internal/systemdb -run 'TestRecordAndQueryLLMTraces|TestQueryLLMTracesFilters|TestTraceNormalize|TestFlushAllAsyncWithTraces'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app 等 8 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/systemdb/traces_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_approvals.go, agent_approvals_test.go, agent_collab.go, agent_collab_cron.go, agent_collab_test.go 等 54 个
+//
+// 主要符号
+//
+//	newTraceTestStore(t *testing.T) *Store
+//	TestRecordAndQueryLLMTraces(t *testing.T)
+//	TestQueryLLMTracesFilters(t *testing.T)
+//	TestTraceNormalize(t *testing.T)
+//	TestFlushAllAsyncWithTraces(t *testing.T)
+//	TestTraceNilStore(t *testing.T)
+//	seedAgentTrace(t *testing.T, store *Store, projectID, traceID string, base time.Time)
+//	TestQueryLLMTraceGroups(t *testing.T)
+//	... 另有 3 个顶层符号
+
 package systemdb
 
 import (

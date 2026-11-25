@@ -1,3 +1,31 @@
+// 文件说明：more_test.go — godatabase/cache 的单元测试（TestUsageReadRootPermission、TestUsageSkipUnreadableDir 等）
+//
+// 用法
+//
+//	go test ./godatabase/cache -run 'TestUsageReadRootPermission|TestUsageSkipUnreadableDir|TestEvictCancelMidwayAndEnsureCapacityError|TestRemoveAllPermission'
+//
+// 调用架构
+//
+//	[上游] internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/cache/more_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] coverage_test.go, evict.go, evict_b13_test.go, manager.go, manager_test.go
+//
+// 主要符号
+//
+//	TestUsageReadRootPermission(t *testing.T)
+//	TestUsageSkipUnreadableDir(t *testing.T)
+//	TestEvictCancelMidwayAndEnsureCapacityError(t *testing.T)
+//	type cancelCloser struct{…}
+//	(c cancelCloser) CloseDatabase(ctx context.Context, id string) error
+//	TestRemoveAllPermission(t *testing.T)
+//	TestEnsureCapacityUsageError(t *testing.T)
+//	TestNewManagerAbsAndPathRel(t *testing.T)
+
 package cache
 
 import (

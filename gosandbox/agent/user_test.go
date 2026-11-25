@@ -1,3 +1,32 @@
+// 文件说明：user_test.go — gosandbox/agent 的单元测试（TestResolveIDNumeric、TestResolveIDEmpty 等）
+//
+// 用法
+//
+//	go test ./gosandbox/agent -run 'TestResolveIDNumeric|TestResolveIDEmpty|TestResolveIDInvalid|TestUserMappingSingleSegment'
+//
+// 调用架构
+//
+//	[上游] gosandbox/cmd
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/agent/user_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] agent.go, agent_test.go, fs.go, loopback_linux.go, loopback_other.go 等 16 个
+//
+// 主要符号
+//
+//	TestResolveIDNumeric(t *testing.T)
+//	TestResolveIDEmpty(t *testing.T)
+//	TestResolveIDInvalid(t *testing.T)
+//	TestUserMappingSingleSegment(t *testing.T)
+//	TestUserMappingMultiSegment(t *testing.T)
+//	TestIDRangeBoundaries(t *testing.T)
+//	TestCredentialFor(t *testing.T)
+//	TestParseUserMapping(t *testing.T)
+//	... 另有 5 个顶层符号
+
 package agent
 
 // user_test.go：uid/gid 解析与多段映射判定。
@@ -7,6 +36,8 @@ package agent
 
 import (
 	"errors"
+	"os"
+	"strings"
 	"testing"
 )
 
@@ -183,4 +214,54 @@ func contains(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+const passwdFixture = `root:x:0:0:root:/root:/bin/sh
+postgres:x:1001:1001::/var/lib/postgresql:/bin/sh
+short:x
+broken:x:notanumber:1001::/bin/sh
+nogid:x:1002:notanumber::/bin/sh
+`
+
+func TestColonField(t *testing.T) {
+	cases := []struct {
+		want      string
+		name      string
+		col       int
+		minFields int
+		id        uint32
+		st        colonLookup
+	}{
+		{"root 的 uid", "root", 2, 4, 0, colOK},
+		{"普通用户的 uid", "postgres", 2, 4, 1001, colOK},
+		{"第 3 列是主组 gid", "postgres", 3, 4, 1001, colOK},
+		{"字段数不足的行按不存在处理", "short", 2, 4, 0, colMissing},
+		{"uid 列不是数字", "broken", 2, 4, 0, colBad},
+		{"主组列不是数字", "nogid", 3, 4, 0, colBad},
+		{"没有这个用户", "nobody-here", 2, 4, 0, colMissing},
+	}
+	for _, tc := range cases {
+		id, st := colonField(passwdFixture, tc.name, tc.minFields, tc.col)
+		if id != tc.id || st != tc.st {
+			t.Errorf("%s: colonField = (%d, %d), want (%d, %d)", tc.want, id, st, tc.id, tc.st)
+		}
+	}
+}
+
+func TestLookupGroupReadsEtcGroup(t *testing.T) {
+	// 依赖运行环境的 /etc/group：大多数镜像与开发机都有 root:0；没有 root 组的环境跳过。
+	body, err := os.ReadFile("/etc/group")
+	if err != nil {
+		t.Skip("/etc/group not readable")
+	}
+	if _, st := colonField(string(body), "root", 3, 2); st == colMissing {
+		t.Skip("no root group in /etc/group")
+	}
+	gid, err := lookupGroup("root")
+	if err != nil || gid != 0 {
+		t.Fatalf("lookupGroup(root) = %d, %v; want 0, nil", gid, err)
+	}
+	if _, err := lookupGroup("no-such-group-" + "planv6.8"); err == nil || !strings.Contains(err.Error(), "no such group") {
+		t.Fatalf("missing group: err = %v, want no-such-group error", err)
+	}
 }

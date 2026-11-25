@@ -1,3 +1,33 @@
+// 文件说明：syncer_schedule.go — godatabase/ducklake 的内部实现（randomWriterEpoch、SetWriterEpoch 等）
+//
+// 用法
+//
+//	同包调用：randomWriterEpoch() → catalog_syncer.go
+//
+// 调用架构
+//
+//	[上游] internal/app, internal/systemdb
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/ducklake/syncer_schedule.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] c4_syncer_lease_test.go, c4_syncer_ordering_test.go, catalog_syncer.go, catalog_syncer_test.go, coverage_test.go 等 35 个
+//	[关键引用] randomWriterEpoch ← catalog_syncer.go
+//
+// 主要符号
+//
+//	randomWriterEpoch() int64
+//	(s *CatalogSyncer) SetWriterEpoch(dbID string, epoch int64)
+//	(s *CatalogSyncer) writerEpochFor(dbID string) int64
+//	(s *CatalogSyncer) IsSplitBrain(dbID string) bool
+//	type syncTimer struct{…}
+//	(s *CatalogSyncer) stopTimerLocked(dbID string)
+//	(s *CatalogSyncer) CloseNoFlush(dbID string)
+//	(s *CatalogSyncer) HasLostLease(dbID string) bool
+//	... 另有 17 个顶层符号
+
 package ducklake
 
 import (
@@ -52,6 +82,18 @@ func (s *CatalogSyncer) IsSplitBrain(dbID string) bool {
 	return s.splitIDs[dbID]
 }
 
+// syncTimer 包装调度计时器：闭包捕获稳定指针做身份比对（B10）。
+type syncTimer struct{ timer *time.Timer }
+
+// stopTimerLocked 必须已持 CatalogSyncer.mu；停止并移除指定库的调度计时器。
+// Stop 不等待已启动的回调退出，回调自行拿锁后按身份比对再清理。
+func (s *CatalogSyncer) stopTimerLocked(dbID string) {
+	if t, ok := s.timers[dbID].(*syncTimer); ok && t != nil {
+		t.timer.Stop()
+		delete(s.timers, dbID)
+	}
+}
+
 // CloseNoFlush 置位该库的失租标志：之后该库的 Flush/Sync 不再发起任何 PUT
 // （multi-instance-consistency-plan §4.6 onLost 第 1 步）。
 // §3.2：作用域为 per-DB——任一库失租不得连坐其他库（含共享同步器的系统库）。
@@ -63,10 +105,7 @@ func (s *CatalogSyncer) CloseNoFlush(dbID string) {
 	s.lostLease[dbID] = true
 	delete(s.dirty, dbID)
 	delete(s.dirtySince, dbID)
-	if t := s.timers[dbID]; t != nil {
-		t.Stop()
-		delete(s.timers, dbID)
-	}
+	s.stopTimerLocked(dbID)
 	s.mu.Unlock()
 }
 
@@ -120,16 +159,37 @@ func (s *CatalogSyncer) cacheDirFor(dbID string) string {
 
 // Unbind 在关闭连接前调用；会尽力 Flush。
 func (s *CatalogSyncer) Unbind(ctx context.Context, dbID string) error {
+	return s.unbindConn(ctx, dbID, nil)
+}
+
+// UnbindConn 是 Unbind 的身份比对版（B15）：仅当当前绑定仍是同一 *sql.DB
+// 时才 Flush 并清理；旧连接的关闭流程不得清掉重新绑定的新连接状态。
+func (s *CatalogSyncer) UnbindConn(ctx context.Context, dbID string, sqlDB *sql.DB) error {
+	return s.unbindConn(ctx, dbID, sqlDB)
+}
+
+func (s *CatalogSyncer) unbindConn(ctx context.Context, dbID string, sqlDB *sql.DB) error {
 	if s == nil {
 		return nil
 	}
+	s.mu.Lock()
+	b := s.bound[dbID]
+	if b == nil || (sqlDB != nil && b.sqlDB != sqlDB) {
+		// 未绑定，或已被新连接重新绑定：不动新状态。
+		s.mu.Unlock()
+		return nil
+	}
+	s.mu.Unlock()
 	err := s.Flush(ctx, dbID)
 	s.mu.Lock()
-	delete(s.bound, dbID)
-	if t := s.timers[dbID]; t != nil {
-		t.Stop()
-		delete(s.timers, dbID)
+	b = s.bound[dbID]
+	if b == nil || (sqlDB != nil && b.sqlDB != sqlDB) {
+		// Flush 期间被重新绑定：不清新状态。
+		s.mu.Unlock()
+		return err
 	}
+	delete(s.bound, dbID)
+	s.stopTimerLocked(dbID)
 	delete(s.dirty, dbID)
 	delete(s.dirtySince, dbID)
 	if t := s.pruneTimers[dbID]; t != nil {
@@ -163,34 +223,34 @@ func (s *CatalogSyncer) MarkDirty(dbID string, snapshotID int64) {
 		s.mu.Unlock()
 		return
 	}
-	delay := s.Options.Debounce
 	if s.Options.Mode == "interval" {
-		delay = s.Options.Interval
-		if s.Options.MaxLag < delay {
-			delay = s.Options.MaxLag
-		}
 		if _, scheduled := s.timers[dbID]; scheduled {
 			s.mu.Unlock()
 			return
 		}
 	}
-	s.scheduleLocked(dbID, delay)
+	s.scheduleLocked(dbID, s.Options.nextDelay())
 	s.mu.Unlock()
 }
 
-// scheduleLocked 必须持有 mu；后台失败保留 dirty，并延时重试以避免对象存储故障时忙循环。
+// scheduleLocked 必须持 mu；后台失败保留 dirty，并延时重试以避免对象存储故障时忙循环。
+// B10：回调只在与当前注册身份一致时才清除 map 项——Stop 不等待已启动的
+// 回调退出，旧回调拿锁后无条件 delete 会把新注册的 timer 句柄删掉，
+// 使后续取消/去重失去准确句柄。
 func (s *CatalogSyncer) scheduleLocked(dbID string, delay time.Duration) {
-	if t := s.timers[dbID]; t != nil {
-		t.Stop()
-	}
-	s.timers[dbID] = time.AfterFunc(delay, func() {
+	s.stopTimerLocked(dbID)
+	st := &syncTimer{}
+	st.timer = time.AfterFunc(delay, func() {
 		s.mu.Lock()
-		delete(s.timers, dbID)
+		if cur, ok := s.timers[dbID].(*syncTimer); ok && cur == st {
+			delete(s.timers, dbID)
+		}
 		s.mu.Unlock()
 		if err := s.Sync(context.Background(), dbID); err != nil && s.Logger != nil {
 			s.Logger.Warn("ducklake background catalog sync failed", zap.String("database_id", dbID), zap.Error(err))
 		}
 	})
+	s.timers[dbID] = st
 }
 
 // PausePeriodic 暂停该库的周期同步调度。已有计时器会被取消。
@@ -206,10 +266,7 @@ func (s *CatalogSyncer) PausePeriodic(dbID string) {
 		s.paused = map[string]bool{}
 	}
 	s.paused[dbID] = true
-	if t := s.timers[dbID]; t != nil {
-		t.Stop()
-		delete(s.timers, dbID)
-	}
+	s.stopTimerLocked(dbID)
 }
 
 // ResumePeriodic 恢复周期同步。暂停期间积累的 dirty 会按当前模式预约一轮。
@@ -227,14 +284,7 @@ func (s *CatalogSyncer) ResumePeriodic(dbID string) {
 		return
 	}
 	if s.dirty[dbID] > s.last[dbID] && s.timers[dbID] == nil {
-		delay := s.Options.Debounce
-		if s.Options.Mode == "interval" {
-			delay = s.Options.Interval
-			if s.Options.MaxLag < delay {
-				delay = s.Options.MaxLag
-			}
-		}
-		s.scheduleLocked(dbID, delay)
+		s.scheduleLocked(dbID, s.Options.nextDelay())
 	}
 }
 
@@ -336,13 +386,7 @@ func (s *CatalogSyncer) sync(ctx context.Context, dbID string, allowClosed, wait
 		s.mu.Lock()
 		s.inflight[dbID] = false
 		if !s.closed && !s.lostLease[dbID] && !s.paused[dbID] && s.bound[dbID] == b && s.dirty[dbID] > s.last[dbID] {
-			delay := s.Options.Debounce
-			if s.Options.Mode == "interval" {
-				delay = s.Options.Interval
-				if s.Options.MaxLag < delay {
-					delay = s.Options.MaxLag
-				}
-			}
+			delay := s.Options.nextDelay()
 			if err != nil && delay < time.Second {
 				delay = time.Second
 			}
@@ -363,10 +407,7 @@ func (s *CatalogSyncer) Flush(ctx context.Context, dbID string) error {
 	}
 	s.mu.Lock()
 	lost := s.lostLease[dbID]
-	if t := s.timers[dbID]; t != nil {
-		t.Stop()
-		delete(s.timers, dbID)
-	}
+	s.stopTimerLocked(dbID)
 	s.mu.Unlock()
 	if lost {
 		return nil
@@ -387,9 +428,8 @@ func (s *CatalogSyncer) Close(ctx context.Context) error {
 	}
 	s.closed = true // 先停新提交（MarkDirty/对外 Sync 拒绝）
 	ids := make([]string, 0, len(s.bound))
-	for id, t := range s.timers {
-		t.Stop()
-		delete(s.timers, id)
+	for id := range s.timers {
+		s.stopTimerLocked(id)
 	}
 	for id, t := range s.pruneTimers {
 		t.Stop()

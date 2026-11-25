@@ -1,3 +1,34 @@
+// 文件说明：collab_e2e_test.go — internal/api 的单元测试（TestWorkspaceCapabilities、TestCollabMultiAgentTurnExecutesAll 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestWorkspaceCapabilities|TestCollabMultiAgentTurnExecutesAll|TestCollabHumanTaskReplyContinuesTurn|TestCollabHumanUnableMarksTurnFailed'
+//	同包调用：newCollabEnv() → agent_run_guard_test.go；jsonBodyContains() → agent_run_guard_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/collab_e2e_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] newCollabEnv ← agent_run_guard_test.go；jsonBodyContains ← agent_run_guard_test.go
+//
+// 主要符号
+//
+//	newCollabEnv(t *testing.T) (*agentHarness, string, map[string]systemdb.CloudAgent)
+//	(h *agentHarness) createTurn(t *testing.T, threadID, content string, mentions []map[string]any, userID string)...
+//	TestWorkspaceCapabilities(t *testing.T)
+//	TestCollabMultiAgentTurnExecutesAll(t *testing.T)
+//	listTurnTasks(t *testing.T, h *agentHarness, threadID string) ([]systemdb.AgentTask, error)
+//	lastTurn(t *testing.T, h *agentHarness, threadID string) (systemdb.AgentTurn, error)
+//	waitCollabTurnStatus(t *testing.T, h *agentHarness, threadID, want string) systemdb.AgentTurn
+//	TestCollabHumanTaskReplyContinuesTurn(t *testing.T)
+//	... 另有 14 个顶层符号
+
 // planv6.7 v2：协作群端到端测试（真实链路 router → 协调器 → Runtime → fakellm）。
 // 覆盖：能力探测、多助手 @ 串行执行（都真的跑了）、轮次快照/事件、
 // 人工待办闭环（回复续跑 / 无法处理）、会话占用互斥、幂等重放、
@@ -12,6 +43,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
@@ -22,7 +54,7 @@ import (
 // newCollabEnv 建一个协作群 + 一条群会话，返回环境。
 //
 // dispatcher 固定：需要模型路由时返回空 plan（让用例显式 @，避免依赖真实模型）。
-func newCollabEnv(t *testing.T) (*agentHarness, *fakeDispatcher, string, map[string]systemdb.CloudAgent) {
+func newCollabEnv(t *testing.T) (*agentHarness, string, map[string]systemdb.CloudAgent) {
 	t.Helper()
 	h := newAgentHarness(t, nil, fakellm.Script{
 		NonStreamContent: "ok",
@@ -70,9 +102,7 @@ func newCollabEnv(t *testing.T) (*agentHarness, *fakeDispatcher, string, map[str
 	if th.DispatchMode != "collaborative" || th.ThreadKind != "chat" {
 		t.Fatalf("thread dto: %+v", th)
 	}
-	dispatcher := &fakeDispatcher{}
-	h.handler.dispatcher = dispatcher
-	return h, dispatcher, th.ID, byModule
+	return h, th.ID, byModule
 }
 
 // createTurn 以登录态用户发起一轮，返回 SSE 事件。
@@ -103,7 +133,7 @@ func TestWorkspaceCapabilities(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &dto); err != nil {
 		t.Fatal(err)
 	}
-	if dto.ProtocolVersion != 2 || !dto.Collaboration {
+	if dto.ProtocolVersion != 3 || !dto.Collaboration {
 		t.Fatalf("capabilities: %+v", dto)
 	}
 	if dto.MaxTasks <= 0 || dto.MaxDepth <= 0 || len(dto.ThreadKinds) != 4 {
@@ -115,7 +145,7 @@ func TestWorkspaceCapabilities(t *testing.T) {
 }
 
 func TestCollabMultiAgentTurnExecutesAll(t *testing.T) {
-	h, _, threadID, agents := newCollabEnv(t)
+	h, threadID, agents := newCollabEnv(t)
 	db, s3 := agents["database"], agents["s3"]
 
 	events := h.createTurn(t, threadID, "核对订单和文件", []map[string]any{
@@ -125,10 +155,9 @@ func TestCollabMultiAgentTurnExecutesAll(t *testing.T) {
 	if runID == "" {
 		t.Fatal("no run event")
 	}
-	// 路由卡：两步（都是助手任务）。
-	routes := eventsOf(events, "route")
-	if len(routes) == 0 || len(routes[0].Steps) != 2 {
-		t.Fatalf("route card: %+v", routes)
+	// v3 Plan 卡取代 route 帧；两个任务仍分别执行。
+	if plans := eventsOf(events, "plan"); len(plans) == 0 {
+		t.Fatalf("plan card missing: %+v", events)
 	}
 	// 两个任务都必须真的执行（不允许「多选只跑一个」）。
 	tasks, err := listTurnTasks(t, h, threadID)
@@ -206,8 +235,23 @@ func lastTurn(t *testing.T, h *agentHarness, threadID string) (systemdb.AgentTur
 	return list[0], nil
 }
 
+func waitCollabTurnStatus(t *testing.T, h *agentHarness, threadID, want string) systemdb.AgentTurn {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		turn, err := lastTurn(t, h, threadID)
+		if err == nil && turn.Status == want {
+			return turn
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	turn, _ := lastTurn(t, h, threadID)
+	t.Fatalf("turn status = %q (error_code=%q), want %q", turn.Status, turn.ErrorCode, want)
+	return systemdb.AgentTurn{}
+}
+
 func TestCollabHumanTaskReplyContinuesTurn(t *testing.T) {
-	h, _, threadID, _ := newCollabEnv(t)
+	h, threadID, _ := newCollabEnv(t)
 
 	// @人：登录态用户才有「人」的身份。
 	events := h.createTurn(t, threadID, "帮我确认这笔异常", []map[string]any{
@@ -229,7 +273,7 @@ func TestCollabHumanTaskReplyContinuesTurn(t *testing.T) {
 		t.Fatalf("waiting turn must release the thread: %+v", collab)
 	}
 	tasks, _ := h.store.ListAgentTasks(context.Background(), "testprj1", turn.ID)
-	if len(tasks) != 1 || tasks[0].TargetKind != systemdb.TaskTargetHuman || tasks[0].AssigneeID != "u1" {
+	if len(tasks) != 1 || tasks[0].TargetKind != systemdb.TaskTargetHuman || tasks[0].AssigneeID != "user:u1" {
 		t.Fatalf("human task: %+v", tasks)
 	}
 	// 待办列表与角标。
@@ -254,17 +298,14 @@ func TestCollabHumanTaskReplyContinuesTurn(t *testing.T) {
 	// 接收人回复并继续 → 任务完成、轮次结束。
 	rec = h.reqAs(http.MethodPost, "/agent-tasks/"+tasks[0].ID+"/replies",
 		map[string]any{"outcome": "continue", "text": "已确认为正常波动"}, userPrincipal("u1"))
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusAccepted {
 		t.Fatalf("reply: %d %s", rec.Code, rec.Body.String())
 	}
 	tasks, _ = h.store.ListAgentTasks(context.Background(), "testprj1", turn.ID)
-	if len(tasks) != 1 || tasks[0].Status != systemdb.TaskStatusCompleted || tasks[0].RepliedBy != "u1" {
+	if len(tasks) != 1 || tasks[0].Status != systemdb.TaskStatusCompleted || tasks[0].RepliedBy != "user:u1" {
 		t.Fatalf("task after reply: %+v", tasks)
 	}
-	turn, _ = lastTurn(t, h, threadID)
-	if turn.Status != systemdb.TurnStatusCompleted {
-		t.Fatalf("turn after reply: %+v", turn)
-	}
+	turn = waitCollabTurnStatus(t, h, threadID, systemdb.TurnStatusCompleted)
 	// 回复进入会话历史（人工回复消息）。
 	msgs, _ := h.store.ListAgentMessages(context.Background(), "testprj1", threadID, 50)
 	found := false
@@ -279,27 +320,24 @@ func TestCollabHumanTaskReplyContinuesTurn(t *testing.T) {
 }
 
 func TestCollabHumanUnableMarksTurnFailed(t *testing.T) {
-	h, _, threadID, _ := newCollabEnv(t)
+	h, threadID, _ := newCollabEnv(t)
 	h.createTurn(t, threadID, "需要你确认", []map[string]any{{"kind": "human", "id": "me"}}, "u1")
 	turn, _ := lastTurn(t, h, threadID)
 	tasks, _ := h.store.ListAgentTasks(context.Background(), "testprj1", turn.ID)
 	rec := h.reqAs(http.MethodPost, "/agent-tasks/"+tasks[0].ID+"/replies",
 		map[string]any{"outcome": "unable"}, userPrincipal("u1"))
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusAccepted {
 		t.Fatalf("unable reply: %d %s", rec.Code, rec.Body.String())
 	}
 	tasks, _ = h.store.ListAgentTasks(context.Background(), "testprj1", turn.ID)
 	if tasks[0].Status != systemdb.TaskStatusFailed || tasks[0].ErrorCode != "human_unable" {
 		t.Fatalf("unable task: %+v", tasks[0])
 	}
-	turn, _ = lastTurn(t, h, threadID)
-	if turn.Status != systemdb.TurnStatusFailed {
-		t.Fatalf("turn should fail: %+v", turn)
-	}
+	waitCollabTurnStatus(t, h, threadID, systemdb.TurnStatusFailed)
 }
 
 func TestCollabHumanMentionFromAPIKeyRejected(t *testing.T) {
-	h, _, threadID, _ := newCollabEnv(t)
+	h, threadID, _ := newCollabEnv(t)
 	// API Key 没有「人」的身份：@人 必须 409 human_assignee_required。
 	rec := h.reqAs(http.MethodPost, "/agent-threads/"+threadID+"/turns", map[string]any{
 		"content": "确认一下", "stream": true,
@@ -314,7 +352,7 @@ func TestCollabHumanMentionFromAPIKeyRejected(t *testing.T) {
 }
 
 func TestCollabTurnIdempotency(t *testing.T) {
-	h, _, threadID, agents := newCollabEnv(t)
+	h, threadID, agents := newCollabEnv(t)
 	db := agents["database"]
 	body := map[string]any{
 		"content": "看看订单", "stream": false, "idempotency_key": "k-1",
@@ -326,6 +364,7 @@ func TestCollabTurnIdempotency(t *testing.T) {
 	}
 	var first turnDTO
 	_ = json.Unmarshal(rec.Body.Bytes(), &first)
+	waitCollabTurnStatus(t, h, threadID, systemdb.TurnStatusCompleted)
 	runsBefore, _ := h.store.ListAgentRuns(context.Background(), "testprj1", threadID, 20)
 
 	// 同幂等键重放：返回同一轮次，且不重复建 run。
@@ -345,7 +384,7 @@ func TestCollabTurnIdempotency(t *testing.T) {
 }
 
 func TestCollabTurnBusyGuard(t *testing.T) {
-	h, _, threadID, _ := newCollabEnv(t)
+	h, threadID, _ := newCollabEnv(t)
 	// 直接占用会话，模拟另一轮正在跑。
 	active, _, err := h.store.CreateAgentTurn(context.Background(), systemdb.AgentTurn{
 		ProjectID: "testprj1", ThreadID: threadID, Status: systemdb.TurnStatusRunning,
@@ -368,7 +407,7 @@ func TestCollabTurnBusyGuard(t *testing.T) {
 }
 
 func TestCollabArchivedGroupRejectsSend(t *testing.T) {
-	h, _, threadID, _ := newCollabEnv(t)
+	h, threadID, _ := newCollabEnv(t)
 	// 找到会话所属群并归档。
 	ws, _ := h.store.GetAgentThreadWorkspace(context.Background(), "testprj1", threadID)
 	rec := h.req(http.MethodDelete, "/agent-tags/"+ws.TagID, nil)
@@ -391,7 +430,7 @@ func TestCollabArchivedGroupRejectsSend(t *testing.T) {
 }
 
 func TestGroupMembersAddAndRemove(t *testing.T) {
-	h, _, _, agents := newCollabEnv(t)
+	h, _, agents := newCollabEnv(t)
 	general := agents["general"]
 
 	rec := h.req(http.MethodPost, "/agent-tags", map[string]any{"name": "成员群", "agent_ids": []string{}})
@@ -444,7 +483,7 @@ func TestGroupMembersAddAndRemove(t *testing.T) {
 }
 
 func TestGeneralGroupMembersAddAndRemove(t *testing.T) {
-	h, _, _, agents := newCollabEnv(t)
+	h, _, agents := newCollabEnv(t)
 	database := agents["database"]
 
 	rec := h.req(http.MethodDelete, "/agent-tags/general/members/"+database.ID+"?expected_version=0", nil)
@@ -531,7 +570,7 @@ func TestGroupEventEntryCreatesThread(t *testing.T) {
 }
 
 func TestTurnEventsReplay(t *testing.T) {
-	h, _, threadID, agents := newCollabEnv(t)
+	h, threadID, agents := newCollabEnv(t)
 	db := agents["database"]
 	h.createTurn(t, threadID, "查一下", []map[string]any{{"kind": "agent", "id": db.ID}}, "u1")
 	turn, _ := lastTurn(t, h, threadID)
@@ -540,7 +579,8 @@ func TestTurnEventsReplay(t *testing.T) {
 		t.Fatalf("events: %v %d", err, len(events))
 	}
 	last := events[len(events)-1].Seq
-	rec := h.req(http.MethodGet, "/agent-turns/"+turn.ID+"/events?after="+strconv.FormatInt(last, 10), nil)
+	// 从 end 之前续接，验证终局帧可回放；after=end.seq 时应无重复帧。
+	rec := h.req(http.MethodGet, "/agent-turns/"+turn.ID+"/events?after="+strconv.FormatInt(last-1, 10), nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("events replay: %d %s", rec.Code, rec.Body.String())
 	}
@@ -551,7 +591,7 @@ func TestTurnEventsReplay(t *testing.T) {
 }
 
 func TestCollabTurnResumeAfterInterrupt(t *testing.T) {
-	h, _, threadID, agents := newCollabEnv(t)
+	h, threadID, agents := newCollabEnv(t)
 	db := agents["database"]
 	h.createTurn(t, threadID, "查看数据", []map[string]any{{"kind": "agent", "id": db.ID}}, "u1")
 	turn, _ := lastTurn(t, h, threadID)
@@ -570,9 +610,10 @@ func TestCollabTurnResumeAfterInterrupt(t *testing.T) {
 	// resume 后任务重新执行并完成。
 	rec := h.reqAs(http.MethodPost, "/agent-turns/"+turn.ID+"/actions",
 		map[string]any{"action": "resume"}, userPrincipal("u1"))
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusAccepted {
 		t.Fatalf("resume: %d %s", rec.Code, rec.Body.String())
 	}
+	waitCollabTurnStatus(t, h, threadID, systemdb.TurnStatusCompleted)
 	tasks, _ = h.store.ListAgentTasks(context.Background(), "testprj1", turn.ID)
 	if len(tasks) != 1 || tasks[0].Status != systemdb.TaskStatusCompleted {
 		t.Fatalf("task after resume: %+v", tasks)
@@ -580,13 +621,18 @@ func TestCollabTurnResumeAfterInterrupt(t *testing.T) {
 }
 
 func TestCollabTurnCancelStopsTask(t *testing.T) {
-	h, _, threadID, agents := newCollabEnv(t)
+	h, threadID, agents := newCollabEnv(t)
 	db := agents["database"]
 	h.createTurn(t, threadID, "查看数据", []map[string]any{{"kind": "agent", "id": db.ID}}, "u1")
 	turn, _ := lastTurn(t, h, threadID)
+	// 模拟一个请求已断开但尚未终态的轮次；终态轮次的 Cancel 是幂等 no-op。
+	if err := h.store.UpdateAgentTurnStatus(context.Background(), "testprj1", turn.ID,
+		systemdb.TurnStatusRunning, "", "", 0); err != nil {
+		t.Fatal(err)
+	}
 	rec := h.reqAs(http.MethodPost, "/agent-turns/"+turn.ID+"/actions",
 		map[string]any{"action": "cancel"}, userPrincipal("u1"))
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusAccepted {
 		t.Fatalf("cancel: %d %s", rec.Code, rec.Body.String())
 	}
 	turn, _ = lastTurn(t, h, threadID)
@@ -598,4 +644,18 @@ func TestCollabTurnCancelStopsTask(t *testing.T) {
 // auth_APIKey 返回 API Key 主体（用于「不能担任人」的用例）。
 func auth_APIKey() auth.Principal {
 	return auth.Principal{APIKeyID: "k1", TenantID: catalog.ReservedTenantID}
+}
+
+// jsonBodyContains 报告 JSON 响应体原文是否包含子串（断言稳定错误码用）。
+func jsonBodyContains(body, sub string) bool {
+	return json.Valid([]byte(body)) && len(sub) > 0 && indexOf(body, sub) >= 0
+}
+
+func indexOf(s, sub string) int {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return i
+		}
+	}
+	return -1
 }

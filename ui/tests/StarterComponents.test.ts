@@ -5,7 +5,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { describe, expect, it } from 'vitest'
 import HomeStarterPrompts from '@/components/home/HomeStarterPrompts.vue'
 import StarterLaunchModal from '@/components/home/StarterLaunchModal.vue'
-import { uiStubs } from '@/test/helpers'
+import { inDialog, installJsdomPolyfills, modalOkDisabled, mountDialog, okModal, realDialogStubs, uiStubs } from '@/test/helpers'
 
 /** 这些组件的断言打在真实 DOM 上：Button / Badge / Card 都不桩（见 ui/AGENTS.md）。 */
 function mountPlain(component: Component, props: Record<string, unknown> = {}) {
@@ -15,6 +15,8 @@ function mountPlain(component: Component, props: Record<string, unknown> = {}) {
     global: { plugins: [router, createPinia()], stubs: { RouterLink: false } }
   })
 }
+
+installJsdomPolyfills()
 
 describe('HomeStarterPrompts', () => {
   it('渲染 3 张卡片，带标题、说明与产出徽标', () => {
@@ -41,66 +43,66 @@ describe('HomeStarterPrompts', () => {
 })
 
 describe('StarterLaunchModal', () => {
-  /** 弹窗类组件走 uiStubs（Dialog 经 Teleport，真实 DOM 不在 wrapper 内）。 */
+  /** 真实 SbModal + Dialog：内容 teleport 到 body，弹窗内查询走 inDialog()。 */
   function mountModal(props: Record<string, unknown>) {
-    return mount(StarterLaunchModal, { props, global: { stubs: uiStubs } })
+    return mountDialog(StarterLaunchModal, { props, global: { stubs: { ...uiStubs, ...realDialogStubs } } })
   }
-  const okBtn = (w: ReturnType<typeof mountModal>) => w.get('.sb-ok')
-
+  
   it('打开时项目名默认取模板名，并提示每次都会新建项目', async () => {
-    const w = mountModal({ open: true, templateId: 'dashboard' })
+    const w = await mountModal({ open: true, templateId: 'dashboard' })
     await flushPromises()
-    expect((w.get('#starter-project-name').element as HTMLInputElement).value).toBe('销售数据看板')
-    expect(w.get('[data-starter-notice]').text()).toContain('每次开始都会新建一个项目')
+    expect((inDialog().get('#starter-project-name').element as HTMLInputElement).value).toBe('销售数据看板')
+    expect(inDialog().get('[data-starter-notice]').text()).toContain('每次开始都会新建一个项目')
   })
 
   it('确认时 emit 去空格后的项目名与引擎', async () => {
-    const w = mountModal({ open: true, templateId: 'portfolio', initialName: '  我的作品  ', initialEngine: 'sqlite' })
+    const w = await mountModal({ open: true, templateId: 'portfolio', initialName: '  我的作品  ', initialEngine: 'sqlite' })
     await flushPromises()
-    await okBtn(w).trigger('click')
+    await okModal()
     expect(w.emitted('confirm')).toEqual([[{ name: '我的作品', engine: 'sqlite' }]])
   })
 
   it('项目名为空或含非法字符时不能提交', async () => {
-    const w = mountModal({ open: true, templateId: 'dashboard' })
+    const w = await mountModal({ open: true, templateId: 'dashboard' })
     await flushPromises()
-    await w.get('#starter-project-name').setValue('a/b')
-    expect(w.text()).toContain('路径分隔符')
-    await okBtn(w).trigger('click')
-    expect(w.emitted('confirm')).toBeUndefined()
-    await w.get('#starter-project-name').setValue('   ')
-    await okBtn(w).trigger('click')
+    await inDialog().get('#starter-project-name').setValue('a/b')
+    expect(inDialog().text()).toContain('路径分隔符')
+    // 非法名称 / 空名称时「开始」是禁用的：用户点不了，而不是点了没反应
+    expect(modalOkDisabled()).toBe(true)
+    await inDialog().get('#starter-project-name').setValue('   ')
+    expect(modalOkDisabled()).toBe(true)
     expect(w.emitted('confirm')).toBeUndefined()
   })
 
   it('提示词预览可展开，且不暴露任何密钥', async () => {
-    const w = mountModal({ open: true, templateId: 'dashboard' })
+    const w = await mountModal({ open: true, templateId: 'dashboard' })
     await flushPromises()
-    const pre = w.get('[data-starter-preview] pre').text()
+    const pre = inDialog().get('[data-starter-preview] pre').text()
     expect(pre).toContain('销售数据看板')
     expect(pre).toContain('web/index.html')
     expect(pre.toLowerCase()).not.toContain('sb_live_')
   })
 
   it('launching 时不能重复提交', async () => {
-    const w = mountModal({ open: true, templateId: 'dashboard', launching: true })
+    const w = await mountModal({ open: true, templateId: 'dashboard', launching: true })
     await flushPromises()
-    await okBtn(w).trigger('click')
+    // launching 时确认按钮进入加载态并禁用，无法重复提交
+    expect(modalOkDisabled()).toBe(true)
     expect(w.emitted('confirm')).toBeUndefined()
   })
 
   it('未知模板不提交', async () => {
-    const w = mountModal({ open: true, templateId: 'todo' })
+    const w = await mountModal({ open: true, templateId: 'todo' })
     await flushPromises()
-    await okBtn(w).trigger('click')
+    expect(modalOkDisabled()).toBe(true)
     expect(w.emitted('confirm')).toBeUndefined()
-    expect(w.find('[data-starter-preview]').exists()).toBe(false)
+    expect(inDialog().find('[data-starter-preview]').exists()).toBe(false)
   })
 
   it('重新打开时恢复默认项目名与引擎', async () => {
-    const w = mountModal({ open: false, templateId: 'notice' })
+    const w = await mountModal({ open: false, templateId: 'notice' })
     await w.setProps({ open: true })
     await flushPromises()
-    expect((w.get('#starter-project-name').element as HTMLInputElement).value).toBe('团队公告板')
+    expect((inDialog().get('#starter-project-name').element as HTMLInputElement).value).toBe('团队公告板')
   })
 })

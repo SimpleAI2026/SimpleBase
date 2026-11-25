@@ -3,6 +3,7 @@
 // 用法
 //
 //	SpecOf(db catalog.Database) godatabase.Spec  // SpecOf 把 catalog.Database 转换为库的 Spec
+//	DialectOf(db catalog.Database) (godatabase.Dialect, error)  // DialectOf 按 catalog 行解析 SQL 方言（系统库恒为 DuckDB）
 //
 // 调用架构
 //
@@ -45,6 +46,19 @@ func SpecOf(db catalog.Database) godatabase.Spec {
 		Status:       godatabase.Status(db.Status),
 		DatabasePath: db.DatabasePath,
 	}
+}
+
+// DialectOf 按 catalog 行解析 SQL 方言：系统库恒为 DuckDB（其路径不落在项目目录约定内），
+// 用户库按数据库文件路径推断引擎。
+func DialectOf(db catalog.Database) (godatabase.Dialect, error) {
+	if catalog.IsSystemDatabase(db) {
+		return godatabase.DialectFor(catalog.EngineDuckDB)
+	}
+	engine, err := catalog.DatabaseEngine(db.DatabasePath)
+	if err != nil {
+		return nil, err
+	}
+	return godatabase.DialectFor(engine)
 }
 
 // resolver 用 catalog.Service 补全 DatabasePath；租户归属校验仍由 catalog 完成。

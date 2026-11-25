@@ -1,3 +1,24 @@
+// 文件说明：s3_content_handler_test.go — internal/api 的单元测试（TestS3ContentMIMERangeLinkAndFolders 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestS3ContentMIMERangeLinkAndFolders'
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/s3_content_handler_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//
+// 主要符号
+//
+//	TestS3ContentMIMERangeLinkAndFolders(t *testing.T)
+
 package api
 
 import (
@@ -18,7 +39,7 @@ import (
 
 func TestS3ContentMIMERangeLinkAndFolders(t *testing.T) {
 	store := objectstore.NewMemoryFileStore()
-	h := &S3Handler{store: store, tokenSecret: "test-secret", allowedMIME: []string{"text/plain"}}
+	h := &S3Handler{store: store, tokenSecret: "test-secret", allowedMIME: []string{"text/plain"}, writable: true}
 	e := echo.New()
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {

@@ -1,5 +1,36 @@
 //go:build linux
 
+// 文件说明：tunnel_e2e_test.go — gosandbox/box 的单元测试（TestMain、TestTunnelKeepAlive 等）
+//
+// 用法
+//
+//	go test ./gosandbox/box -run 'TestMain|TestTunnelKeepAlive|TestTunnelLargeUpload|TestTunnelStreamingResponse'
+//	同包调用：startTestServer() → netx_e2e_test.go；dialPort() → netx_e2e_test.go；responseWithin() → netx_e2e_test.go
+//
+// 调用架构
+//
+//	[上游] gosandbox/cmd, gosandbox/vm/box
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/box/tunnel_e2e_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] backpressure_test.go, copytree.go, deadline.go, egress_e2e_test.go, files.go 等 26 个
+//	[关键引用] startTestServer ← netx_e2e_test.go；dialPort ← netx_e2e_test.go；responseWithin ← netx_e2e_test.go
+//
+// 主要符号
+//
+//	const tunnelServerEnv / tunnelPortEnv
+//	TestMain(m *testing.M)
+//	startTestServer(t *testing.T, s *Session, port int)
+//	dialPort(t *testing.T, s *Session, port int) net.Conn
+//	readHTTPResponse(br *bufio.Reader) (string, error)
+//	responseWithin(t *testing.T, br *bufio.Reader, d time.Duration) (string, error)
+//	TestTunnelKeepAlive(t *testing.T)
+//	TestTunnelLargeUpload(t *testing.T)
+//	... 另有 3 个顶层符号
+
 package box
 
 // tunnel_e2e_test.go：通过真实 agent 的入站隧道。
@@ -72,7 +103,7 @@ func dialPort(t *testing.T, s *Session, port int) net.Conn {
 	deadline := time.Now().Add(5 * time.Second)
 	var last error
 	for time.Now().Before(deadline) {
-		conn, err := s.DialPort(uint16(port))
+		conn, err := s.DialPort(context.Background(), uint16(port))
 		if err == nil {
 			return conn
 		}

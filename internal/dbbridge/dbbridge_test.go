@@ -1,3 +1,32 @@
+// 文件说明：dbbridge_test.go — internal/dbbridge 的单元测试（TestPlan_CloseIdleThenQueryKeepsCatalogReady、TestSpecOfKeepsSystemKindAndStatus 等）
+//
+// 用法
+//
+//	go test ./internal/dbbridge -run 'TestPlan_CloseIdleThenQueryKeepsCatalogReady|TestSpecOfKeepsSystemKindAndStatus|TestDialectOf|TestStatusValuesStayInSync'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/api, internal/app, internal/backup 等 5 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/dbbridge/dbbridge_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] dbbridge.go
+//
+// 主要符号
+//
+//	type memFactory struct{…}
+//	(memFactory) Open(ctx context.Context, _ godatabase.Spec, _ godatabase.AccessMode) (*sql.DB, error)
+//	newAlwaysOpenCatalog(t *testing.T) (*catalog.Service, catalog.Repository, auth.Principal, string, string)
+//	TestPlan_CloseIdleThenQueryKeepsCatalogReady(t *testing.T)
+//	TestSpecOfKeepsSystemKindAndStatus(t *testing.T)
+//	TestDialectOf(t *testing.T)
+//	TestStatusValuesStayInSync(t *testing.T)
+//	TestNilHostValuesBecomeUntypedNil(t *testing.T)
+//	... 另有 5 个顶层符号
+
 package dbbridge
 
 import (
@@ -148,6 +177,28 @@ func TestSpecOfKeepsSystemKindAndStatus(t *testing.T) {
 	}
 	if SpecOf(catalog.Database{}).IsSystem() {
 		t.Fatal("empty kind must be treated as user")
+	}
+}
+
+// 方言解析：系统库不看路径恒为 DuckDB；用户库按路径后缀推断；未知后缀报错。
+func TestDialectOf(t *testing.T) {
+	sys, err := DialectOf(catalog.Database{Kind: catalog.DatabaseKindSystem, DatabasePath: ""})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name := sys.Engine(); name != catalog.EngineDuckDB {
+		t.Fatalf("system dialect = %q", name)
+	}
+	sqlitePath, err := catalog.DatabasePathForProject("prj00001", catalog.EngineSQLite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := DialectOf(catalog.Database{Kind: catalog.DatabaseKindUser, DatabasePath: sqlitePath})
+	if err != nil || user.Engine() != catalog.EngineSQLite {
+		t.Fatalf("user dialect = %v err=%v", user, err)
+	}
+	if _, err := DialectOf(catalog.Database{Kind: catalog.DatabaseKindUser, DatabasePath: "prj00001/database.unknown"}); err == nil {
+		t.Fatal("unknown engine suffix must fail")
 	}
 }
 

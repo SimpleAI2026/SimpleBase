@@ -1,3 +1,30 @@
+// 文件说明：agent_saved_provider_test.go — internal/api 的单元测试（TestAgentRunUsesProviderSavedViaSettingsAPI 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestAgentRunUsesProviderSavedViaSettingsAPI'
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/agent_saved_provider_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//
+// 主要符号
+//
+//	TestAgentRunUsesProviderSavedViaSettingsAPI(t *testing.T)
+//	savedProviderReq(e *echo.Echo, project, method, path string, body any) *httptest.ResponseRecorder
+//	savedProviderThread(t *testing.T, req func(project, method, path string, body any) *httptest.ResponseRecorder,...
+//	savedProviderRun(t *testing.T, req func(project, method, path string, body any) *httptest.ResponseRecorder, pr...
+//	savedProviderCode(events []sseEvent) string
+//	sseContains(events []sseEvent, text string) bool
+//	joinSSE(events []sseEvent) string
+
 package api
 
 import (
@@ -59,14 +86,14 @@ func TestAgentRunUsesProviderSavedViaSettingsAPI(t *testing.T) {
 	gw := llmgateway.NewService(resolver, nil, nil, nil)
 	provider := &agentbridge.RuntimeProvider{Settings: agentbridge.NewSettingsAccess(store)}
 	rt := &cloudagent.Runtime{
-		LLM: NewCloudAgentLLM(NewLLMService(gw)), Provider: provider,
+		LLM: agentbridge.NewCloudAgentLLM(gw), Provider: provider,
 		ToolProtocol: "native",
 		RunTimeout:   30 * time.Second,
 	}
 	e := echo.New()
 	e.HideBanner = true
 	e.HTTPErrorHandler = errorHandler(Dependencies{})
-	h := &cloudAgentHandler{store: store, runtime: rt, llm: NewLLMService(gw)}
+	h := &cloudAgentHandler{store: store, svc: testAgentRun(store, rt), llm: NewLLMService(gw), writable: true}
 	registerAgentRoutes(e, h)
 	sess := &llmSessionHandler{store: store}
 	e.PUT("/llm/settings", sess.PutSettings)

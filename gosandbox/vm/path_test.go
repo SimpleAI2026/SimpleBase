@@ -1,3 +1,25 @@
+// 文件说明：path_test.go — gosandbox/vm 的单元测试（TestCleanPathRootWorkdir、TestCleanPath 等）
+//
+// 用法
+//
+//	go test ./gosandbox/vm -run 'TestCleanPathRootWorkdir|TestCleanPath'
+//
+// 调用架构
+//
+//	[上游] gosandbox/vm/box, gosandbox/vm/fake, gosandbox/vm/local, internal/api 等 7 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/vm/path_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] driver.go, env.go, env_test.go, errors.go, output.go 等 9 个
+//
+// 主要符号
+//
+//	TestCleanPathRootWorkdir(t *testing.T)
+//	TestCleanPath(t *testing.T)
+
 package vm
 
 import (

@@ -1,3 +1,33 @@
+// 文件说明：mcp_builtin.go — internal/api 的内部实现（builtinAPITool、builtinMCP 等）
+//
+// 用法
+//
+//	同包调用：builtinAPITool → mcp_builtin_simplebase.go, mcp_builtin_test.go；builtinMCP → mcp_builtin_session.go, mcp_builtin_simplebase.go；builtinMCPHandler → mcp_builtin_session.go, mcp_builtin_session_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/mcp_builtin.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] builtinAPITool ← mcp_builtin_simplebase.go, mcp_builtin_test.go；builtinMCP ← mcp_builtin_session.go, mcp_builtin_simplebase.go；builtinMCPHandler ← mcp_builtin_session.go, mcp_builtin_session_test.go
+//
+// 主要符号
+//
+//	type builtinAPITool struct{…}
+//	type builtinMCP struct{…}
+//	var builtinMCPs
+//	type builtinMCPHandler struct{…}
+//	type cachedSpec struct{…}
+//	newBuiltinMCPHandler(e *echo.Echo, deps Dependencies) *builtinMCPHandler
+//	(h *builtinMCPHandler) Serve(c echo.Context) error
+//	(h *builtinMCPHandler) MethodNotAllowed(c echo.Context) error
+//	... 另有 6 个顶层符号
+
 // mcp_builtin.go — 内置 MCP Server 的注册表与 HTTP 端点（planv6.7 §3.4）
 package api
 
@@ -70,9 +100,9 @@ func (h *builtinMCPHandler) Serve(c echo.Context) error {
 	if !h.deps.Config.Agent.MCP.Builtin {
 		return c.JSON(http.StatusNotFound, map[string]any{"status": 404, "message": "builtin mcp not enabled"})
 	}
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	// 系统项目禁止 MCP 暴露（§3.4 #3）。
 	if catalog.IsSystemProject(pc.ID) {

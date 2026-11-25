@@ -1,3 +1,32 @@
+// 文件说明：testdata_test.go — gofunction/internal/interp 的单元测试（TestAll、TestImportGofun 等）
+//
+// 用法
+//
+//	go test ./gofunction/internal/interp -run 'TestAll|TestImportGofun|BenchmarkFib|TestGetGlobalValue'
+//
+// 调用架构
+//
+//	[上游] gofunction
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/internal/interp/testdata_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] bench_test.go, cachetest_test.go, call.go, call_test.go, cheap_test.go 等 40 个
+//
+// 主要符号
+//
+//	const seqid
+//	testdataDir() string
+//	testCase(t *testing.T, funcName string)
+//	TestAll(t *testing.T)
+//	TestImportGofun(t *testing.T)
+//	BenchmarkFib(b *testing.B)
+//	TestGetGlobalValue(t *testing.T)
+//	TestRunFunction(t *testing.T)
+//	... 另有 2 个顶层符号
+
 package interp
 
 import (

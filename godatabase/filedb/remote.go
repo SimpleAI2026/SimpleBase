@@ -1,3 +1,36 @@
+// 文件说明：remote.go — godatabase/filedb 中 Manifest、FileSyncer 等符号的实现
+//
+// 用法
+//
+//	type Manifest struct{…}  // Manifest 记录项目数据库文件的一次不可变快照
+//	type FileSyncer struct{…}  // FileSyncer 把项目数据库文件以不可变快照 + manifest 链持久化到对象存储
+//	NewFileSyncer(blobs blob.Store, keys blob.KeyBuilder, cacheDir string, interval time.Duration, keep int, logge...  // NewFileSyncer 构造远端同步器；interval <= 0 时取 15s，keep <= 0 时保留 10 版
+//	同包调用：snapshotDuckDBFile() → snapshot.go；fileSHA256() → snapshot.go
+//
+// 调用架构
+//
+//	[上游] godatabase/cmd, internal/app, internal/backup
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/filedb/remote.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] dialect_bucket_test.go, factory.go, factory_test.go, path.go, remote_test.go 等 9 个
+//	[关键引用] FileSyncer ← remote_test.go, restore_remote.go；NewFileSyncer ← remote_test.go；snapshotDuckDBFile ← snapshot.go
+//
+// 主要符号
+//
+//	const fileManifestFormatVersion
+//	type Manifest struct{…}
+//	type localState struct{…}
+//	type bindState struct{…}
+//	type projectState struct{…}
+//	type FileSyncer struct{…}
+//	NewFileSyncer(blobs blob.Store, keys blob.KeyBuilder, cacheDir string, interval time.Duration, keep int, logge...
+//	(s *FileSyncer) Start(ctx context.Context)
+//	... 另有 32 个顶层符号
+
 package filedb
 
 import (
@@ -72,18 +105,21 @@ type projectState struct {
 type FileSyncer struct {
 	blobs     blob.Store
 	keys      blob.KeyBuilder
-	cacheDir  string
 	interval  time.Duration
 	keep      int
 	logger    godatabase.Logger
 	stateRoot string
 
 	mu       sync.Mutex
-	projects map[string]*projectState
-	closed   bool
-	stopCh   chan struct{}
-	doneCh   chan struct{}
-	started  bool
+	projects   map[string]*projectState
+	// flushLocks 是每项目 Flush 互斥（B6：两个并发 Flush 会捕获相同的
+	// last/g0/epoch，复用同一 staging 路径、snapshot key 与 manifest seq，
+	// 互相删除/覆盖 staging 并把后一个条件写冲突误判为失租）。
+	flushLocks map[string]*sync.Mutex
+	closed     bool
+	stopCh     chan struct{}
+	doneCh     chan struct{}
+	started    bool
 }
 
 // NewFileSyncer 构造远端同步器；interval <= 0 时取 15s，keep <= 0 时保留 10 版。
@@ -97,14 +133,14 @@ func NewFileSyncer(blobs blob.Store, keys blob.KeyBuilder, cacheDir string, inte
 	return &FileSyncer{
 		blobs:     blobs,
 		keys:      keys,
-		cacheDir:  cacheDir,
 		interval:  interval,
 		keep:      keep,
 		logger:    logger,
 		stateRoot: filepath.Join(cacheDir, "projects"),
-		projects:  map[string]*projectState{},
-		stopCh:    make(chan struct{}),
-		doneCh:    make(chan struct{}),
+		projects:   map[string]*projectState{},
+		flushLocks: map[string]*sync.Mutex{},
+		stopCh:     make(chan struct{}),
+		doneCh:     make(chan struct{}),
 	}
 }
 
@@ -292,11 +328,40 @@ func (s *FileSyncer) setLast(projectID string, seq int64) {
 	s.mu.Unlock()
 }
 
+// flushLockFor 返回该项目的 Flush 互斥锁（惰性创建；在 s.mu 外使用
+// 返回的锁，不得在持 s.mu 时加锁）。
+func (s *FileSyncer) flushLockFor(projectID string) *sync.Mutex {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	l := s.flushLocks[projectID]
+	if l == nil {
+		l = &sync.Mutex{}
+		s.flushLocks[projectID] = l
+	}
+	return l
+}
+
+// admissionBlocked 报告该项目的发布准入是否已被阻断（同步器已关停或已
+// 失租）。B7：上传/发布期间发生的关停或失租不得继续推进水位。
+func (s *FileSyncer) admissionBlocked(projectID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return true
+	}
+	st := s.projects[projectID]
+	return st != nil && st.lost
+}
+
 // Flush 生成一致性快照并发布 manifest。
 func (s *FileSyncer) Flush(ctx context.Context, projectID string) error {
 	if s == nil || s.blobs == nil {
 		return nil
 	}
+	// B6：同项目串行化，避免并发 Flush 复用同一发布标识。
+	fl := s.flushLockFor(projectID)
+	fl.Lock()
+	defer fl.Unlock()
 	s.mu.Lock()
 	st := s.stateOfLocked(projectID)
 	if st.lost {
@@ -338,6 +403,11 @@ func (s *FileSyncer) Flush(ctx context.Context, projectID string) error {
 	if err != nil {
 		return err
 	}
+	// B7：上传前核对准入（快照生成期间可能已关停/失租；未发布 manifest
+	// 的孤儿 snapshot 由 prune 或接管者清理，不构成版本）。
+	if s.admissionBlocked(projectID) {
+		return nil
+	}
 	// P1：优先流式上传（blob.PutFiler），未实现时退回整读上传。
 	if pf, ok := s.blobs.(blob.PutFiler); ok {
 		if err := pf.PutFile(ctx, key, snapshotPath, "application/octet-stream"); err != nil {
@@ -371,6 +441,11 @@ func (s *FileSyncer) Flush(ctx context.Context, projectID string) error {
 	manifestKey, err := s.keys.ProjectDatabaseManifestKey(projectID, seq)
 	if err != nil {
 		return err
+	}
+	// B7：发布前再次核对准入（上传期间可能已关停/失租；已上传的孤儿
+	// snapshot 不推进水位，由 prune 或接管者清理）。
+	if s.admissionBlocked(projectID) {
+		return nil
 	}
 	if _, err := s.blobs.PutIfAbsent(ctx, manifestKey, body, "application/json"); err != nil {
 		if errors.Is(err, blob.ErrPreconditionFailed) {
@@ -444,10 +519,7 @@ func (s *FileSyncer) snapshot(ctx context.Context, state *bindState, projectID s
 		}
 		return target, "", nil
 	case godatabase.EngineDuckDB:
-		if _, err := state.db.ExecContext(ctx, "CHECKPOINT"); err != nil {
-			return "", "", fmt.Errorf("filedb: duckdb checkpoint: %w", err)
-		}
-		digest, err := copyFileHashed(state.filePath, target)
+		digest, err := snapshotDuckDBFile(ctx, state.db, state.filePath, target)
 		if err != nil {
 			return "", "", err
 		}
@@ -455,6 +527,16 @@ func (s *FileSyncer) snapshot(ctx context.Context, state *bindState, projectID s
 	default:
 		return "", "", fmt.Errorf("filedb: unsupported engine %q", state.engine)
 	}
+}
+
+// snapshotDuckDBFile 是 DuckDB 快照生成的共享内核：先 CHECKPOINT 落盘，
+// 再复制主文件并同步计算 sha256（一遍 IO 完成复制与摘要）。
+// 目录准备、目标覆盖政策与后续校验留在各入口。
+func snapshotDuckDBFile(ctx context.Context, db *sql.DB, source, dst string) (string, error) {
+	if _, err := db.ExecContext(ctx, "CHECKPOINT"); err != nil {
+		return "", fmt.Errorf("filedb: duckdb checkpoint: %w", err)
+	}
+	return copyFileHashed(source, dst)
 }
 
 // copyFileHashed 复制文件并同步计算 sha256（P1：一遍 IO 完成复制与摘要）。
@@ -503,7 +585,8 @@ func fileSHA256(name string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// latestManifest 优先从本地序号向后探测；冷缓存时通过列表定位最新序号。
+// latestManifest 优先从本地序号向后探测；未确认链尾或锚点失效时通过
+// 列表定位最新序号（B5：探测上限 32 不得当作链尾证明）。
 func (s *FileSyncer) latestManifest(ctx context.Context, projectID string) (*Manifest, error) {
 	prefix, err := s.keys.ProjectDatabasePrefix(projectID)
 	if err != nil {
@@ -511,38 +594,36 @@ func (s *FileSyncer) latestManifest(ctx context.Context, projectID string) (*Man
 	}
 	manifestPrefix := prefix + "/manifest/"
 	if local, localErr := s.readLocalState(projectID); localErr == nil && local != nil && local.Seq > 0 {
-		best, err := s.manifestByAnchor(ctx, projectID, local.Seq)
-		if err == nil {
+		best, confirmed, err := s.manifestByAnchor(ctx, projectID, local.Seq)
+		if err == nil && confirmed {
 			return best, nil
 		}
 	}
 	return s.latestManifestByList(ctx, manifestPrefix)
 }
 
-func (s *FileSyncer) manifestByAnchor(ctx context.Context, projectID string, base int64) (*Manifest, error) {
+// manifestByAnchor 从 base 向后探测至多 32 个 manifest。confirmed=true 表示
+// 已确认链尾（best 为最新）；false 表示探测达上限未确认链尾、或锚点紧邻
+// 即缺失（锚点失效，后方仍可能有版本）——两种情况都应回退全量 List。
+func (s *FileSyncer) manifestByAnchor(ctx context.Context, projectID string, base int64) (*Manifest, bool, error) {
 	var best *Manifest
 	for i := int64(1); i <= 32; i++ {
 		key, err := s.keys.ProjectDatabaseManifestKey(projectID, base+i)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		manifest, err := s.readManifest(ctx, key)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if manifest == nil {
-			break
+			// 遇到缺失：best 非零即确认链尾；best 为空说明锚点紧邻缺失，
+			// 交由调用方回退 List（不据此断定远端无数据）。
+			return best, best != nil, nil
 		}
 		best = manifest
 	}
-	if best != nil {
-		return best, nil
-	}
-	key, err := s.keys.ProjectDatabaseManifestKey(projectID, base)
-	if err != nil {
-		return nil, err
-	}
-	return s.readManifest(ctx, key)
+	return best, false, nil
 }
 
 func (s *FileSyncer) readManifest(ctx context.Context, key string) (*Manifest, error) {
@@ -563,22 +644,16 @@ func (s *FileSyncer) readManifest(ctx context.Context, key string) (*Manifest, e
 func (s *FileSyncer) latestManifestByList(ctx context.Context, manifestPrefix string) (*Manifest, error) {
 	var latestKey string
 	var latestSeq int64
-	cursor := ""
-	for {
-		keys, next, err := s.blobs.List(ctx, manifestPrefix, cursor, 1000)
-		if err != nil {
-			return nil, fmt.Errorf("filedb: list manifest: %w", err)
-		}
+	if err := s.forEachPage(ctx, manifestPrefix, func(keys []string) error {
 		for _, key := range keys {
 			seq, err := manifestSeq(key)
 			if err == nil && (latestKey == "" || seq > latestSeq) {
 				latestKey, latestSeq = key, seq
 			}
 		}
-		if next == "" {
-			break
-		}
-		cursor = next
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("filedb: list manifest: %w", err)
 	}
 	if latestKey == "" {
 		return nil, nil
@@ -594,6 +669,26 @@ func (s *FileSyncer) latestManifestByList(ctx context.Context, manifestPrefix st
 		return nil, fmt.Errorf("filedb: manifest seq mismatch")
 	}
 	return manifest, nil
+}
+
+// forEachPage 逐页遍历前缀下对象，不透明 cursor 原样传递（F4：分页遍历
+// 的唯一实现；B9：不得只用首页）。fn 返回错误立即中止；不把所有 key
+// 装入内存。List 错误以裸形式返回，由调用方包装。
+func (s *FileSyncer) forEachPage(ctx context.Context, prefix string, fn func(keys []string) error) error {
+	cursor := ""
+	for {
+		keys, next, err := s.blobs.List(ctx, prefix, cursor, 1000)
+		if err != nil {
+			return err
+		}
+		if err := fn(keys); err != nil {
+			return err
+		}
+		if next == "" {
+			return nil
+		}
+		cursor = next
+	}
 }
 
 func manifestSeq(key string) (int64, error) {
@@ -659,11 +754,7 @@ func (s *FileSyncer) writeLocalState(projectID string, st localState) error {
 	if err != nil {
 		return err
 	}
-	dir := filepath.Join(s.stateRoot, projectID)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	return atomicfile.Write(s.localStatePath(projectID), data, 0o644)
+	return atomicfile.WriteEnsureDir(s.localStatePath(projectID), data, 0o644)
 }
 
 func (s *FileSyncer) prune(ctx context.Context, projectID string, latest int64) error {
@@ -674,18 +765,19 @@ func (s *FileSyncer) prune(ctx context.Context, projectID string, latest int64) 
 	if err != nil {
 		return err
 	}
-	keys, _, err := s.blobs.List(ctx, prefix+"/snapshots/", "", 1000)
-	if err != nil {
-		return err
-	}
 	cutoff := latest - int64(s.keep)
 	var obsolete []string
-	for _, key := range keys {
-		seq, err := snapshotSeq(key)
-		if err != nil || seq > cutoff {
-			continue
+	if err := s.forEachPage(ctx, prefix+"/snapshots/", func(keys []string) error {
+		for _, key := range keys {
+			seq, err := snapshotSeq(key)
+			if err != nil || seq > cutoff {
+				continue
+			}
+			obsolete = append(obsolete, key)
 		}
-		obsolete = append(obsolete, key)
+		return nil
+	}); err != nil {
+		return err
 	}
 	if len(obsolete) == 0 {
 		return nil
@@ -710,21 +802,13 @@ func (s *FileSyncer) PurgeProject(ctx context.Context, projectID string) error {
 	if err != nil {
 		return err
 	}
-	cursor := ""
-	for {
-		keys, next, err := s.blobs.List(ctx, prefix+"/", cursor, 1000)
-		if err != nil {
-			return fmt.Errorf("filedb: list project database objects: %w", err)
+	if err := s.forEachPage(ctx, prefix+"/", func(keys []string) error {
+		if len(keys) == 0 {
+			return nil
 		}
-		if len(keys) > 0 {
-			if err := s.blobs.DeleteMany(ctx, keys); err != nil {
-				return err
-			}
-		}
-		if next == "" {
-			break
-		}
-		cursor = next
+		return s.blobs.DeleteMany(ctx, keys)
+	}); err != nil {
+		return fmt.Errorf("filedb: list project database objects: %w", err)
 	}
 	if err := os.RemoveAll(filepath.Join(s.stateRoot, projectID)); err != nil && !os.IsNotExist(err) {
 		return err

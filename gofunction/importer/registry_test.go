@@ -1,3 +1,32 @@
+// 文件说明：registry_test.go — gofunction/importer 的单元测试（TestNewRegistry、TestNewRegistryWithConfig 等）
+//
+// 用法
+//
+//	go test ./gofunction/importer -run 'TestNewRegistry|TestNewRegistryWithConfig|TestRegistry_RegisterPackage|TestRegistry_RegisterPackage_AllowDuplicate'
+//
+// 调用架构
+//
+//	[上游] gofunction/cmd, gofunction/internal/interp, gofunction/packages, gofunction/value
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/importer/registry_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] coverage_test.go, importer.go, importer_test.go, integration_test.go, parser_test.go 等 8 个
+//
+// 主要符号
+//
+//	TestNewRegistry(t *testing.T)
+//	TestNewRegistryWithConfig(t *testing.T)
+//	TestRegistry_RegisterPackage(t *testing.T)
+//	TestRegistry_RegisterPackage_AllowDuplicate(t *testing.T)
+//	TestRegistry_CreateFunction(t *testing.T)
+//	TestRegistry_CreateVariable(t *testing.T)
+//	TestRegistry_CreateConstant(t *testing.T)
+//	TestRegistry_CreateType(t *testing.T)
+//	... 另有 5 个顶层符号
+
 package importer
 
 import (

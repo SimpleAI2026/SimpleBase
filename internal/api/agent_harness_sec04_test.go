@@ -1,3 +1,28 @@
+// 文件说明：agent_harness_sec04_test.go — internal/api 的测试辅助代码
+//
+// 用法
+//
+//	同包调用：fakellmScriptLong() → agent_run_gate_security_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/agent_harness_sec04_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] fakellmScriptLong ← agent_run_gate_security_test.go
+//
+// 主要符号
+//
+//	(hs *agentHarness) reqAs(method, path string, body any, p auth.Principal) *httptest.ResponseRecorder
+//	fakellmScriptLong() fakellm.Script
+//	(hs *agentHarness) startRunAsync(t *testing.T, threadID string) string
+//	(hs *agentHarness) cleanupRun()
+
 package api
 
 import (

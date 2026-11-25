@@ -1,3 +1,30 @@
+// 文件说明：factory_test.go — godatabase/filedb 的单元测试（TestProjectFileRoundTrip、TestDatabasePathValidation 等）
+//
+// 用法
+//
+//	go test ./godatabase/filedb -run 'TestProjectFileRoundTrip|TestDatabasePathValidation|TestSQLiteDialectMetadata|TestOpenCorruptFileErrorHidesPhysicalPath'
+//
+// 调用架构
+//
+//	[上游] godatabase/cmd, internal/app, internal/backup
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/filedb/factory_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] dialect_bucket_test.go, factory.go, path.go, remote.go, remote_test.go 等 9 个
+//
+// 主要符号
+//
+//	toSlash(p string) string
+//	TestProjectFileRoundTrip(t *testing.T)
+//	TestDatabasePathValidation(t *testing.T)
+//	TestSQLiteDialectMetadata(t *testing.T)
+//	TestOpenCorruptFileErrorHidesPhysicalPath(t *testing.T)
+//	TestDuckDBUserDBRejectsExternalFileRead(t *testing.T)
+//	TestSQLiteReadOnlyConnectorForcesQueryOnly(t *testing.T)
+
 package filedb
 
 import (

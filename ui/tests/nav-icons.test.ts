@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
-import AgentCard from '@/components/agent/AgentCard.vue'
 import ConversationView from '@/components/agent/ConversationView.vue'
 import { iconForAgentModule, navKeyForAgentModule, sidebarIcons } from '@/components/nav-icons'
 
@@ -23,27 +22,7 @@ describe('agent module icons match the sidebar', () => {
     expect(iconForAgentModule('general')).toBe(sidebarIcons.agents)
   })
 
-  it('renders the database icon on the agent card and the message avatar', () => {
-    const card = mount(AgentCard, {
-      props: {
-        agent: {
-          id: 'ag', name: '数据库', module: 'database', description: '',
-          system_prompt: '', tool_ids: [], team_enabled: false, created_at: 't', updated_at: 't'
-        }
-      }
-    })
-    expect(card.find('[data-agent-icon="databases"]').exists()).toBe(true)
-
-    const general = mount(AgentCard, {
-      props: {
-        agent: {
-          id: 'g', name: '通用助手', module: 'general', description: '',
-          system_prompt: '', tool_ids: [], team_enabled: false, created_at: 't', updated_at: 't'
-        }
-      }
-    })
-    expect(general.find('[data-agent-icon="agents"]').exists()).toBe(true)
-
+  it('renders the module icon on the message avatar', () => {
     const view = mount(ConversationView, {
       props: {
         messages: [

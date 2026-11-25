@@ -1,16 +1,6 @@
 <template>
   <div class="flex flex-col gap-3">
-    <SbAsyncRegion
-      class="flex flex-col gap-3"
-      block="spinner"
-      :pending="pending"
-      :show-skeleton="showSkeleton"
-      :show-empty="false"
-      :show-error="showError"
-      :refreshing="refreshing"
-      :error="error"
-      @retry="load"
-    >
+    <SbAsyncRegion class="flex flex-col gap-3" block="spinner" :state="state" @retry="load">
       <div class="overflow-x-auto rounded-md border border-border/70">
         <Table>
           <TableHeader>
@@ -53,16 +43,13 @@
 </template>
 
 <script setup lang="ts">
-import { errorMessage } from '@/utils/format'
-import { ref, watch } from 'vue'
+import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { api } from '../../../../services/api'
 import SbAsyncRegion from '../../../SbAsyncRegion.vue'
-import { useLoadState } from '@/composables/useLoadState'
+import { useKvEditor } from '@/composables/useKvEditor'
+
 import ConfirmAction from '../../../ConfirmAction.vue'
 
 const props = defineProps<{
@@ -75,75 +62,64 @@ const emit = defineEmits<{ changed: [] }>()
 
 const { t } = useI18n()
 
-const fields = ref<{ field: string; value: string }[]>([])
+interface HashField {
+  field: string
+  value: string
+}
+
+const fields = ref<HashField[]>([])
 const newField = ref('')
-const { pending, showSkeleton, showError, refreshing, error, run } = useLoadState({ fallback: 'components.kvHash.loadFailed' })
 const newValue = ref('')
 const editField = ref('')
 const editValue = ref('')
 
-function load() {
-  return run(async () => {
-    // HGETALL 返回扁平数组（field,value 交替），转回对象列表
-    const flat = (await api.kv.exec(props.projectId, {
-      type: 'cmd',
-      argvs: ['HGETALL', props.kvKey]
-    })) as string[]
-    const out: { field: string; value: string }[] = []
+const { state, load, mutate } = useKvEditor({
+  projectId: () => props.projectId,
+  kvKey: () => props.kvKey,
+  fallback: 'components.kvHash.loadFailed',
+  // HGETALL 返回扁平数组（field,value 交替），转回对象列表。
+  read: () => ({ type: 'cmd', argvs: ['HGETALL', props.kvKey] }),
+  parse: (flat) => {
+    const out: HashField[] = []
     if (Array.isArray(flat)) {
-      for (let i = 0; i + 1 < flat.length; i += 2) out.push({ field: flat[i], value: flat[i + 1] })
+      for (let i = 0; i + 1 < flat.length; i += 2) out.push({ field: String(flat[i]), value: String(flat[i + 1]) })
     }
-    fields.value = out
-    return true
+    return out
+  },
+  apply: (list) => {
+    fields.value = list
+  },
+  changed: () => emit('changed')
+})
+
+function addField() {
+  const f = newField.value.trim()
+  if (!f) return
+  void mutate({ type: 'Hash', args: { key: props.kvKey, fields: { [f]: newValue.value } } }, {
+    failKey: 'components.kvHash.saveFailed',
+    successKey: 'components.kvHash.saved',
+    onSuccess: () => {
+      newField.value = ''
+      newValue.value = ''
+    }
   })
 }
 
-async function addField() {
-  const f = newField.value.trim()
-  if (!f) return
-  try {
-    await api.kv.exec(props.projectId, {
-      type: 'Hash',
-      args: { key: props.kvKey, fields: { [f]: newValue.value } }
-    })
-    newField.value = ''
-    newValue.value = ''
-    toast.success(t('components.kvHash.saved'))
-    await load()
-    emit('changed')
-  } catch (e) {
-    toast.error(errorMessage(e, t('components.kvHash.saveFailed')))
-  }
-}
-
-function startEdit(f: { field: string; value: string }) {
+function startEdit(f: HashField) {
   editField.value = f.field
   editValue.value = f.value
 }
 
-async function saveEdit(field: string) {
-  try {
-    await api.kv.exec(props.projectId, {
-      type: 'Hash',
-      args: { key: props.kvKey, fields: { [field]: editValue.value } }
-    })
-    editField.value = ''
-    await load()
-    emit('changed')
-  } catch (e) {
-    toast.error(errorMessage(e, t('components.kvHash.saveFailed')))
-  }
+function saveEdit(field: string) {
+  void mutate({ type: 'Hash', args: { key: props.kvKey, fields: { [field]: editValue.value } } }, {
+    failKey: 'components.kvHash.saveFailed',
+    onSuccess: () => {
+      editField.value = ''
+    }
+  })
 }
 
-async function removeField(field: string) {
-  try {
-    await api.kv.exec(props.projectId, { type: 'cmd', argvs: ['HDEL', props.kvKey, field] })
-    await load()
-    emit('changed')
-  } catch (e) {
-    toast.error(errorMessage(e, t('components.kvHash.deleteFailed')))
-  }
+function removeField(field: string) {
+  void mutate({ type: 'cmd', argvs: ['HDEL', props.kvKey, field] }, { failKey: 'components.kvHash.deleteFailed' })
 }
-
-watch(() => props.kvKey, () => void load(), { immediate: true })
 </script>

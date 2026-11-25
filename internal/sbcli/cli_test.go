@@ -1,3 +1,34 @@
+// 文件说明：cli_test.go — internal/sbcli 的单元测试（TestCLIConfigAndEnvelope、TestCLIAPIKeyEnvCompat 等）
+//
+// 用法
+//
+//	go test ./internal/sbcli -run 'TestCLIConfigAndEnvelope|TestCLIAPIKeyEnvCompat|TestCLIFunctionCreateActivateFlag|TestCLIResources'
+//	同包调用：cliStub → site_test.go；runCLI() → collection_transfer_test.go, site_test.go
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/agentbridge
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/sbcli/cli_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] collection_transfer.go, collection_transfer_test.go, commands.go, commands_admin.go, commands_backup.go 等 27 个
+//	[关键引用] cliStub ← site_test.go；runCLI ← collection_transfer_test.go, site_test.go
+//
+// 主要符号
+//
+//	type cliHit struct{…}
+//	type cliStub struct{…}
+//	(s *cliStub) reset()
+//	(s *cliStub) all() []cliHit
+//	(s *cliStub) ServeHTTP(w http.ResponseWriter, r *http.Request)
+//	readLimited(r *http.Request) ([]byte, error)
+//	cliWrite(method, path string, body []byte) bool
+//	runCLI(t *testing.T, env, args []string, stdin string) (int, string, string)
+//	... 另有 5 个顶层符号
+
 package sbcli
 
 import (

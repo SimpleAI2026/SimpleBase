@@ -2,7 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import SchemaRowsModal from '@/components/databases/SchemaRowsModal.vue'
 import { api, resetApiMocks } from '@/test/api-mock'
-import { uiStubs } from '@/test/helpers'
+import { closeDialog, installJsdomPolyfills, realDialogStubs, uiStubs } from '@/test/helpers'
 
 vi.mock('@/services/api', async () => {
   const mocked = await import('@/test/api-mock')
@@ -37,9 +37,10 @@ function mountModal(open = true) {
     },
     attachTo: document.body,
     global: {
+      // 真实 SbModal + Dialog：内容在 body 里，下面的断言都读 document
       stubs: {
         ...uiStubs,
-        SbModal: false,
+        ...realDialogStubs,
         SchemaRowsModal: false,
         TablePager: false
       }
@@ -47,16 +48,22 @@ function mountModal(open = true) {
   })
 }
 
+installJsdomPolyfills()
+
 describe('SchemaRowsModal', () => {
   beforeEach(() => {
-    document.body.innerHTML = ''
     resetApiMocks()
     api.databases.tableRows.mockResolvedValue(page)
   })
 
   it('loads the first page, hides credential values, and pages on the server', async () => {
+    // 让出一个微任务：真实 Dialog 的内容在下一个 tick 才挂到 body；此时请求还没返回，仍是加载态
+    api.databases.tableRows.mockImplementationOnce(() => new Promise((resolve) => setTimeout(() => resolve(page), 20)))
     const wrapper = mountModal()
+    await Promise.resolve()
+    await Promise.resolve()
     expect(document.body.querySelector('[aria-busy="true"]')).toBeTruthy()
+    await new Promise((resolve) => setTimeout(resolve, 40))
     await flushPromises()
     expect(api.databases.tableRows).toHaveBeenCalledWith('sb-admin', 'sys', 'sys_users', { limit: 50, offset: 0 })
     expect(document.body.textContent).toContain('只读')
@@ -81,7 +88,7 @@ describe('SchemaRowsModal', () => {
     expect(api.databases.tableRows).toHaveBeenLastCalledWith('sb-admin', 'sys', 'sys_users', { limit: 50, offset: 50 })
     expect(document.body.textContent).toContain('next')
 
-    await wrapper.find('.dialog-close').trigger('click')
+    await closeDialog()
     expect(wrapper.emitted('update:open')?.[0]).toEqual([false])
     wrapper.unmount()
   })

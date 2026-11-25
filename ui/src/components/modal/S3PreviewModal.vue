@@ -8,13 +8,8 @@
   >
     <div class="flex min-h-[240px] flex-col gap-3">
       <SbAsyncRegion
+        :state="loadState"
         block="spinner"
-        :pending="pending"
-        :show-skeleton="showSkeleton"
-        :show-empty="false"
-        :show-error="showError"
-        :refreshing="refreshing"
-        :error="error"
         @retry="load"
       >
         <p v-if="tooLarge" class="rounded-lg border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
@@ -151,9 +146,10 @@ const description = computed(() => {
   })
 })
 
-const { pending, showSkeleton, showError, refreshing, error, run, reset } = useLoadState({
+const loadState = useLoadState({
   fallback: 'components.s3Preview.previewFailed'
 })
+const { pending, run, reset } = loadState
 
 /** 切换文件 / 关闭弹窗时中止在途请求，避免旧结果覆盖新预览。 */
 let controller: AbortController | null = null

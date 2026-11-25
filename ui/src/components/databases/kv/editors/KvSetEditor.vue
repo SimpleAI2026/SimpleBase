@@ -1,16 +1,6 @@
 <template>
   <div class="flex flex-col gap-3">
-    <SbAsyncRegion
-      class="flex flex-col gap-3"
-      block="spinner"
-      :pending="pending"
-      :show-skeleton="showSkeleton"
-      :show-empty="false"
-      :show-error="showError"
-      :refreshing="refreshing"
-      :error="error"
-      @retry="load"
-    >
+    <SbAsyncRegion class="flex flex-col gap-3" block="spinner" :state="state" @retry="load">
       <div v-if="!elems.length" class="rounded-md border border-dashed border-border/70 py-6 text-center text-xs text-muted-foreground">
         {{ t('components.kvSet.empty') }}
       </div>
@@ -41,16 +31,13 @@
 </template>
 
 <script setup lang="ts">
-import { errorMessage } from '@/utils/format'
-import { ref, watch } from 'vue'
+import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { api } from '../../../../services/api'
 import SbAsyncRegion from '../../../SbAsyncRegion.vue'
-import { useLoadState } from '@/composables/useLoadState'
+import { useKvEditor } from '@/composables/useKvEditor'
 
 const props = defineProps<{
   projectId: string
@@ -64,52 +51,38 @@ const { t } = useI18n()
 
 const elems = ref<string[]>([])
 const newMember = ref('')
-const { pending, showSkeleton, showError, refreshing, error, run } = useLoadState({ fallback: 'components.kvSet.loadFailed' })
 
-function load() {
-  return run(async () => {
-    const r = (await api.kv.exec(props.projectId, {
-      type: 'cmd',
-      argvs: ['SMEMBERS', props.kvKey]
-    })) as string[]
-    elems.value = Array.isArray(r) ? r : []
-    return true
+const { state, load, mutate } = useKvEditor({
+  projectId: () => props.projectId,
+  kvKey: () => props.kvKey,
+  fallback: 'components.kvSet.loadFailed',
+  read: () => ({ type: 'cmd', argvs: ['SMEMBERS', props.kvKey] }),
+  parse: (r) => (Array.isArray(r) ? (r as string[]) : []),
+  apply: (list) => {
+    elems.value = list
+  },
+  changed: () => emit('changed')
+})
+
+function addMember() {
+  const v = newMember.value.trim()
+  if (!v) return
+  void mutate({ type: 'Set', args: { key: props.kvKey, elems: [v] } }, {
+    failKey: 'components.kvSet.addFailed',
+    onSuccess: () => {
+      newMember.value = ''
+    }
   })
 }
 
-async function addMember() {
-  const v = newMember.value.trim()
-  if (!v) return
-  try {
-    await api.kv.exec(props.projectId, { type: 'Set', args: { key: props.kvKey, elems: [v] } })
-    newMember.value = ''
-    await load()
-    emit('changed')
-  } catch (e) {
-    toast.error(errorMessage(e, t('components.kvSet.addFailed')))
-  }
+function removeMember(v: string) {
+  void mutate({ type: 'cmd', argvs: ['SREM', props.kvKey, v] }, { failKey: 'components.kvSet.removeFailed' })
 }
 
-async function removeMember(v: string) {
-  try {
-    await api.kv.exec(props.projectId, { type: 'cmd', argvs: ['SREM', props.kvKey, v] })
-    await load()
-    emit('changed')
-  } catch (e) {
-    toast.error(errorMessage(e, t('components.kvSet.removeFailed')))
-  }
+function popRandom() {
+  void mutate({ type: 'cmd', argvs: ['SPOP', props.kvKey] }, {
+    failKey: 'components.kvSet.popFailed',
+    onSuccess: (r) => toast.success(t('components.kvSet.popped', { value: r ?? '' }))
+  })
 }
-
-async function popRandom() {
-  try {
-    const r = await api.kv.exec(props.projectId, { type: 'cmd', argvs: ['SPOP', props.kvKey] })
-    toast.success(t('components.kvSet.popped', { value: r ?? '' }))
-    await load()
-    emit('changed')
-  } catch (e) {
-    toast.error(errorMessage(e, t('components.kvSet.popFailed')))
-  }
-}
-
-watch(() => props.kvKey, () => void load(), { immediate: true })
 </script>

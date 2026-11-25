@@ -1,3 +1,31 @@
+// 文件说明：runtime.go — godatabase 中 AccessMode、Factory 等符号的实现
+//
+// 用法
+//
+//	type AccessMode uint8  // AccessMode 表示对某个 logical database 的访问意图
+//	type Factory interface{…}  // Factory 从 Spec 打开一个可用的 *sql.DB
+//	type WriteHookFactory interface{…}  // WriteHookFactory 可选扩展：Factory 若实现此接口，Registry 会在写成功 / 关闭前回调
+//
+// 调用架构
+//
+//	[上游] godatabase/cache, godatabase/cmd, godatabase/ducklake, godatabase/filedb 等 16 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/runtime.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] coverage_test.go, dialect.go, errmatch.go, query.go, query_test.go 等 10 个
+//
+// 主要符号
+//
+//	type AccessMode uint8
+//	const ReadOnly / ReadWrite
+//	(m AccessMode) String() string
+//	type Factory interface{…}
+//	type WriteHookFactory interface{…}
+//	var ErrDatabaseDeleting / ErrDatabaseNotReady / ErrWriterUnavailable / ErrRowLimitExceeded / ErrRegistryClosed / ErrUnsupportedValue / ErrQueryConcurrency
+
 package godatabase
 
 import (

@@ -77,7 +77,7 @@ import { useI18n } from 'vue-i18n'
 import { ArrowUpIcon, SquareIcon } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import { iconForAgentModule } from '@/components/nav-icons'
-import { i18n } from '@/locales'
+import { builtinAliases } from '@/utils/agent-names'
 import {
   Command,
   CommandEmpty,
@@ -95,13 +95,13 @@ export interface MentionAgent {
   legacyName?: string
   builtinKey?: string
   /**
-   * 点名目标类型（planv6.7 v2）：'human' 表示「当前人」，发送时转成
+   * 点名目标类型：'human' 表示「当前人」，发送时转成
    * {kind:'human', id:'me'}，由服务端解析为登录用户。缺省是助手。
    */
   kind?: 'agent' | 'human'
 }
 
-/** 发送时的点名声明的目标（v2 起带 kind，旧消费方只读 agent_id 仍然可用）。 */
+/** 发送时的点名声明的目标（带 kind；旧消费方只读 agent_id 仍然可用）。 */
 export interface MentionSendTarget {
   agent_id: string
   kind?: 'agent' | 'human'
@@ -176,7 +176,7 @@ function pickMention(a: MentionAgent) {
 }
 
 /**
- * planv6.7 AGC-UI：供宿主从助手条注入点名（点击助手 = 在草稿开头插入 @名称 ）。
+ * 供宿主从助手条注入点名（点击助手 = 在草稿开头插入 @名称 ）。
  * 无 @ 前缀时在开头插入；已有文本自动补一个空格分隔。
  */
 function insertMention(a: MentionAgent) {
@@ -189,7 +189,7 @@ function insertMention(a: MentionAgent) {
   nextTick(() => ta.value?.focus())
 }
 
-/** planv6.7 AGC-UI：清空已选 mention 并从文本移除对应 @名称 片段。 */
+/** 清空已选 mention 并从文本移除对应 @名称 片段。 */
 function clearMentions() {
   const value = props.modelValue
   if (!selectedMentions.value.length) {
@@ -211,10 +211,8 @@ function namesForAgent(agent: MentionAgent): string[] {
   const names = [agent.name]
   if (agent.legacyName && !names.includes(agent.legacyName)) names.push(agent.legacyName)
   if (agent.builtinKey) {
-    if (agent.builtinKey === 'kv') names.push('KV助手')
-    for (const locale of ['zh-CN', 'en-US'] as const) {
-      const translated = i18n.global.t(`pages.agents.builtinNames.${agent.builtinKey}`, {}, { locale })
-      if (!names.includes(translated)) names.push(translated)
+    for (const alias of builtinAliases(agent.builtinKey)) {
+      if (!names.includes(alias)) names.push(alias)
     }
   }
   return names
@@ -311,7 +309,7 @@ watch(
   }
 )
 
-/** 聚焦输入框并把光标放到末尾；供宿主在点提示词后调用（planv6.0 §3.5）。 */
+/** 聚焦输入框并把光标放到末尾；供宿主在点提示词后调用。 */
 function focus() {
   nextTick(() => {
     const el = ta.value

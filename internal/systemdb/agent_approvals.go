@@ -1,3 +1,33 @@
+// 文件说明：agent_approvals.go — internal/systemdb 中 AgentApproval 等符号的实现
+//
+// 用法
+//
+//	type AgentApproval struct{…}  // AgentApproval 是 sys_agent_approvals 一行
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app 等 8 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/systemdb/agent_approvals.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_approvals_test.go, agent_collab.go, agent_collab_cron.go, agent_collab_test.go, agent_events.go 等 54 个
+//	[关键引用] AgentApproval ← agent_approvals_test.go
+//
+// 主要符号
+//
+//	const AgentApprovalPending / AgentApprovalApproved / AgentApprovalDenied / AgentApprovalExpired / AgentApprovalCanceled / agentApprovalColumns
+//	type AgentApproval struct{…}
+//	(s *Store) CreateAgentApproval(ctx context.Context, a AgentApproval) (AgentApproval, error)
+//	(s *Store) GetAgentApproval(ctx context.Context, projectID, id string) (AgentApproval, error)
+//	(s *Store) GetPendingAgentApproval(ctx context.Context, projectID, runID, callID string) (AgentApproval, error...
+//	(s *Store) ListAgentApprovals(ctx context.Context, projectID, status string, limit int) ([]AgentApproval, erro...
+//	(s *Store) CountPendingAgentApprovals(ctx context.Context, projectID string) (int, error)
+//	(s *Store) ResolveAgentApproval(ctx context.Context, projectID, id, status, resolvedBy string) error
+//	... 另有 3 个顶层符号
+
 // agent_approvals.go — sys_agent_approvals 的读写（破坏性工具调用的审批队列）。
 //
 // 与 sys_agent_runs 的分工：run 记录「执行了什么」，审批记录「等谁点头」。
@@ -61,9 +91,11 @@ type AgentApproval struct {
 // CreateAgentApproval 写入一条 pending 审批。
 // 同一 (project_id, run_id, call_id) 已有 pending 时返回既有行，保证幂等。
 func (s *Store) CreateAgentApproval(ctx context.Context, a AgentApproval) (AgentApproval, error) {
-	if s == nil || s.db == nil {
-		return AgentApproval{}, ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return AgentApproval{}, connErr
 	}
+
 	if existing, err := s.GetPendingAgentApproval(ctx, a.ProjectID, a.RunID, a.CallID); err == nil {
 		return existing, nil
 	} else if !errors.Is(err, sql.ErrNoRows) {
@@ -84,7 +116,7 @@ func (s *Store) CreateAgentApproval(ctx context.Context, a AgentApproval) (Agent
 	if !a.ExpiresAt.IsZero() {
 		expires = a.ExpiresAt.UTC()
 	}
-	_, err := s.db.ExecContext(ctx,
+	_, err := sqlDB.ExecContext(ctx,
 		`INSERT INTO sys_agent_approvals(id, project_id, run_id, call_id, thread_id, agent_id, tool_name, argv_json, message, status, initiator_id, resolved_by, created_at, expires_at, resolved_at)
 		 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, NULL)`,
 		a.ID, a.ProjectID, a.RunID, a.CallID, a.ThreadID, a.AgentID, a.ToolName, a.ArgvJSON, a.Message, a.Status, a.InitiatorID, now, expires)
@@ -97,41 +129,22 @@ func (s *Store) CreateAgentApproval(ctx context.Context, a AgentApproval) (Agent
 
 // GetAgentApproval 按 ID 取审批（必须属于 project）。
 func (s *Store) GetAgentApproval(ctx context.Context, projectID, id string) (AgentApproval, error) {
-	if s == nil || s.db == nil {
-		return AgentApproval{}, ErrUnavailable
-	}
-	row := s.db.QueryRowContext(ctx,
+	return queryOne(ctx, s, scanAgentApproval,
 		`SELECT `+agentApprovalColumns+` FROM sys_agent_approvals WHERE id = ? AND project_id = ?`,
 		id, projectID)
-	a, err := scanAgentApproval(row)
-	if errors.Is(err, sql.ErrNoRows) {
-		return AgentApproval{}, sql.ErrNoRows
-	}
-	return a, err
 }
 
 // GetPendingAgentApproval 按 (run, call) 取 pending 审批。
 func (s *Store) GetPendingAgentApproval(ctx context.Context, projectID, runID, callID string) (AgentApproval, error) {
-	if s == nil || s.db == nil {
-		return AgentApproval{}, ErrUnavailable
-	}
-	row := s.db.QueryRowContext(ctx,
+	return queryOne(ctx, s, scanAgentApproval,
 		`SELECT `+agentApprovalColumns+`
 		 FROM sys_agent_approvals WHERE project_id = ? AND run_id = ? AND call_id = ? AND status = ?
 		 ORDER BY created_at DESC LIMIT 1`,
 		projectID, runID, callID, AgentApprovalPending)
-	a, err := scanAgentApproval(row)
-	if errors.Is(err, sql.ErrNoRows) {
-		return AgentApproval{}, sql.ErrNoRows
-	}
-	return a, err
 }
 
 // ListAgentApprovals 列出项目内审批，status 为空表示不过滤（新→旧）。
 func (s *Store) ListAgentApprovals(ctx context.Context, projectID, status string, limit int) ([]AgentApproval, error) {
-	if s == nil || s.db == nil {
-		return nil, ErrUnavailable
-	}
 	limit = pagelimit.Normalize(limit, 50, 200)
 	query := `SELECT ` + agentApprovalColumns + ` FROM sys_agent_approvals WHERE project_id = ?`
 	args := []any{projectID}
@@ -141,29 +154,18 @@ func (s *Store) ListAgentApprovals(ctx context.Context, projectID, status string
 	}
 	query += ` ORDER BY created_at DESC, id DESC LIMIT ?`
 	args = append(args, int64(limit))
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := make([]AgentApproval, 0)
-	for rows.Next() {
-		a, err := scanAgentApproval(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, a)
-	}
-	return out, rows.Err()
+	return queryList(ctx, s, scanAgentApproval, query, args...)
 }
 
 // CountPendingAgentApprovals 返回项目内 pending 数量（侧栏角标用）。
 func (s *Store) CountPendingAgentApprovals(ctx context.Context, projectID string) (int, error) {
-	if s == nil || s.db == nil {
-		return 0, ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return 0, connErr
 	}
+
 	var n int64
-	err := s.db.QueryRowContext(ctx,
+	err := sqlDB.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM sys_agent_approvals WHERE project_id = ? AND status = ?`,
 		projectID, AgentApprovalPending).Scan(&n)
 	return int(n), err
@@ -172,16 +174,18 @@ func (s *Store) CountPendingAgentApprovals(ctx context.Context, projectID string
 // ResolveAgentApproval 把 pending 审批收敛到终态。
 // 条件更新保证单向迁移：已收敛的行不会被二次改写，返回 sql.ErrNoRows。
 func (s *Store) ResolveAgentApproval(ctx context.Context, projectID, id, status, resolvedBy string) error {
-	if s == nil || s.db == nil {
-		return ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return connErr
 	}
+
 	switch status {
 	case AgentApprovalApproved, AgentApprovalDenied, AgentApprovalExpired, AgentApprovalCanceled:
 	default:
 		return errors.New("systemdb: invalid agent approval status")
 	}
 	now := time.Now().UTC()
-	res, err := s.db.ExecContext(ctx,
+	res, err := sqlDB.ExecContext(ctx,
 		`UPDATE sys_agent_approvals SET status=?, resolved_by=?, resolved_at=?
 		 WHERE id=? AND project_id=? AND status=?`,
 		status, resolvedBy, now, id, projectID, AgentApprovalPending)
@@ -198,11 +202,13 @@ func (s *Store) ResolveAgentApproval(ctx context.Context, projectID, id, status,
 // ExpireAgentApprovals 把已过确认窗口的 pending 收敛为 expired，返回收敛条数。
 // 由调用方按需触发（列表查询前 / 定时清扫），不引入独立后台 goroutine。
 func (s *Store) ExpireAgentApprovals(ctx context.Context, projectID string) (int, error) {
-	if s == nil || s.db == nil {
-		return 0, ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return 0, connErr
 	}
+
 	now := time.Now().UTC()
-	res, err := s.db.ExecContext(ctx,
+	res, err := sqlDB.ExecContext(ctx,
 		`UPDATE sys_agent_approvals SET status=?, resolved_at=?
 		 WHERE project_id=? AND status=? AND expires_at IS NOT NULL AND expires_at < ?`,
 		AgentApprovalExpired, now, projectID, AgentApprovalPending, now)
@@ -218,11 +224,13 @@ func (s *Store) ExpireAgentApprovals(ctx context.Context, projectID string) (int
 
 // CancelRunApprovals 在 run 结束时作废其残留 pending 审批。
 func (s *Store) CancelRunApprovals(ctx context.Context, projectID, runID string) error {
-	if s == nil || s.db == nil {
-		return ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return connErr
 	}
+
 	now := time.Now().UTC()
-	res, err := s.db.ExecContext(ctx,
+	res, err := sqlDB.ExecContext(ctx,
 		`UPDATE sys_agent_approvals SET status=?, resolved_at=?
 		 WHERE project_id=? AND run_id=? AND status=?`,
 		AgentApprovalCanceled, now, projectID, runID, AgentApprovalPending)

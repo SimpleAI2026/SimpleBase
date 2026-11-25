@@ -142,8 +142,7 @@ func (h *BackupHandler) record(c echo.Context, kind, id, hash string, actionErr 
 	if actionErr != nil {
 		status = "error"
 	}
-	principal, _ := PrincipalFromContext(c.Request().Context())
-	_ = h.audit.Record(c.Request().Context(), AuditEvent{ProjectID: c.Param("projectID"), PrincipalID: principal.APIKeyID, Kind: kind, RequestID: RequestIDFromContext(c.Request().Context()), Status: status, Detail: id + ":" + hash})
+	recordAudit(c, h.audit, kind, c.Param("projectID"), status, id+":"+hash)
 }
 
 func backupAPIError(c echo.Context, err error) error {
@@ -161,12 +160,11 @@ func backupAPIError(c echo.Context, err error) error {
 		status, code = http.StatusServiceUnavailable, "backup_unavailable"
 	}
 	if code != "internal_error" {
-		return WriteError(c, NewAPIError(status, code, code, RequestIDFromContext(c.Request().Context())))
+		return WriteError(c, NewAPIError(status, code, code, requestID(c)))
 	}
 	return WriteError(c, err)
 }
 
 func tenantID(c echo.Context) string {
-	project, _ := ProjectFromContext(c.Request().Context())
-	return project.TenantID
+	return projectOf(c).TenantID
 }

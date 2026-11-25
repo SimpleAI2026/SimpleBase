@@ -1,3 +1,32 @@
+// 文件说明：storage_settings_handler_test.go — internal/api 的单元测试（TestStorageSettingsGet、TestStorageSettingsPutRequiresConfirmAndSuperAdmin 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestStorageSettingsGet|TestStorageSettingsPutRequiresConfirmAndSuperAdmin|TestStorageSettingsPutPatchesYAML|TestStorageSettingsPutEnvConflict'
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/storage_settings_handler_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//
+// 主要符号
+//
+//	newStorageTestHandler(t *testing.T, cfg config.Config, yamlContent string) (*settingsStorageHandler, string)
+//	storageTestConfig(t *testing.T) config.Config
+//	TestStorageSettingsGet(t *testing.T)
+//	TestStorageSettingsPutRequiresConfirmAndSuperAdmin(t *testing.T)
+//	TestStorageSettingsPutPatchesYAML(t *testing.T)
+//	TestStorageSettingsPutEnvConflict(t *testing.T)
+//	TestStorageSettingsPutMissingConfigFile(t *testing.T)
+//	TestYamlStorageKeysFrom(t *testing.T)
+//	... 另有 1 个顶层符号
+
 package api
 
 import (

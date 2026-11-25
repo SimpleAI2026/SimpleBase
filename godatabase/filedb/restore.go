@@ -1,3 +1,25 @@
+// 文件说明：restore.go — godatabase/filedb 的内部实现（recoverRestoreFiles 等）
+//
+// 用法
+//
+//	同包调用：recoverRestoreFiles() → factory.go
+//
+// 调用架构
+//
+//	[上游] godatabase/cmd, internal/app, internal/backup
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/filedb/restore.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] dialect_bucket_test.go, factory.go, factory_test.go, path.go, remote.go 等 9 个
+//	[关键引用] recoverRestoreFiles ← factory.go
+//
+// 主要符号
+//
+//	recoverRestoreFiles(filePath string) error
+
 package filedb
 
 import (

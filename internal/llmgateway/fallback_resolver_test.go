@@ -1,3 +1,26 @@
+// 文件说明：fallback_resolver_test.go — internal/llmgateway 的单元测试（TestFallbackResolverPrefersCatalogKeys、TestFallbackResolverUsesInstanceWhenCatalogHasNoKey 等）
+//
+// 用法
+//
+//	go test ./internal/llmgateway -run 'TestFallbackResolverPrefersCatalogKeys|TestFallbackResolverUsesInstanceWhenCatalogHasNoKey|TestFallbackResolverPrimaryErrorWithoutInstance'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app 等 5 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/llmgateway/fallback_resolver_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] agent_tools_test.go, catalog_resolver.go, client_chat_usage_test.go, fallback_resolver.go, model_resolution_test.go 等 14 个
+//
+// 主要符号
+//
+//	TestFallbackResolverPrefersCatalogKeys(t *testing.T)
+//	TestFallbackResolverUsesInstanceWhenCatalogHasNoKey(t *testing.T)
+//	TestFallbackResolverPrimaryErrorWithoutInstance(t *testing.T)
+
 package llmgateway
 
 import (

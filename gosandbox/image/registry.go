@@ -1,3 +1,38 @@
+// 文件说明：registry.go — gosandbox/image 中 Credentials、Client 等符号的实现
+//
+// 用法
+//
+//	type Credentials struct{…}  // Credentials 是 registry 的登录凭据
+//	type Client struct{…}  // Client 是 registry 客户端
+//	NewClient() *Client  // NewClient 建一个客户端
+//	type Resolved struct{…}  // Manifest 是给调用方用的结果：解析后的 manifest 与它的摘要
+//	EncodeAuth(host string, cred Credentials) string  // EncodeAuth 生成 X-Registry-Auth 的值（docker 的 base64 JSON 形式）
+//	同包调用：parseChallenge() → registry_test.go；isLoopback() → registry_test.go；digestOf() → import.go, pull_test.go
+//
+// 调用架构
+//
+//	[上游] gosandbox/vm/box, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/image/registry.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] arch.go, import.go, manifest.go, manifest_test.go, pull.go 等 16 个
+//	[关键引用] Credentials ← pull.go, registry_test.go；NewClient ← pull.go, registry_test.go；parseChallenge ← registry_test.go
+//
+// 主要符号
+//
+//	var ErrNotFound / ErrUnauthorized / ErrDigestMismatch
+//	type Credentials struct{…}
+//	type Client struct{…}
+//	type tokenEntry struct{…}
+//	NewClient() *Client
+//	(c *Client) SetCredentials(host string, cred Credentials)
+//	type Resolved struct{…}
+//	(c *Client) Resolve(ctx context.Context, ref Reference, arch, osName string) (Resolved, error)
+//	... 另有 15 个顶层符号
+
 package image
 
 import (

@@ -1,3 +1,30 @@
+// 文件说明：parser_test.go — gofunction/importer 的单元测试（TestImporter_ParseNameType、TestImporter_ParseNameType_WithPackage 等）
+//
+// 用法
+//
+//	go test ./gofunction/importer -run 'TestImporter_ParseNameType|TestImporter_ParseNameType_WithPackage|TestImporter_ParseNameType_Caching|TestImporter_ParseNameType_EmptyPackage'
+//
+// 调用架构
+//
+//	[上游] gofunction/cmd, gofunction/internal/interp, gofunction/packages, gofunction/value
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/importer/parser_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] coverage_test.go, importer.go, importer_test.go, integration_test.go, registry.go 等 8 个
+//
+// 主要符号
+//
+//	TestImporter_ParseNameType(t *testing.T)
+//	TestImporter_ParseNameType_WithPackage(t *testing.T)
+//	TestImporter_ParseNameType_Caching(t *testing.T)
+//	TestImporter_ParseNameType_EmptyPackage(t *testing.T)
+//	TestImporter_ParseNameType_Scope(t *testing.T)
+//	BenchmarkImporter_ParseNameType(b *testing.B)
+//	BenchmarkImporter_ParseNameType_Cached(b *testing.B)
+
 package importer
 
 import (

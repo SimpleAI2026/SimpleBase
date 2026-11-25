@@ -1,3 +1,34 @@
+// 文件说明：database_handler_test.go — internal/api 的单元测试（TestCreateDatabase_Success、TestCreateDatabase_EmptyName 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestCreateDatabase_Success|TestCreateDatabase_EmptyName|TestCreateDatabase_NotWritable|TestCreateDatabase_UnknownField'
+//	同包调用：newFakeDBService() → agent_skills_router_e2e_test.go, handler_validation_test.go；doRequest() → api_keys_handler_test.go, api_keys_issue_security_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/database_handler_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] newFakeDBService ← agent_skills_router_e2e_test.go, handler_validation_test.go；doRequest ← api_keys_handler_test.go, api_keys_issue_security_test.go
+//
+// 主要符号
+//
+//	type fakeDBService struct{…}
+//	newFakeDBService() *fakeDBService
+//	(f *fakeDBService) CreateDatabase(ctx context.Context, in catalog.CreateDatabaseInput) (catalog.Database, erro...
+//	(f *fakeDBService) GetDatabase(ctx context.Context, principal auth.Principal, projectID, databaseID string) (c...
+//	(f *fakeDBService) ListDatabases(ctx context.Context, principal auth.Principal, projectID string, page catalog...
+//	(f *fakeDBService) BeginDeleteDatabase(ctx context.Context, principal auth.Principal, projectID, databaseID st...
+//	(f *fakeDBService) DeleteDatabase(ctx context.Context, principal auth.Principal, projectID, databaseID string)...
+//	setupTestRouter(t *testing.T, svc *fakeDBService, writable bool) *echo.Echo
+//	... 另有 20 个顶层符号
+
 package api
 
 import (

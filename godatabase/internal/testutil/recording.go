@@ -1,3 +1,35 @@
+// 文件说明：recording.go — godatabase/internal/testutil 中 RecordingLogger、LogEntry 等符号的实现
+//
+// 用法
+//
+//	type RecordingLogger struct{…}  // RecordingLogger is a concurrency-safe in-memory Logger.
+//	type LogEntry struct{…}  // LogEntry is one captured log entry.
+//	type RecordingObserver struct{…}  // RecordingObserver is a concurrency-safe in-memory Observer.
+//
+// 调用架构
+//
+//	[上游] 仅测试引用：godatabase/cache, godatabase/ducklake, godatabase/registry
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/internal/testutil/recording.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] recording_test.go
+//	[关键引用] RecordingLogger ← recording_test.go；RecordingObserver ← recording_test.go
+//
+// 主要符号
+//
+//	type RecordingLogger struct{…}
+//	type LogEntry struct{…}
+//	(l *RecordingLogger) add(level, msg string, fields []zap.Field)
+//	(l *RecordingLogger) Debug(msg string, fields ...zap.Field)
+//	(l *RecordingLogger) Info(msg string, fields ...zap.Field)
+//	(l *RecordingLogger) Warn(msg string, fields ...zap.Field)
+//	(l *RecordingLogger) Error(msg string, fields ...zap.Field)
+//	(l *RecordingLogger) Entries() []LogEntry
+//	... 另有 13 个顶层符号
+
 // Package testutil contains shared test doubles for godatabase packages.
 package testutil
 

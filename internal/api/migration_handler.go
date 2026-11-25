@@ -29,6 +29,8 @@
 package api
 
 import (
+	"context"
+	"database/sql"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
@@ -44,29 +46,26 @@ func NewMigrationHandler(store *systemdb.Store) *MigrationHandler {
 }
 
 func (h *MigrationHandler) Status(c echo.Context) error {
-	if h.store == nil {
-		return WriteError(c, systemdb.ErrUnavailable)
-	}
-	if !systemdb.IsAdminProject(projectID(c)) {
-		return WriteError(c, NewAPIError(http.StatusForbidden, "system_project_required", "migration status requires the admin project", RequestIDFromContext(c.Request().Context())))
-	}
-	status, err := systemdb.Status(c.Request().Context(), h.store.DB())
-	if err != nil {
-		return WriteError(c, err)
-	}
-	return c.JSON(http.StatusOK, status)
+	return serveAdminMigration(c, h.store, "status", systemdb.Status)
 }
 
 func (h *MigrationHandler) Plan(c echo.Context) error {
-	if h.store == nil {
+	return serveAdminMigration(c, h.store, "plan", systemdb.Plan)
+}
+
+// serveAdminMigration 合并 Status/Plan 路由的共同检查：系统库可用性、admin 项目判断、调用 systemdb.Status/Plan。
+// queryFunc: systemdb.Status / systemdb.Plan 类型为 func(ctx, *sql.DB) (T, error)。
+func serveAdminMigration[T any](c echo.Context, store *systemdb.Store, operationName string, queryFunc func(context.Context, *sql.DB) (T, error)) error {
+	if store == nil {
 		return WriteError(c, systemdb.ErrUnavailable)
 	}
 	if !systemdb.IsAdminProject(projectID(c)) {
-		return WriteError(c, NewAPIError(http.StatusForbidden, "system_project_required", "migration plan requires the admin project", RequestIDFromContext(c.Request().Context())))
+		msg := "migration " + operationName + " requires the admin project"
+		return WriteError(c, NewAPIError(http.StatusForbidden, "system_project_required", msg, requestID(c)))
 	}
-	plan, err := systemdb.Plan(c.Request().Context(), h.store.DB())
+	result, err := queryFunc(c.Request().Context(), store.DB())
 	if err != nil {
 		return WriteError(c, err)
 	}
-	return c.JSON(http.StatusOK, plan)
+	return c.JSON(http.StatusOK, result)
 }

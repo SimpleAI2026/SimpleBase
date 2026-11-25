@@ -124,8 +124,8 @@ type oaiCallFunction struct {
 // 这是补齐工具调用能力的唯一入口：此前 llmMessageDTO 只有 role/content，
 // 工具声明与往返消息在类型层面就不存在，导致调用方只能退回文本协议。
 //
-// 命名带 oai 前缀：gocloudagent_access.go 已有 toLLMRequest（gocloudagent.ChatRequest →
-// LLMRequest），两者入参不同，不能共用名字。
+// 命名带 oai 前缀：adapter.go 已有 toGatewayRequest（LLMRequest → llmgateway.Request），
+// 入参不同，不能共用名字；云 Agent 侧的 ChatRequest → llmgateway.Request 在 agentbridge 包（NewCloudAgentLLM）。
 func oaiToLLMRequest(req oaiChatRequest) LLMRequest {
 	out := LLMRequest{
 		Model:       req.Model,
@@ -271,7 +271,7 @@ func newOAIResponse(resp LLMResponse) oaiChatResponse {
 		usage.CompletionTokensDetails = &oaiCompletionDetails{ReasoningTokens: resp.Usage.ReasoningTokens}
 	}
 	return oaiChatResponse{
-		ID:      newOAIID("chatcmpl"),
+		ID:      randomID("chatcmpl", "-"),
 		Object:  oaiObjectChatCompletion,
 		Created: time.Now().Unix(),
 		Model:   resp.Model,
@@ -315,13 +315,14 @@ func oaiTokenUsage(u LLMTokenUsage) oaiUsage {
 	return out
 }
 
-// newOAIID 生成 chatcmpl-<24 位十六进制>。随机失败时退化为时间戳，不 panic。
-func newOAIID(prefix string) string {
+// randomID 生成 <prefix><sep><24 位十六进制>。chat 的 chatcmpl 用 "-"，Responses 的 id 用 "_"。
+// 随机失败时退化为时间戳，不 panic。
+func randomID(prefix, sep string) string {
 	buf := make([]byte, 12)
 	if _, err := rand.Read(buf); err != nil {
-		return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
+		return fmt.Sprintf("%s%s%d", prefix, sep, time.Now().UnixNano())
 	}
-	return prefix + "-" + hex.EncodeToString(buf)
+	return prefix + sep + hex.EncodeToString(buf)
 }
 
 // ---------------------------------------------------------------------------
@@ -396,7 +397,7 @@ func writeOAIError(c echo.Context, status int, code, message string) error {
 // 复用 api.Error 的分类结果（错误码与脱敏文案），只替换信封形状。
 // 无法分类的错误按 500 internal_error 处理，细节不外泄。
 func writeOAIErrorFrom(c echo.Context, err error) error {
-	rid := RequestIDFromContext(c.Request().Context())
+	rid := requestID(c)
 	if ae := Error(err, rid); ae != nil {
 		return writeOAIError(c, ae.HTTPStatus, ae.Body.Error.Code, ae.Body.Error.Message)
 	}
@@ -538,7 +539,7 @@ func newOAIStreamWriter(c echo.Context, model string, includeUsage bool) *oaiStr
 	return &oaiStreamWriter{
 		c:            c,
 		flusher:      flusher,
-		id:           newOAIID("chatcmpl"),
+		id:           randomID("chatcmpl", "-"),
 		model:        model,
 		created:      time.Now().Unix(),
 		includeUsage: includeUsage,

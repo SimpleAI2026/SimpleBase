@@ -1,3 +1,30 @@
+// 文件说明：coverage_extra_test.go — gofunction/internal/interp 的单元测试（TestSelectDefaultAndClosedRecv、TestComplexAndStringConvert 等）
+//
+// 用法
+//
+//	go test ./gofunction/internal/interp -run 'TestSelectDefaultAndClosedRecv|TestComplexAndStringConvert|TestRunJSONAndTimeout|TestDebugAndCompile'
+//	同包调用：runExtraSrc() → interp_path_test.go
+//
+// 调用架构
+//
+//	[上游] gofunction
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/internal/interp/coverage_extra_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] bench_test.go, cachetest_test.go, call.go, call_test.go, cheap_test.go 等 40 个
+//	[关键引用] runExtraSrc ← interp_path_test.go
+//
+// 主要符号
+//
+//	runExtraSrc(t *testing.T, src, fn string, args ...interface{}) interface{}
+//	TestSelectDefaultAndClosedRecv(t *testing.T)
+//	TestComplexAndStringConvert(t *testing.T)
+//	TestRunJSONAndTimeout(t *testing.T)
+//	TestDebugAndCompile(t *testing.T)
+
 package interp
 
 import (

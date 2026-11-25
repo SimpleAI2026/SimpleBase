@@ -1,3 +1,28 @@
+// 文件说明：iter_test.go — gofunction/value 的单元测试（TestNewStringIter、TestNewSliceIterPtrAndValue 等）
+//
+// 用法
+//
+//	go test ./gofunction/value -run 'TestNewStringIter|TestNewSliceIterPtrAndValue|TestMapIterEmptyNextAndSeqLenMap|TestPackageUnpackageLeftovers'
+//
+// 调用架构
+//
+//	[上游] gofunction/internal/interp
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/value/iter_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] external.go, tuple.go, value.go, value_more_test.go, value_test.go
+//
+// 主要符号
+//
+//	TestNewStringIter(t *testing.T)
+//	TestNewSliceIterPtrAndValue(t *testing.T)
+//	TestMapIterEmptyNextAndSeqLenMap(t *testing.T)
+//	TestPackageUnpackageLeftovers(t *testing.T)
+//	TestRValueIsNilKinds(t *testing.T)
+
 package value
 
 import (

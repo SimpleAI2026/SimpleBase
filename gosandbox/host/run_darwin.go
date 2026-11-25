@@ -1,5 +1,27 @@
 //go:build darwin
 
+// 文件说明：run_darwin.go — gosandbox/host 中 Run 等符号的实现
+//
+// 用法
+//
+//	Run(ctx context.Context, p Policy, cmd Command) (Result, error)  // Run 在 Seatbelt 沙盒里执行 cmd
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/tools, gosandbox/box, gosandbox/vm/box 等 5 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/host/run_darwin.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] bwrap_args.go, bwrap_args_extra_test.go, cgroup.go, cgroup_linux.go, cgroup_linux_test.go 等 36 个
+//
+// 主要符号
+//
+//	probeDarwin() (Caps, error)
+//	Run(ctx context.Context, p Policy, cmd Command) (Result, error)
+
 package host
 
 import (

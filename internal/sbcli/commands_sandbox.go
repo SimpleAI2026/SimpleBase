@@ -47,17 +47,6 @@ func cmdSandboxCreate(ctx context.Context, c *gosdk.Client, _ loadedConfig, args
 	return c.CreateSandbox(ctx, in)
 }
 
-func cmdSandboxDelete(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
-	id, err := one(args, "id")
-	if err != nil {
-		return nil, err
-	}
-	if err := c.DeleteSandbox(ctx, id); err != nil {
-		return nil, err
-	}
-	return map[string]any{"ok": true}, nil
-}
-
 func cmdSandboxConnect(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
 	f, _, err := mustFlags(args, "id", "timeout")
 	if err != nil {
@@ -76,15 +65,4 @@ func cmdSandboxConnect(ctx context.Context, c *gosdk.Client, _ loadedConfig, arg
 		timeout = n
 	}
 	return c.ConnectSandbox(ctx, id, timeout)
-}
-
-func cmdSandboxPause(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
-	id, err := one(args, "id")
-	if err != nil {
-		return nil, err
-	}
-	if err := c.PauseSandbox(ctx, id); err != nil {
-		return nil, err
-	}
-	return map[string]any{"ok": true}, nil
 }

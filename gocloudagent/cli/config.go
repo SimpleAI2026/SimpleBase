@@ -38,7 +38,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
+
+	"github.com/linkxzhou/SimpleBase/gocloudagent/mcp"
 )
 
 // ErrInsecureConfig 表示配置文件权限过宽（含 group/other 位）。
@@ -65,6 +66,8 @@ type Config struct {
 	SearchAPIKey string `json:"search_api_key"`
 	// Yolo 为真时跳过破坏性 shell 命令的确认（显式承担风险，§5.3）。
 	Yolo bool `json:"yolo"`
+	// HTTPAllowPrivate 放行 http / web_fetch 访问回环与私网地址（默认拒绝，planv6.8 §13.6）。
+	HTTPAllowPrivate bool `json:"http_allow_private,omitempty"`
 	// CompactTriggerTokens 是触发上下文压缩的估算 token 阈值；0 用默认值（§13.5）。
 	CompactTriggerTokens int `json:"compact_trigger_tokens"`
 	// CompactKeepTokens 是压缩后保留的近期 token 预算；0 用默认值（§13.5）。
@@ -110,8 +113,8 @@ func (c MCPServerConfig) Validate() error {
 	case !hasCmd && !hasURL:
 		return errors.New("mcp: either command (stdio) or url (http) is required")
 	}
-	if c.TimeoutSeconds < 0 || c.TimeoutSeconds > int(mcpMaxCallTimeout.Seconds()) {
-		return fmt.Errorf("mcp: timeout_seconds must be within 0..%d", int(mcpMaxCallTimeout.Seconds()))
+	if c.TimeoutSeconds < 0 || c.TimeoutSeconds > int(mcp.MaxCallTimeout.Seconds()) {
+		return fmt.Errorf("mcp: timeout_seconds must be within 0..%d", int(mcp.MaxCallTimeout.Seconds()))
 	}
 	return nil
 }
@@ -125,9 +128,6 @@ func (c MCPServerConfig) ReadOnly(tool string) bool {
 	}
 	return false
 }
-
-// mcpMaxCallTimeout 是单次 MCP 工具调用的超时上限（与 mcp 包一致）。
-const mcpMaxCallTimeout = 300 * time.Second
 
 // HomeDir 返回 ~/.gocloudagent（尊重 GOCLOUDAGENT_HOME 覆盖，便于测试隔离）。
 func HomeDir(env []string) string {
@@ -226,6 +226,9 @@ func overlayConfig(base, override Config) Config {
 	if override.Yolo {
 		base.Yolo = true
 	}
+	if override.HTTPAllowPrivate {
+		base.HTTPAllowPrivate = true
+	}
 	base.ShellIsolation = overlayShellIsolation(base.ShellIsolation, override.ShellIsolation)
 	if len(override.MCPServers) > 0 {
 		// map 按 key 合并：命令行给出的 Server 覆盖同名项，其余保留。
@@ -263,29 +266,60 @@ func MergeEnv(cfg Config, env []string) Config {
 		cfg.Yolo = true
 	}
 	if v, ok := envGet(env, "GOCLOUDAGENT_MAX_ITERATIONS"); ok {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			cfg.MaxIterations = n
-		}
+		setPositiveInt(&cfg.MaxIterations, v)
 	}
 	if v, ok := envGet(env, "GOCLOUDAGENT_MAX_RUN_SECONDS"); ok {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			cfg.MaxRunSeconds = n
-		}
+		setPositiveInt(&cfg.MaxRunSeconds, v)
 	}
 	if v, ok := envGet(env, "GOCLOUDAGENT_COMPACT_TRIGGER_TOKENS"); ok {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			cfg.CompactTriggerTokens = n
-		}
+		setPositiveInt(&cfg.CompactTriggerTokens, v)
 	}
 	if v, ok := envGet(env, "GOCLOUDAGENT_COMPACT_KEEP_TOKENS"); ok {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			cfg.CompactKeepTokens = n
-		}
+		setPositiveInt(&cfg.CompactKeepTokens, v)
 	}
 	if cfg.Output == "" {
 		cfg.Output = "text"
 	}
 	return cfg
+}
+
+// setPositiveInt 解析正整数配置；非法值保持原样（0 即用默认值），
+// 避免把 `config set compact_keep_tokens abc` 变成静默清零。
+func setPositiveInt(dst *int, v string) {
+	if n, err := strconv.Atoi(v); err == nil && n > 0 {
+		*dst = n
+	}
+}
+
+// masked 返回可安全展示的副本：Token、SearchAPIKey 部分掩码；MCP 的 URL 隐藏
+// userinfo/query/fragment，Header 与 Env 的值一律替换为 ***（键名保留以便排查）。
+// 不修改接收者：MCPServers 是 map，必须复制。
+func (c Config) masked() Config {
+	c.Token = maskSecret(c.Token)
+	c.SearchAPIKey = maskSecret(c.SearchAPIKey)
+	if len(c.MCPServers) == 0 {
+		return c
+	}
+	servers := make(map[string]MCPServerConfig, len(c.MCPServers))
+	for name, srv := range c.MCPServers {
+		srv.URL = maskURL(srv.URL)
+		srv.Headers = maskValues(srv.Headers)
+		srv.Env = maskValues(srv.Env)
+		servers[name] = srv
+	}
+	c.MCPServers = servers
+	return c
+}
+
+func maskValues(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return in
+	}
+	out := make(map[string]string, len(in))
+	for k := range in {
+		out[k] = "***"
+	}
+	return out
 }
 
 // Validate 报告配置是否足以发起一次 run。

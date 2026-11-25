@@ -1,7 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api, resetApiMocks } from '@/test/api-mock'
-import { uiStubs } from '@/test/helpers'
+import { closeSelect, installJsdomPolyfills, openSelect, realSelectStubs, selectTriggers, uiStubs, cancelModal, closeDialog, inDialog, mountDialog, okModal, realDialogStubs, confirmAction, realAlertDialogStubs } from '@/test/helpers'
 import KvCreateKeyModal from '@/components/databases/kv/KvCreateKeyModal.vue'
 import KvTtlModal from '@/components/databases/kv/KvTtlModal.vue'
 import KvDetailModal from '@/components/databases/kv/KvDetailModal.vue'
@@ -18,13 +18,15 @@ vi.mock('@/services/api', async () => {
 
 const meta = { key: 'k', type: 'string', len: null, ttl_ms: null, mtime_ms: 1, version: 1 }
 
+installJsdomPolyfills()
+
 describe('KvCreateKeyModal (新建 Key)', () => {
   beforeEach(() => resetApiMocks())
 
   async function openWith() {
-    const w = mount(KvCreateKeyModal, {
+    const w = await mountDialog(KvCreateKeyModal, {
       props: { open: true, projectId: 'p' },
-      global: { stubs: uiStubs }
+      global: { stubs: { ...uiStubs, ...realDialogStubs, ...realAlertDialogStubs } }
     })
     await flushPromises()
     return w
@@ -170,9 +172,9 @@ describe('KvTtlModal (TTL 设置)', () => {
   beforeEach(() => resetApiMocks())
 
   it('无 TTL 默认永久；走 PERSIST', async () => {
-    const w = mount(KvTtlModal, {
+    const w = await mountDialog(KvTtlModal, {
       props: { open: true, projectId: 'p', kvKey: meta },
-      global: { stubs: uiStubs }
+      global: { stubs: { ...uiStubs, ...realDialogStubs, ...realAlertDialogStubs } }
     })
     await flushPromises()
     const vm = w.vm as any
@@ -190,22 +192,22 @@ describe('KvTtlModal (TTL 设置)', () => {
   })
 
   it('有 TTL 时预填秒数', async () => {
-    const w = mount(KvTtlModal, {
+    const w = await mountDialog(KvTtlModal, {
       props: { open: true, projectId: 'p', kvKey: { ...meta, ttl_ms: 30000 } },
-      global: { stubs: uiStubs }
+      global: { stubs: { ...uiStubs, ...realDialogStubs, ...realAlertDialogStubs } }
     })
     await flushPromises()
     const vm = w.vm as any
     expect(vm.mode).toBe('custom')
     expect(vm.seconds).toBe('30')
-    expect(w.text()).toContain('当前剩余约 30 秒')
+    expect(inDialog().text()).toContain('当前剩余约 30 秒')
     w.unmount()
   })
 
   it('kvKey 为 null 时提交直接返回；watch 不预填', async () => {
-    const w = mount(KvTtlModal, {
+    const w = await mountDialog(KvTtlModal, {
       props: { open: true, projectId: 'p', kvKey: null },
-      global: { stubs: uiStubs }
+      global: { stubs: { ...uiStubs, ...realDialogStubs, ...realAlertDialogStubs } }
     })
     await flushPromises()
     const vm = w.vm as any
@@ -217,9 +219,9 @@ describe('KvTtlModal (TTL 设置)', () => {
 
   it('失败 toast 报错', async () => {
     api.kv.exec.mockRejectedValueOnce(new Error('boom'))
-    const w = mount(KvTtlModal, {
+    const w = await mountDialog(KvTtlModal, {
       props: { open: true, projectId: 'p', kvKey: meta },
-      global: { stubs: uiStubs }
+      global: { stubs: { ...uiStubs, ...realDialogStubs, ...realAlertDialogStubs } }
     })
     await flushPromises()
     const vm = w.vm as any
@@ -249,13 +251,13 @@ describe('KvDetailModal (详情弹窗)', () => {
 
   it('按类型选择编辑器并展示 meta', async () => {
     mockMeta('hash')
-    const w = mount(KvDetailModal, {
+    const w = await mountDialog(KvDetailModal, {
       props: { open: true, projectId: 'p', kvKey: { ...meta, key: 'h', type: 'hash' } },
-      global: { stubs: uiStubs }
+      global: { stubs: { ...uiStubs, ...realDialogStubs, ...realAlertDialogStubs } }
     })
     await flushPromises()
-    expect(w.text()).toContain('hash')
-    expect(w.text()).toContain('3 个元素')
+    expect(inDialog().text()).toContain('hash')
+    expect(inDialog().text()).toContain('3 个元素')
     expect(w.findComponent({ name: 'KvHashEditor' }).exists()).toBe(true)
     w.unmount()
   })
@@ -270,9 +272,9 @@ describe('KvDetailModal (详情弹窗)', () => {
     } as const
     for (const [t, name] of Object.entries(editors)) {
       mockMeta(t)
-      const w = mount(KvDetailModal, {
+      const w = await mountDialog(KvDetailModal, {
         props: { open: true, projectId: 'p', kvKey: { ...meta, type: t as never } },
-        global: { stubs: uiStubs }
+        global: { stubs: { ...uiStubs, ...realDialogStubs, ...realAlertDialogStubs } }
       })
       await flushPromises()
       expect(w.findComponent({ name }).exists()).toBe(true)
@@ -282,9 +284,9 @@ describe('KvDetailModal (详情弹窗)', () => {
 
   it('删除 key（DEL）后 emit deleted 并关闭', async () => {
     mockMeta('string')
-    const w = mount(KvDetailModal, {
+    const w = await mountDialog(KvDetailModal, {
       props: { open: true, projectId: 'p', kvKey: meta },
-      global: { stubs: uiStubs }
+      global: { stubs: { ...uiStubs, ...realDialogStubs, ...realAlertDialogStubs } }
     })
     await flushPromises()
     const vm = w.vm as any
@@ -297,9 +299,9 @@ describe('KvDetailModal (详情弹窗)', () => {
 
   it('meta 加载失败回退传入 kvKey', async () => {
     api.kv.execBatch.mockRejectedValueOnce(new Error('x'))
-    const w = mount(KvDetailModal, {
+    const w = await mountDialog(KvDetailModal, {
       props: { open: true, projectId: 'p', kvKey: meta },
-      global: { stubs: uiStubs }
+      global: { stubs: { ...uiStubs, ...realDialogStubs, ...realAlertDialogStubs } }
     })
     await flushPromises()
     const vm = w.vm as any
@@ -308,21 +310,21 @@ describe('KvDetailModal (详情弹窗)', () => {
   })
 
   it('未选 key 显示占位；readonly 无删除按钮', async () => {
-    const w0 = mount(KvDetailModal, {
+    const w0 = await mountDialog(KvDetailModal, {
       props: { open: true, projectId: 'p', kvKey: null },
-      global: { stubs: uiStubs }
+      global: { stubs: { ...uiStubs, ...realDialogStubs, ...realAlertDialogStubs } }
     })
     await flushPromises()
-    expect(w0.text()).toContain('未选择 Key')
+    expect(inDialog().text()).toContain('未选择 Key')
     w0.unmount()
 
     mockMeta('string')
-    const w1 = mount(KvDetailModal, {
+    const w1 = await mountDialog(KvDetailModal, {
       props: { open: true, projectId: 'p', kvKey: meta, readonly: true },
-      global: { stubs: uiStubs }
+      global: { stubs: { ...uiStubs, ...realDialogStubs, ...realAlertDialogStubs } }
     })
     await flushPromises()
-    expect(w1.find('.confirm-action').exists()).toBe(false)
+    expect(inDialog().find('.confirm-action').exists()).toBe(false)
     w1.unmount()
   })
 })
@@ -333,6 +335,8 @@ const meta = { key: 'k', type: 'string', len: null, ttl_ms: null, mtime_ms: 1, v
 // v-model 完整 stub：setValue → update:modelValue 生效
 const vmStubs = {
   ...uiStubs,
+  ...realDialogStubs,
+  ...realAlertDialogStubs,
   Input: {
     props: ['modelValue', 'id', 'type', 'placeholder', 'disabled'],
     emits: ['update:modelValue'],
@@ -352,7 +356,7 @@ describe('KV 表单 v-model 双向绑定补盲', () => {
   beforeEach(() => resetApiMocks())
 
   it('CreateKeyModal: hash 行输入/增删行；zset 同构', async () => {
-    const w = mount(KvCreateKeyModal, {
+    const w = await mountDialog(KvCreateKeyModal, {
       props: { open: true, projectId: 'p' },
       global: { stubs: vmStubs }
     })
@@ -360,45 +364,45 @@ describe('KV 表单 v-model 双向绑定补盲', () => {
     const vm = w.vm as any
     vm.keyType = 'hash'
     await flushPromises()
-    const hashInputs = w.findAll('input').filter((i) => i.attributes('placeholder') === '字段名' || i.attributes('placeholder') === '值')
+    const hashInputs = inDialog().findAll('input').filter((i) => i.attributes('placeholder') === '字段名' || i.attributes('placeholder') === '值')
     await hashInputs[0].setValue('f1')
     await hashInputs[1].setValue('v1')
     expect(vm.hashPairs[0].field).toBe('f1')
     expect(vm.hashPairs[0].value).toBe('v1')
     // 增行 → 删行按钮（splice 内联回调）
-    await w.findAll('button').find((b) => b.text().includes('+ 添加字段'))!.trigger('click')
+    await inDialog().findAll('button').find((b) => b.text().includes('+ 添加字段'))!.trigger('click')
     expect(vm.hashPairs).toHaveLength(2)
-    await w.findAll('button').find((b) => b.text() === '删')!.trigger('click')
+    await inDialog().findAll('button').find((b) => b.text() === '删')!.trigger('click')
     expect(vm.hashPairs).toHaveLength(1)
 
     vm.keyType = 'zset'
     await flushPromises()
-    const zInputs = w.findAll('input').filter((i) => i.attributes('placeholder') === '成员' || i.attributes('placeholder') === '分数')
+    const zInputs = inDialog().findAll('input').filter((i) => i.attributes('placeholder') === '成员' || i.attributes('placeholder') === '分数')
     await zInputs[0].setValue('e1')
     await zInputs[1].setValue('2.5')
     expect(vm.zsetPairs[0].elem).toBe('e1')
     expect(vm.zsetPairs[0].score).toBe('2.5')
-    await w.findAll('button').find((b) => b.text().includes('+ 添加成员'))!.trigger('click')
+    await inDialog().findAll('button').find((b) => b.text().includes('+ 添加成员'))!.trigger('click')
     expect(vm.zsetPairs).toHaveLength(2)
-    await w.findAll('button').find((b) => b.text() === '删')!.trigger('click')
+    await inDialog().findAll('button').find((b) => b.text() === '删')!.trigger('click')
     expect(vm.zsetPairs).toHaveLength(1)
     w.unmount()
   })
 
   it('CreateKeyModal: string 值与 ttl 秒数输入；SbModal ok（带 ttl_ms）', async () => {
-    const w = mount(KvCreateKeyModal, {
+    const w = await mountDialog(KvCreateKeyModal, {
       props: { open: true, projectId: 'p' },
       global: { stubs: vmStubs }
     })
     await flushPromises()
     const vm = w.vm as any
-    await w.find('#kv-create-key').setValue('kk')
-    await w.find('#kv-create-string').setValue('vv')
+    await inDialog().find('#kv-create-key').setValue('kk')
+    await inDialog().find('#kv-create-string').setValue('vv')
     vm.ttlMode = 'custom'
     await flushPromises()
-    await w.find('input[type="number"]').setValue('7')
+    await inDialog().find('input[type="number"]').setValue('7')
     expect(vm.ttlSeconds).toBe('7')
-    await w.find('.sb-ok').trigger('click')
+    await okModal()
     await flushPromises()
     expect(api.kv.exec).toHaveBeenCalledWith('p', {
       type: 'String',
@@ -409,12 +413,12 @@ describe('KV 表单 v-model 双向绑定补盲', () => {
   })
 
   it('TtlModal: update:open 回调与取消按钮', async () => {
-    const w = mount(KvTtlModal, {
+    const w = await mountDialog(KvTtlModal, {
       props: { open: true, projectId: 'p', kvKey: meta },
       global: { stubs: vmStubs }
     })
     await flushPromises()
-    await w.find('.sb-cancel').trigger('click')
+    await cancelModal()
     expect(w.emitted('update:open')?.at(-1)).toEqual([false])
     w.unmount()
   })
@@ -425,7 +429,7 @@ describe('KV 表单 v-model 双向绑定补盲', () => {
 const meta = { key: 'k', type: 'string', len: null, ttl_ms: null, mtime_ms: 1, version: 1 }
 
 function findBtn(w: ReturnType<typeof mount>, text: string) {
-  return w.findAll('button').find((b) => b.text().includes(text))
+  return inDialog().findAll('button').find((b) => b.text().includes(text))
 }
 
 function mockExec(impl: (cmd: string, argvs: string[]) => unknown) {
@@ -440,9 +444,9 @@ describe('KV 模板交互（编辑器/弹窗按钮与内联回调）', () => {
   beforeEach(() => resetApiMocks())
 
   it('CreateKeyModal: hash/zset 行增删与类型切换', async () => {
-    const w = mount(KvCreateKeyModal, {
+    const w = await mountDialog(KvCreateKeyModal, {
       props: { open: true, projectId: 'p' },
-      global: { stubs: uiStubs }
+      global: { stubs: { ...uiStubs, ...realDialogStubs, ...realAlertDialogStubs } }
     })
     await flushPromises()
     const vm = w.vm as any
@@ -472,36 +476,38 @@ describe('KV 模板交互（编辑器/弹窗按钮与内联回调）', () => {
   })
 
   it('CreateKeyModal: 选项渲染完整（Select 每个类型）', async () => {
-    const w = mount(KvCreateKeyModal, {
+    // 真实 Select：打开类型下拉，列出 5 种 Redis 类型；过期策略默认「永久」显示在表单里
+    const w = await mountDialog(KvCreateKeyModal, {
+      attachTo: document.body,
       props: { open: true, projectId: 'p' },
-      global: { stubs: uiStubs }
+      global: { stubs: { ...uiStubs, ...realDialogStubs, ...realSelectStubs } }
     })
     await flushPromises()
-    for (const t of ['String', 'Hash', 'List', 'Set', 'ZSet']) {
-      expect(w.text()).toContain(t)
-    }
-    expect(w.text()).toContain('永久')
+    const options = await openSelect(selectTriggers()[0])
+    expect(options.map((o) => o.textContent?.trim())).toEqual(['String', 'Hash', 'List', 'Set', 'ZSet'])
+    await closeSelect()
+    expect(inDialog().text()).toContain('永久')
     w.unmount()
   })
 
   it('TtlModal: 自定义切换与 SbModal ok 提交（PEXPIRE）', async () => {
-    const w = mount(KvTtlModal, {
+    const w = await mountDialog(KvTtlModal, {
       props: { open: true, projectId: 'p', kvKey: { ...meta, ttl_ms: 25000 } },
-      global: { stubs: uiStubs }
+      global: { stubs: { ...uiStubs, ...realDialogStubs, ...realAlertDialogStubs } }
     })
     await flushPromises()
-    expect(w.text()).toContain('当前剩余约 25 秒')
+    expect(inDialog().text()).toContain('当前剩余约 25 秒')
     mockExec(() => 1)
-    await w.find('.sb-ok').trigger('click')
+    await okModal()
     await flushPromises()
     expect(api.kv.exec).toHaveBeenCalledWith('p', { type: 'cmd', argvs: ['PEXPIRE', 'k', '25000'] })
     w.unmount()
   })
 
   it('TtlModal: 永久分支提交 PERSIST；取消关闭', async () => {
-    const w = mount(KvTtlModal, {
+    const w = await mountDialog(KvTtlModal, {
       props: { open: true, projectId: 'p', kvKey: meta },
-      global: { stubs: uiStubs }
+      global: { stubs: { ...uiStubs, ...realDialogStubs, ...realAlertDialogStubs } }
     })
     await flushPromises()
     const vm = w.vm as any
@@ -510,7 +516,7 @@ describe('KV 模板交互（编辑器/弹窗按钮与内联回调）', () => {
     await vm.submit()
     await flushPromises()
     expect(api.kv.exec).toHaveBeenCalledWith('p', { type: 'cmd', argvs: ['PERSIST', 'k'] })
-    await w.find('.sb-cancel').trigger('click')
+    await cancelModal()
     expect(w.emitted('update:open')?.at(-1)).toEqual([false])
     w.unmount()
   })
@@ -526,9 +532,9 @@ describe('KV 模板交互（编辑器/弹窗按钮与内联回调）', () => {
         })
       )
     )
-    const w = mount(KvDetailModal, {
+    const w = await mountDialog(KvDetailModal, {
       props: { open: true, projectId: 'p', kvKey: meta },
-      global: { stubs: uiStubs }
+      global: { stubs: { ...uiStubs, ...realDialogStubs, ...realAlertDialogStubs } }
     })
     await flushPromises()
     const vm = w.vm as any
@@ -537,16 +543,16 @@ describe('KV 模板交互（编辑器/弹窗按钮与内联回调）', () => {
     expect(api.kv.execBatch).toHaveBeenCalledTimes(2)
     expect(w.emitted('changed')).toBeTruthy()
     // Modal close 事件透传（SbModal stub 的关闭按钮）
-    await w.find('.sb-modal-close').trigger('click')
+    await closeDialog()
     expect(w.emitted('update:open')?.at(-1)).toEqual([false])
     w.unmount()
   })
 
   it('HashEditor: 行内改/存/删按钮触发', async () => {
     mockExec((cmd) => (cmd === 'HGETALL' ? ['f', 'v'] : 1))
-    const w = mount(KvHashEditor, {
+    const w = await mountDialog(KvHashEditor, {
       props: { projectId: 'p', kvKey: 'k' },
-      global: { stubs: uiStubs }
+      global: { stubs: { ...uiStubs, ...realDialogStubs, ...realAlertDialogStubs } }
     })
     await flushPromises()
     const vm = w.vm as any
@@ -560,20 +566,19 @@ describe('KV 模板交互（编辑器/弹窗按钮与内联回调）', () => {
       args: { key: 'k', fields: { f: 'v2' } }
     })
     mockExec((cmd) => (cmd === 'HGETALL' ? [] : 1))
-    await w.findAll('.confirm-action').find((c) => c.text().includes('删'))!.trigger('click')
-    await flushPromises()
+    await confirmAction(inDialog(), '删')
     expect(api.kv.exec).toHaveBeenCalledWith('p', { type: 'cmd', argvs: ['HDEL', 'k', 'f'] })
     w.unmount()
   })
 
   it('HashEditor: 添加行按钮与空字段过滤', async () => {
     mockExec((cmd) => (cmd === 'HGETALL' ? [] : 1))
-    const w = mount(KvHashEditor, {
+    const w = await mountDialog(KvHashEditor, {
       props: { projectId: 'p', kvKey: 'k' },
-      global: { stubs: uiStubs }
+      global: { stubs: { ...uiStubs, ...realDialogStubs, ...realAlertDialogStubs } }
     })
     await flushPromises()
-    const inputs = w.findAll('input')
+    const inputs = inDialog().findAll('input')
     await inputs[0].setValue('a')
     await inputs[1].setValue('b')
     await findBtn(w, '添加')!.trigger('click')
@@ -591,9 +596,9 @@ describe('KV 模板交互（编辑器/弹窗按钮与内联回调）', () => {
       if (cmd === 'LPOP' || cmd === 'RPOP') return 'x'
       return 'OK'
     })
-    const w = mount(KvListEditor, {
+    const w = await mountDialog(KvListEditor, {
       props: { projectId: 'p', kvKey: 'k' },
-      global: { stubs: uiStubs }
+      global: { stubs: { ...uiStubs, ...realDialogStubs, ...realAlertDialogStubs } }
     })
     await flushPromises()
     const vm = w.vm as any
@@ -626,9 +631,9 @@ describe('KV 模板交互（编辑器/弹窗按钮与内联回调）', () => {
 
   it('ZSetEditor: 排序切换按钮与行内改分', async () => {
     mockExec((cmd) => (cmd === 'ZRANGE' ? ['e', '5'] : 1))
-    const w = mount(KvZSetEditor, {
+    const w = await mountDialog(KvZSetEditor, {
       props: { projectId: 'p', kvKey: 'k' },
-      global: { stubs: uiStubs }
+      global: { stubs: { ...uiStubs, ...realDialogStubs, ...realAlertDialogStubs } }
     })
     await flushPromises()
     const vm = w.vm as any
@@ -649,20 +654,19 @@ describe('KV 模板交互（编辑器/弹窗按钮与内联回调）', () => {
       args: { key: 'k', items: [{ elem: 'e', score: 6 }] }
     })
     mockExec((cmd) => (cmd === 'ZRANGE' ? [] : 1))
-    await w.findAll('.confirm-action').find((c) => c.text().includes('删'))!.trigger('click')
-    await flushPromises()
+    await confirmAction(inDialog(), '删')
     expect(api.kv.exec).toHaveBeenCalledWith('p', { type: 'cmd', argvs: ['ZREM', 'k', 'e'] })
     w.unmount()
   })
 
   it('ZSetEditor: 添加成员按钮', async () => {
     mockExec((cmd) => (cmd === 'ZRANGE' ? [] : 1))
-    const w = mount(KvZSetEditor, {
+    const w = await mountDialog(KvZSetEditor, {
       props: { projectId: 'p', kvKey: 'k' },
-      global: { stubs: uiStubs }
+      global: { stubs: { ...uiStubs, ...realDialogStubs, ...realAlertDialogStubs } }
     })
     await flushPromises()
-    const inputs = w.findAll('input')
+    const inputs = inDialog().findAll('input')
     await inputs[0].setValue('m')
     await inputs[1].setValue('2')
     await findBtn(w, '添加')!.trigger('click')
@@ -676,9 +680,9 @@ describe('KV 模板交互（编辑器/弹窗按钮与内联回调）', () => {
 
   it('SetEditor: 随机弹出成功 toast（SPOP）', async () => {
     mockExec((cmd) => (cmd === 'SMEMBERS' ? ['a', 'b'] : 'a'))
-    const w = mount(KvSetEditor, {
+    const w = await mountDialog(KvSetEditor, {
       props: { projectId: 'p', kvKey: 'k' },
-      global: { stubs: uiStubs }
+      global: { stubs: { ...uiStubs, ...realDialogStubs, ...realAlertDialogStubs } }
     })
     await flushPromises()
     const vm = w.vm as any
@@ -694,9 +698,9 @@ describe('KV 模板交互（编辑器/弹窗按钮与内联回调）', () => {
       if (cmd === 'LRANGE') return ['a', 'b', 'c']
       return 'a'
     })
-    const w = mount(KvListEditor, {
+    const w = await mountDialog(KvListEditor, {
       props: { projectId: 'p', kvKey: 'k' },
-      global: { stubs: uiStubs }
+      global: { stubs: { ...uiStubs, ...realDialogStubs, ...realAlertDialogStubs } }
     })
     await flushPromises()
     mockExec((cmd) => {
@@ -720,14 +724,13 @@ describe('KV 模板交互（编辑器/弹窗按钮与内联回调）', () => {
     api.kv.execBatch.mockImplementation(async (_pid: string, bodies: { argvs?: string[] }[]) =>
       Promise.all(bodies.map((b) => (b.argvs?.[0]?.toUpperCase() === 'TYPE' ? 'string' : -1)))
     )
-    const w = mount(KvDetailModal, {
+    const w = await mountDialog(KvDetailModal, {
       props: { open: true, projectId: 'p', kvKey: meta },
-      global: { stubs: uiStubs }
+      global: { stubs: { ...uiStubs, ...realDialogStubs, ...realAlertDialogStubs } }
     })
     await flushPromises()
     api.kv.exec.mockResolvedValueOnce(1)
-    await w.find('.confirm-action').trigger('click')
-    await flushPromises()
+    await confirmAction(inDialog(), '删除 Key')
     expect(api.kv.exec).toHaveBeenCalledWith('p', { type: 'cmd', argvs: ['DEL', 'k'] })
     expect(w.emitted('deleted')).toBeTruthy()
     w.unmount()

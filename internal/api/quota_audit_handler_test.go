@@ -1,3 +1,33 @@
+// 文件说明：quota_audit_handler_test.go — internal/api 的单元测试（TestQuotaHandler、TestAuditHandler 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestQuotaHandler|TestAuditHandler'
+//	同包调用：fakeUsage → agent_skills_router_e2e_test.go, agent_threads_test.go；fakeAudit → agent_skills_router_e2e_test.go, audit_helper_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/quota_audit_handler_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] fakeUsage ← agent_skills_router_e2e_test.go, agent_threads_test.go；fakeAudit ← agent_skills_router_e2e_test.go, audit_helper_test.go
+//
+// 主要符号
+//
+//	type fakeUsage struct{…}
+//	(f *fakeUsage) CheckQuota(_ context.Context, _ string, kind string) error
+//	type fakeAudit struct{…}
+//	(f *fakeAudit) Record(_ context.Context, e AuditEvent) error
+//	(f *fakeAudit) ListOperations(context.Context, string, string, int) ([]catalog.Operation, error)
+//	setupPlan79Router(t *testing.T, usage UsageService, audit AuditService, withProject bool) *echo.Echo
+//	TestQuotaHandler(t *testing.T)
+//	TestAuditHandler(t *testing.T)
+
 package api
 
 import (

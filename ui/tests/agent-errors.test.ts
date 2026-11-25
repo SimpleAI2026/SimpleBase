@@ -6,6 +6,8 @@ describe('agent-errors', () => {
     expect(agentErrorText({ code: 'llm_auth_failed' })).toContain('鉴权失败')
     expect(agentErrorText({ code: 'invalid_retry' })).toContain('无法重试')
     expect(agentErrorText({ code: 'agent_thread_busy' })).toContain('运行中')
+    expect(agentErrorText({ code: 'human_policy_disabled' })).toContain('人工任务')
+    expect(agentErrorText({ code: 'invalid_dispatch_graph' })).toContain('任务关系')
   })
 
   it('falls back to message or default', () => {

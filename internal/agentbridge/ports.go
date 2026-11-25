@@ -1,3 +1,38 @@
+// 文件说明：ports.go — internal/agentbridge 中 DatabaseInfo、SQLResult 等符号的实现
+//
+// 用法
+//
+//	type DatabaseInfo struct{…}
+//	type SQLResult struct{…}
+//	type ObjectInfo struct{…}
+//	type DatabaseAccess interface{…}
+//	type ObjectAccess interface{…}
+//	type LogReader interface{…}
+//
+// 调用架构
+//
+//	[上游] internal/agentrun, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/agentbridge/ports.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] access_db.go, access_llm.go, access_object.go, access_test.go, bridge_test.go 等 33 个
+//	[关键引用] DatabaseInfo ← access_db.go, testutil_test.go；SQLResult ← access_db.go, testutil_test.go；ObjectInfo ← access_object.go, testutil_test.go
+//
+// 主要符号
+//
+//	type DatabaseInfo struct{…}
+//	type SQLResult struct{…}
+//	type ObjectInfo struct{…}
+//	type DatabaseAccess interface{…}
+//	type ObjectAccess interface{…}
+//	type LogReader interface{…}
+//	type LogEvent struct{…}
+//	type LogLevelCount struct{…}
+//	... 另有 6 个顶层符号
+
 package agentbridge
 
 import (

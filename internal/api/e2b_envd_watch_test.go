@@ -1,3 +1,32 @@
+// 文件说明：e2b_envd_watch_test.go — internal/api 的单元测试（TestWatchCreateAndGet、TestWatchDirReturnsEvents 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestWatchCreateAndGet|TestWatchDirReturnsEvents|TestWatchGetUnknown|TestWatchRemoveIdempotent'
+//	同包调用：watcherIDOf() → sandbox_snapshot_handler_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/e2b_envd_watch_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] watcherIDOf ← sandbox_snapshot_handler_test.go
+//
+// 主要符号
+//
+//	TestWatchCreateAndGet(t *testing.T)
+//	TestWatchDirReturnsEvents(t *testing.T)
+//	TestWatchGetUnknown(t *testing.T)
+//	TestWatchRemoveIdempotent(t *testing.T)
+//	TestWatchNeedsPath(t *testing.T)
+//	TestWatchUnsupported(t *testing.T)
+//	watcherIDOf(t *testing.T, body []byte) string
+
 package api
 
 // e2b_envd_watch_test.go：envd 目录监听的四个端点。

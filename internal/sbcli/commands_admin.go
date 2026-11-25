@@ -31,15 +31,6 @@ func cmdUserList(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []st
 	return decodeRaw(raw), err
 }
 
-func cmdUserGet(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
-	id, err := one(args, "id")
-	if err != nil {
-		return nil, err
-	}
-	raw, err := c.GetUser(ctx, id)
-	return decodeRaw(raw), err
-}
-
 func cmdUserCreate(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, stdin io.Reader) (any, error) {
 	if strings.Contains(strings.Join(args, " "), "--password") && !strings.Contains(strings.Join(args, " "), "--password-stdin") {
 		return nil, usagef("passwords must be passed with --password-stdin")
@@ -84,17 +75,6 @@ func cmdUserDisable(ctx context.Context, c *gosdk.Client, _ loadedConfig, args [
 	st := "disabled"
 	raw, err := c.UpdateUser(ctx, id, gosdk.UserInput{Status: &st})
 	return decodeRaw(raw), err
-}
-
-func cmdUserDelete(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
-	id, err := one(args, "id")
-	if err != nil {
-		return nil, err
-	}
-	if err := c.DeleteUser(ctx, id); err != nil {
-		return nil, err
-	}
-	return map[string]any{"ok": true}, nil
 }
 
 func cmdProjectList(ctx context.Context, c *gosdk.Client, _ loadedConfig, _ []string, _ io.Reader) (any, error) {
@@ -142,17 +122,6 @@ func cmdAPIKeyCreate(ctx context.Context, c *gosdk.Client, cfg loadedConfig, arg
 		out["secret"] = key.Secret
 	}
 	return out, nil
-}
-
-func cmdAPIKeyRevoke(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
-	id, err := one(args, "id")
-	if err != nil {
-		return nil, err
-	}
-	if err := c.RevokeAPIKey(ctx, id); err != nil {
-		return nil, err
-	}
-	return map[string]any{"ok": true}, nil
 }
 
 func cmdSettingsGet(ctx context.Context, c *gosdk.Client, _ loadedConfig, _ []string, _ io.Reader) (any, error) {

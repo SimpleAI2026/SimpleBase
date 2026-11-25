@@ -1,3 +1,30 @@
+// 文件说明：app_test.go — internal/app 的单元测试（TestNewReadonlyApp、TestNewWritableAppRejectsMissingS3 等）
+//
+// 用法
+//
+//	go test ./internal/app -run 'TestNewReadonlyApp|TestNewWritableAppRejectsMissingS3|TestNewLocalStorageAppUsesSystemDatabase|TestNewInvalidBackupScheduleClosesResources'
+//	同包调用：testConfig() → auth_seed_test.go, filestore_assembly_test.go
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/api/perfbench
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/app/app_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_shutdown_test.go, app.go, app_alerts.go, app_lease.go, arch_gate_test.go 等 41 个
+//	[关键引用] testConfig ← auth_seed_test.go, filestore_assembly_test.go
+//
+// 主要符号
+//
+//	testConfig(writable bool) config.Config
+//	TestNewReadonlyApp(t *testing.T)
+//	TestNewWritableAppRejectsMissingS3(t *testing.T)
+//	TestNewLocalStorageAppUsesSystemDatabase(t *testing.T)
+//	TestNewInvalidBackupScheduleClosesResources(t *testing.T)
+
 package app
 
 import (

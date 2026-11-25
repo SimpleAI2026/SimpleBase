@@ -28,8 +28,6 @@ package api
 
 import (
 	"bytes"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -350,7 +348,7 @@ type respMeta struct {
 
 func newRespMeta(r oaiRespRequest) respMeta {
 	return respMeta{
-		ID: newRespID("resp"), Model: r.Model, CreatedAt: time.Now().Unix(),
+		ID: randomID("resp", "_"), Model: r.Model, CreatedAt: time.Now().Unix(),
 		Instructions: r.Instructions, Tools: r.Tools, ToolChoice: r.ToolChoice, Temperature: r.Temperature,
 	}
 }
@@ -483,28 +481,19 @@ func newRespUsage(u LLMTokenUsage) *oaiRespUsage {
 func respOutputFromLLM(resp LLMResponse) []any {
 	var out []any
 	if resp.Content != "" || len(resp.ToolCalls) == 0 {
-		out = append(out, respMessageItem(newRespID("msg"), respStatusCompleted, []oaiRespContent{respTextContent(resp.Content)}))
+		out = append(out, respMessageItem(randomID("msg", "_"), respStatusCompleted, []oaiRespContent{respTextContent(resp.Content)}))
 	}
 	for _, tc := range resp.ToolCalls {
 		callID := tc.ID
 		if callID == "" {
-			callID = newRespID("call")
+			callID = randomID("call", "_")
 		}
 		out = append(out, oaiRespFunctionItem{
-			ID: newRespID("fc"), Type: "function_call", Status: respStatusCompleted,
+			ID: randomID("fc", "_"), Type: "function_call", Status: respStatusCompleted,
 			CallID: callID, Name: tc.Name, Arguments: tc.Arguments,
 		})
 	}
 	return out
-}
-
-// newRespID 生成 prefix_<24 位十六进制>（Responses 的 id 用下划线，chat 的 chatcmpl 用连字符）。
-func newRespID(prefix string) string {
-	buf := make([]byte, 12)
-	if _, err := rand.Read(buf); err != nil {
-		return fmt.Sprintf("%s_%d", prefix, time.Now().UnixNano())
-	}
-	return prefix + "_" + hex.EncodeToString(buf)
 }
 
 // ---------------------------------------------------------------------------
@@ -585,7 +574,7 @@ func (w *respStreamWriter) start() error {
 }
 
 func (w *respStreamWriter) openMessage() error {
-	st := &respItemState{kind: "message", id: newRespID("msg"), outputIndex: len(w.items)}
+	st := &respItemState{kind: "message", id: randomID("msg", "_"), outputIndex: len(w.items)}
 	w.items = append(w.items, st)
 	w.curMsg = st
 	if err := w.event("response.output_item.added", map[string]any{
@@ -653,10 +642,10 @@ func (w *respStreamWriter) toolCall(index int, id, name, argsDelta string) error
 	if st == nil {
 		callID, synth := id, false
 		if callID == "" {
-			callID, synth = newRespID("call"), true
+			callID, synth = randomID("call", "_"), true
 		}
 		st = &respItemState{
-			kind: "function_call", id: newRespID("fc"), outputIndex: len(w.items),
+			kind: "function_call", id: randomID("fc", "_"), outputIndex: len(w.items),
 			callID: callID, callIDSynth: synth, name: name,
 		}
 		w.items = append(w.items, st)
@@ -756,8 +745,8 @@ func (w *respStreamWriter) fail(err error) {
 
 // Responses 处理 POST .../v1/responses。
 func (h *LLMHandler) Responses(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
+	pc, err := requireProject(c)
+	if err != nil {
 		return writeOAIError(c, http.StatusInternalServerError, "internal_error", "project context missing")
 	}
 	var req oaiRespRequest

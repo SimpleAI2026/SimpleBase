@@ -1,3 +1,34 @@
+// 文件说明：orphan_ledger.go — godatabase/ducklake 中 OrphanRecord、OrphanLedger 等符号的实现
+//
+// 用法
+//
+//	type OrphanRecord struct{…}  // OrphanRecord 是孤儿文件账本的一项（multi-instance-consistency-plan §4.7）
+//	type OrphanLedger struct{…}  // OrphanLedger 把删除动作记到对象存储账本
+//	type MaintenanceGate struct{…}  // MaintenanceGate 是维护任务的门禁（§4.7 部署矩阵）
+//	BlockedReason(err error) string  // BlockedReason 解析门禁拒绝原因（no_lease / sync_lag），供指标打标签
+//
+// 调用架构
+//
+//	[上游] internal/app, internal/systemdb
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/ducklake/orphan_ledger.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] c4_syncer_lease_test.go, c4_syncer_ordering_test.go, catalog_syncer.go, catalog_syncer_test.go, coverage_test.go 等 35 个
+//	[关键引用] OrphanLedger ← orphan_ledger_test.go, syncer_prune.go；MaintenanceGate ← orphan_ledger_test.go, syncer_prune.go；BlockedReason ← orphan_ledger_test.go, syncer_prune.go
+//
+// 主要符号
+//
+//	type OrphanRecord struct{…}
+//	type OrphanLedger struct{…}
+//	(l *OrphanLedger) Record(ctx context.Context, projectID, databaseID, fileKey, reason string) error
+//	type MaintenanceGate struct{…}
+//	var ErrGateBlocked
+//	(g *MaintenanceGate) Check(dbID string) error
+//	BlockedReason(err error) string
+
 package ducklake
 
 import (

@@ -1,10 +1,10 @@
-import { flushPromises, mount } from '@vue/test-utils'
+import { DOMWrapper, flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'vue-sonner'
 import { api, resetApiMocks } from '@/test/api-mock'
-import { clickText, mountWithApp, readyDb, sampleAgent, uiStubs } from '@/test/helpers'
+import { clickText, mountWithApp, readyDb, sampleAgent, uiStubs, realDialogStubs, inDialog, installJsdomPolyfills, waitDialog } from '@/test/helpers'
 import { useProjectStore } from '@/stores/project'
 import { LOAD_PLACEHOLDER_DELAY_MS } from '@/composables/useLoadState'
 
@@ -67,6 +67,7 @@ const fnRecord = {
   published: true, exports: ['Hello'], createdAt: 't', updatedAt: 't'
 }
 const sandboxStubs = {
+  ...realDialogStubs,
   SandboxCreateModal: { template: '<div />' },
   SandboxDrawer: { template: '<div />' }
 }
@@ -80,6 +81,8 @@ async function docsRouter() {
   await router.isReady()
   return router
 }
+
+installJsdomPolyfills()
 
 describe('loading surfaces', () => {
   beforeEach(() => {
@@ -190,34 +193,34 @@ describe('loading surfaces', () => {
   it('shows an empty version list only after a successful fetch, and an alert on failure', async () => {
     const versions = hold<{ activeVersion: number; versions: unknown[] }>()
     api.gofunctions.listVersions.mockReturnValue(versions.promise)
-    const versionsModal = await mountWithApp(GoFuncVersionsModal, { props: { open: true, record: fnRecord } })
-    expect(versionsModal.wrapper.text()).not.toContain('暂无版本')
-    expect(versionsModal.wrapper.text()).toContain('正在加载')
+    const versionsModal = await mountWithApp(GoFuncVersionsModal, { stubs: realDialogStubs, props: { open: true, record: fnRecord } })
+    expect(inDialog().text()).not.toContain('暂无版本')
+    expect(inDialog().text()).toContain('正在加载')
     versions.resolve({ activeVersion: 0, versions: [] })
     await flushPromises()
-    expect(versionsModal.wrapper.text()).toContain('暂无版本')
+    expect(inDialog().text()).toContain('暂无版本')
     versionsModal.wrapper.unmount()
 
     api.gofunctions.listVersions.mockRejectedValueOnce(new Error('load fail'))
-    const failed = await mountWithApp(GoFuncVersionsModal, { props: { open: true, record: fnRecord } })
-    expect(failed.wrapper.text()).toContain('加载失败')
-    expect(failed.wrapper.text()).not.toContain('暂无版本')
+    const failed = await mountWithApp(GoFuncVersionsModal, { stubs: realDialogStubs, props: { open: true, record: fnRecord } })
+    expect(inDialog().text()).toContain('加载失败')
+    expect(inDialog().text()).not.toContain('暂无版本')
     api.gofunctions.listVersions.mockResolvedValue({ activeVersion: 0, versions: [] })
     await clickText(failed.wrapper, '重试')
     await flushPromises()
-    expect(failed.wrapper.text()).toContain('暂无版本')
+    expect(inDialog().text()).toContain('暂无版本')
     failed.wrapper.unmount()
   })
 
   it('keeps the version sidebar in a skeleton while the test modal loads', async () => {
     const versions = hold<{ activeVersion: number; versions: unknown[] }>()
     api.gofunctions.listVersions.mockReturnValue(versions.promise)
-    const { wrapper } = await mountWithApp(GoFuncTestModal, { props: { open: true, record: fnRecord } })
-    expect(wrapper.find('.skeleton').exists()).toBe(true)
-    expect(wrapper.text()).not.toContain('该版本无导出函数')
+    const { wrapper } = await mountWithApp(GoFuncTestModal, { stubs: realDialogStubs, props: { open: true, record: fnRecord } })
+    expect(inDialog().find('.skeleton').exists()).toBe(true)
+    expect(inDialog().text()).not.toContain('该版本无导出函数')
     versions.resolve({ activeVersion: 1, versions: [{ version: 1, exports: ['Hello'], note: '', createdAt: 't', active: true }] })
     await flushPromises()
-    expect(wrapper.text()).toContain('Hello')
+    expect(inDialog().text()).toContain('Hello')
     wrapper.unmount()
   })
 
@@ -225,29 +228,31 @@ describe('loading surfaces', () => {
     const files = hold<unknown[]>()
     api.sandboxes.files.list.mockReturnValue(files.promise)
     const drawer = mount(SandboxDrawer, {
+      attachTo: document.body,
       props: { open: true, projectId: 'p', sandbox, capabilities: available },
-      global: { stubs: { ...uiStubs, Tabs: false, TabsList: false, TabsTrigger: false, TabsContent: false, SandboxTerminal: { template: '<div />' } } }
+      global: { stubs: { ...uiStubs, ...realDialogStubs, Tabs: false, TabsList: false, TabsTrigger: false, TabsContent: false, SandboxTerminal: { template: '<div />' } } }
     })
-    await drawer.findAll('[data-slot="tabs-trigger"]').find((t) => t.text() === '文件')!.trigger('mousedown')
+    await waitDialog()
+    await new DOMWrapper(document.body).findAll('[data-slot="tabs-trigger"]').find((t) => t.text() === '文件')!.trigger('mousedown')
     await flushPromises()
-    expect(drawer.text()).not.toContain('目录为空')
-    expect(drawer.text()).toContain('正在加载')
+    expect(new DOMWrapper(document.body).text()).not.toContain('目录为空')
+    expect(new DOMWrapper(document.body).text()).toContain('正在加载')
     files.resolve([])
     await flushPromises()
-    expect(drawer.text()).toContain('目录为空')
+    expect(new DOMWrapper(document.body).text()).toContain('目录为空')
     api.sandboxes.files.list.mockResolvedValueOnce([{ name: 'a.txt', path: '/workspace/a.txt', kind: 'file', size: 1 }])
-    await clickText(drawer, '刷新')
+    await clickText(new DOMWrapper(document.body), '刷新')
     await flushPromises()
-    expect(drawer.text()).toContain('a.txt')
+    expect(new DOMWrapper(document.body).text()).toContain('a.txt')
     const kept = hold<unknown[]>()
     api.sandboxes.files.list.mockReturnValue(kept.promise)
     await clickText(drawer, '刷新')
     await flushPromises()
-    expect(drawer.text()).toContain('a.txt')
+    expect(new DOMWrapper(document.body).text()).toContain('a.txt')
     kept.reject(new Error('files down'))
     await flushPromises()
-    expect(drawer.text()).toContain('a.txt')
-    expect(drawer.text()).not.toContain('目录为空')
+    expect(new DOMWrapper(document.body).text()).toContain('a.txt')
+    expect(new DOMWrapper(document.body).text()).not.toContain('目录为空')
     drawer.unmount()
   })
 
@@ -258,16 +263,17 @@ describe('loading surfaces', () => {
     const fns = hold<unknown[]>()
     api.gofunctions.list.mockReturnValue(fns.promise)
     const cron = mount(CronJobModal, {
+      attachTo: document.body,
       props: { open: false },
-      global: { plugins: [pinia], stubs: uiStubs }
+      global: { plugins: [pinia], stubs: { ...uiStubs, ...realDialogStubs } }
     })
     await cron.setProps({ open: true })
     await flushPromises()
-    expect(cron.text()).not.toContain('暂无云函数')
-    expect(cron.find('.skeleton').exists()).toBe(true)
+    expect(inDialog().text()).not.toContain('暂无云函数')
+    expect(inDialog().find('.skeleton').exists()).toBe(true)
     fns.resolve([])
     await flushPromises()
-    expect(cron.text()).toContain('暂无云函数')
+    expect(inDialog().text()).toContain('暂无云函数')
     cron.unmount()
   })
 
@@ -309,8 +315,9 @@ describe('loading surfaces', () => {
     const query = hold<{ columns: string[]; rowCount: number; rows: unknown[]; durationMs: number; requestId: string }>()
     api.sql.query.mockReturnValue(query.promise)
     const modal = mount(SqlWorkModal, {
+      attachTo: document.body,
       props: { open: true, projectId: 'p', database: readyDb, readonly: false },
-      global: { stubs: uiStubs }
+      global: { stubs: { ...uiStubs, ...realDialogStubs } }
     })
     await flushPromises()
     const vm = modal.vm as unknown as { sqlText: string; mode: string; run: () => Promise<void> }
@@ -318,15 +325,15 @@ describe('loading surfaces', () => {
     vm.sqlText = 'SELECT 1'
     const pending = vm.run()
     await flushPromises()
-    expect(modal.text()).not.toContain('暂时未查询到数据')
-    expect(modal.find('.spinner').exists()).toBe(true)
-    expect(modal.html()).toContain('aria-busy="true"')
+    expect(inDialog().text()).not.toContain('暂时未查询到数据')
+    expect(inDialog().find('.spinner').exists()).toBe(true)
+    expect(inDialog().html()).toContain('aria-busy="true"')
     await vi.advanceTimersByTimeAsync(LOAD_PLACEHOLDER_DELAY_MS)
-    expect(modal.find('.skeleton').exists()).toBe(true)
+    expect(inDialog().find('.skeleton').exists()).toBe(true)
     query.resolve({ columns: [], rowCount: 0, rows: [], durationMs: 1, requestId: 'r' })
     await pending
     await flushPromises()
-    expect(modal.text()).toContain('暂时未查询到数据')
+    expect(inDialog().text()).toContain('暂时未查询到数据')
     modal.unmount()
   })
 

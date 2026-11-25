@@ -1,3 +1,32 @@
+// 文件说明：toolcall_test.go — gocloudagent/agentcore 的单元测试（TestExtractToolCallFlattensMissingArgumentsWrapper、TestExtractToolCallFlattenKeepsTypes 等）
+//
+// 用法
+//
+//	go test ./gocloudagent/agentcore -run 'TestExtractToolCallFlattensMissingArgumentsWrapper|TestExtractToolCallFlattenKeepsTypes|TestExtractToolCallArgumentsWinsOverTopLevel|TestExtractToolCallEmptyArgumentsStaysEmpty'
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/cloudagent, gocloudagent/group, gocloudagent/plan 等 6 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/agentcore/toolcall_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] emit_token_test.go, messages.go, model.go, model_internal_test.go, model_length_test.go 等 13 个
+//
+// 主要符号
+//
+//	TestExtractToolCallFlattensMissingArgumentsWrapper(t *testing.T)
+//	TestExtractToolCallFlattenKeepsTypes(t *testing.T)
+//	TestExtractToolCallArgumentsWinsOverTopLevel(t *testing.T)
+//	TestExtractToolCallEmptyArgumentsStaysEmpty(t *testing.T)
+//	TestExtractToolCallNoArgsDefaultsToEmptyObject(t *testing.T)
+//	TestExtractToolCallStillRejectsBadName(t *testing.T)
+//	TestExtractToolCallNullArgumentsFallsBackToTopLevel(t *testing.T)
+//	TestParseAssistantRecoversMisformattedToolCall(t *testing.T)
+//	... 另有 4 个顶层符号
+
 package agentcore
 
 import (

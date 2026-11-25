@@ -1,3 +1,32 @@
+// 文件说明：coverage_test.go — godatabase 的单元测试（TestQueryAndExecuteErrors、TestExecuteOnRowsAffectedError 等）
+//
+// 用法
+//
+//	go test ./godatabase -run 'TestQueryAndExecuteErrors|TestExecuteOnRowsAffectedError|TestSerializeValueRemainingTypes|TestBatchBeginTxFailure'
+//
+// 调用架构
+//
+//	[上游] godatabase/cache, godatabase/cmd, godatabase/ducklake, godatabase/filedb 等 16 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/coverage_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] dialect.go, errmatch.go, query.go, query_test.go, runtime.go 等 10 个
+//
+// 主要符号
+//
+//	TestQueryAndExecuteErrors(t *testing.T)
+//	type failResult struct{…}
+//	(failResult) LastInsertId() (int64, error)
+//	(failResult) RowsAffected() (int64, error)
+//	type failExecer struct{…}
+//	(failExecer) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+//	TestExecuteOnRowsAffectedError(t *testing.T)
+//	TestSerializeValueRemainingTypes(t *testing.T)
+//	... 另有 2 个顶层符号
+
 package godatabase
 
 import (
@@ -7,7 +36,6 @@ import (
 	"errors"
 	"math/big"
 	"testing"
-	"time"
 
 	duckdb "github.com/duckdb/duckdb-go/v2"
 )
@@ -209,7 +237,4 @@ func TestAccessModeZero(t *testing.T) {
 	if m.String() != "read_only" {
 		t.Fatal(m.String())
 	}
-	_ = ErrQueryConcurrency
-	_ = ErrUnsupportedValue
-	_ = time.Now()
 }

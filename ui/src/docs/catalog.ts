@@ -187,10 +187,6 @@ export async function loadMarkdown(filePath: string): Promise<string | null> {
   return body
 }
 
-export function isLargeDoc(filePath: string): boolean {
-  return Object.keys(largeModules).some((key) => docsRelPath(key) === filePath)
-}
-
 export interface DocSearchResult { page: DocPage; heading?: string; hash?: string; snippet: string }
 
 let searchIndex: Promise<DocSearchResult[]> | null = null

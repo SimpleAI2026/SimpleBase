@@ -1,10 +1,40 @@
+// 文件说明：codec.go — gosandbox/proto 中 Decode 等符号的实现
+//
+// 用法
+//
+//	Decode(kind Kind, payload []byte) (Msg, error)  // Decode 按 kind 解析 payload
+//	同包调用：writer → codec_test.go
+//
+// 调用架构
+//
+//	[上游] gosandbox/agent, gosandbox/box, gosandbox/vm/box
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/proto/codec.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] codec_contract_test.go, codec_test.go, frame.go, message.go, proto.go
+//	[关键引用] writer ← codec_test.go；Decode ← codec_contract_test.go, codec_test.go
+//
+// 主要符号
+//
+//	var ErrFrameTooLarge / ErrTruncated / ErrUnknownKind / ErrFieldTooLong
+//	type writer struct{…}
+//	(w *writer) u8(v uint8)
+//	(w *writer) u16(v uint16)
+//	(w *writer) u32(v uint32)
+//	(w *writer) u64(v uint64)
+//	(w *writer) i32(v int32)
+//	(w *writer) i64(v int64)
+//	... 另有 21 个顶层符号
+
 package proto
 
 import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"io"
 )
 
 // 编解码错误。
@@ -18,124 +48,6 @@ var (
 	// ErrFieldTooLong 表示某个字符串字段超过上限。
 	ErrFieldTooLong = errors.New("proto: field too long")
 )
-
-// FileKind 是目录项的类型。
-type FileKind uint8
-
-const (
-	FileRegular FileKind = iota + 1
-	FileDir
-	FileSymlink
-	FileOther
-)
-
-// Entry 是一个目录项。
-type Entry struct {
-	Name   string
-	Kind   FileKind
-	Size   int64
-	Mode   uint32
-	ModNS  int64
-	Target string // 符号链接的目标；其它类型为空
-}
-
-// Stats 是沙盒的用量快照。
-type Stats struct {
-	MemoryBytes    int64
-	MemoryPeak     int64
-	CPUUsec        int64
-	Pids           int64
-	OOMKills       int64
-	DiskReadBytes  int64
-	DiskWriteBytes int64
-	// DiskUsedBytes 是沙盒可写部分实际占用的字节数（upper + ws）。
-	//
-	// 由宿主侧驱动计算并填进 Stats：agent 在沙盒里看到的是 overlay 的
-	// 合并视图，分不出「镜像本来就有」与「用户写入」，算不准。
-	// 这与 DiskWriteBytes（io 带宽）不是一回事。
-	DiskUsedBytes int64
-}
-
-// Msg 是一帧的内容。只有 Kind 对应的字段有效；其余为零值。
-//
-// 每帧只编码它用到的字段（见 Encode 的分支），所以 Output 这种高频帧
-// 不会被无关字段撑大。
-type Msg struct {
-	Kind Kind
-
-	// 进程 id 与文件请求 id 共用；文件请求用 Seq 关联回复。
-	ID  string
-	Seq uint32
-
-	// Hello
-	Version uint16
-	Agent   string
-	BootNS  int64
-
-	// Ping / Pong
-	Nonce uint64
-
-	// Error
-	Err string
-
-	// Start
-	Argv    []string
-	Env     []string
-	Cwd     string
-	User    string // "uid:gid"；空表示继承 agent
-	TTY     bool
-	Rows    uint16
-	Cols    uint16
-	Stdin   bool
-	Rlimits []Rlimit
-
-	// Started
-	PID int32
-
-	// Output / Input / RelayData
-	Stream Stream
-	Data   []byte
-
-	// Exited
-	Reason ExitReason
-	Code   int32
-	Sig    int32
-
-	// InputConsumed
-	Bytes uint32
-
-	// Signal
-	Signal Signal
-
-	// Resize
-	// Rows / Cols 复用 Start 的字段
-
-	// 文件
-	Path    string
-	To      string
-	Offset  uint64
-	Mode    uint32
-	Size    int64
-	ModNS   int64
-	FileKnd FileKind
-	Link    string
-	Entries []Entry
-
-	// 观测
-	Stats Stats
-	Lines []string
-	Ports []uint16
-
-	// Relay
-	ConnID uint32
-	Port   uint16
-
-	// Watch
-	Recursive bool
-
-	// Flags 是位标记：半关闭方向等。
-	Flags uint8
-}
 
 // writer 是 payload 的追加写入器。
 type writer struct{ b []byte }
@@ -378,47 +290,6 @@ func (r *reader) entries() ([]Entry, error) {
 	return out, nil
 }
 
-// Frame 给 payload 补上 len 与 kind。
-func Frame(kind Kind, payload []byte) []byte {
-	out := make([]byte, Header+len(payload))
-	binary.LittleEndian.PutUint32(out, uint32(len(payload)+2))
-	binary.LittleEndian.PutUint16(out[4:], uint16(kind))
-	copy(out[Header:], payload)
-	return out
-}
-
-// ReadFrame 从流里读一帧。payload 复用调用方的缓冲，避免每帧分配。
-// kind 与 payload 都是输出参数；返回 io.EOF 表示对端正常关闭。
-func ReadFrame(r io.Reader, kind *Kind, payload *[]byte) error {
-	var head [4]byte
-	if _, err := io.ReadFull(r, head[:]); err != nil {
-		return err
-	}
-	n := binary.LittleEndian.Uint32(head[:])
-	if n < 2 || n > MaxFrame {
-		return fmt.Errorf("%w: %d", ErrFrameTooLarge, n)
-	}
-	buf := (*payload)[:0]
-	if cap(buf) < int(n) {
-		buf = make([]byte, n)
-	} else {
-		buf = buf[:n]
-	}
-	if _, err := io.ReadFull(r, buf); err != nil {
-		if errors.Is(err, io.ErrUnexpectedEOF) {
-			return ErrTruncated
-		}
-		return err
-	}
-	k := binary.LittleEndian.Uint16(buf[:2])
-	*kind = Kind(k)
-	*payload = buf[:n]
-	// 去掉 kind，payload 只留内容。
-	copy(buf, buf[2:])
-	*payload = buf[:n-2]
-	return nil
-}
-
 // Encode 生成 payload（不含 len 与 kind）。字段按 Kind 分支编码，
 // 只有该帧用到的字段才进 payload：Output 这种高频帧因此不会被无关字段撑大。
 func (m *Msg) Encode() ([]byte, error) {
@@ -497,8 +368,7 @@ func (m *Msg) Encode() ([]byte, error) {
 		w.u8(uint8(m.Reason))
 		w.i32(m.Code)
 		w.i32(m.Sig)
-		// Err 是可选说明（例如「请求的 uid 在沙盒里无法映射」）。
-		// 空串编码为 0 长度，老版本读到 0 长度按空处理，帧仍然合法。
+		// 无说明时也编码零长度字段，截断不能当作空串。
 		if err := w.str(MaxPathLen, m.Err); err != nil {
 			return nil, err
 		}
@@ -730,14 +600,7 @@ func Decode(kind Kind, payload []byte) (Msg, error) {
 		if m.Sig, err = r.i32(); err != nil {
 			return m, err
 		}
-		// 说明字段按可选处理：老 agent 不带它，读到截断就当空串。
-		if m.Err, err = r.str(MaxPathLen); err != nil {
-			if errors.Is(err, ErrTruncated) {
-				err = nil
-				m.Err = ""
-			}
-			return m, err
-		}
+		m.Err, err = r.str(MaxPathLen)
 	case KindInput:
 		if m.ID, err = r.str(MaxPathLen); err != nil {
 			return m, err
@@ -849,13 +712,7 @@ func Decode(kind Kind, payload []byte) (Msg, error) {
 			&m.Stats.Pids, &m.Stats.OOMKills, &m.Stats.DiskReadBytes, &m.Stats.DiskWriteBytes,
 			&m.Stats.DiskUsedBytes}
 		for _, p := range fields {
-			// 尾部字段缺失不算错：老 agent 发的是短帧，新增字段按 0 处理。
-			// 这样协议加字段不必升 Version，两侧可以不同步上线。
 			if *p, err = r.i64(); err != nil {
-				if errors.Is(err, ErrTruncated) {
-					err = nil
-					break
-				}
 				return m, err
 			}
 		}
@@ -902,14 +759,7 @@ func Decode(kind Kind, payload []byte) (Msg, error) {
 		if m.ConnID, err = r.u32(); err != nil {
 			return m, err
 		}
-		// Flags 是后加的字段：读到截断按「正常关闭」处理，老 agent 也能接。
-		if m.Flags, err = r.u8(); err != nil {
-			if errors.Is(err, ErrTruncated) {
-				err = nil
-				m.Flags = 0
-			}
-			return m, err
-		}
+		m.Flags, err = r.u8()
 	case KindWatch:
 		if m.ID, err = r.str(MaxPathLen); err != nil {
 			return m, err
@@ -933,15 +783,4 @@ func Decode(kind Kind, payload []byte) (Msg, error) {
 		return m, fmt.Errorf("%w: %d", ErrUnknownKind, kind)
 	}
 	return m, err
-}
-
-// Send 编码并写出一帧。调用方必须保证同一时刻只有一个 goroutine 在写，
-// 否则帧会交错：Supervisor 与 agent 都用一个 writer goroutine 串行化。
-func Send(w io.Writer, m *Msg) error {
-	payload, err := m.Encode()
-	if err != nil {
-		return err
-	}
-	_, err = w.Write(Frame(m.Kind, payload))
-	return err
 }

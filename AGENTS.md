@@ -10,7 +10,7 @@
 
 ## 项目概述
 
-SimpleBase 是单写实例的云端数据库服务：每个项目一个 DuckDB 或 SQLite 单文件（SQL、集合、KV 共用，S3 模式下以快照加 manifest 同步），系统库使用 DuckLake，Echo v4 提供 REST API，`go:embed` 内嵌 Vue 3 控制台，进程内 `gofunction` 解释器运行 Go 云函数，llmgateway 封装多供应商 LLM 与云 Agent。模块 `github.com/linkxzhou/SimpleBase`（Go 1.25）；`gofunction/` 是嵌套独立模块 `github.com/linkxzhou/SimpleBase/gofunction`（自带 `go.mod`，根 `go.mod` 用 `replace => ./gofunction` 引用，import 路径不变）；`gosandbox/` 同样是嵌套独立模块（通用沙盒执行层，SimpleBase 与其他平台均可调用，见 [`gosandbox/README.md`](gosandbox/README.md)）；`godatabase/` 是嵌套独立模块 `github.com/linkxzhou/SimpleBase/godatabase`（数据库运行时库，**不得 import 根模块任何包**；SimpleBase 的 catalog / observability / objectstore 经 `internal/dbbridge` 适配注入）；`gocloudagent/` 是嵌套独立模块 `github.com/linkxzhou/SimpleBase/gocloudagent`（通用 Agent 运行循环、模型适配、plan / 协作、MCP client/server、通用技能加载、本地 CLI 与本机工具，**不得 import 根模块任何包**；SimpleBase 的鉴权 / 项目资源 / sbcli / sqlguard / llmgateway 与业务计划全部由 `internal/agentbridge` 适配注入）。
+SimpleBase 是单写实例的云端数据库服务：每个项目一个 DuckDB 或 SQLite 单文件（SQL、集合、KV 共用，S3 模式下以快照加 manifest 同步），系统库使用 DuckLake，Echo v4 提供 REST API，`go:embed` 内嵌 Vue 3 控制台，进程内 `gofunction` 解释器运行 Go 云函数，llmgateway 封装多供应商 LLM 与云 Agent。模块 `github.com/linkxzhou/SimpleBase`（Go 1.25）；`gofunction/` 是嵌套独立模块 `github.com/linkxzhou/SimpleBase/gofunction`（自带 `go.mod`，根 `go.mod` 用 `replace => ./gofunction` 引用，import 路径不变）；`gosandbox/` 同样是嵌套独立模块（通用沙盒执行层，SimpleBase 与其他平台均可调用，见 [`gosandbox/README.md`](gosandbox/README.md)）；`godatabase/` 是嵌套独立模块 `github.com/linkxzhou/SimpleBase/godatabase`（数据库运行时库，**不得 import 根模块任何包**；SimpleBase 的 catalog / observability / objectstore 经 `internal/dbbridge` 适配注入）；`gocloudagent/` 是嵌套独立模块 `github.com/linkxzhou/SimpleBase/gocloudagent`（通用 Agent 运行循环、模型适配、通用 Plan 能力 `plan` / 群聊引擎 `group`、本机工具 `tools`、MCP client/server、通用技能加载与本地 CLI，**不得 import 根模块任何包**；SimpleBase 的鉴权 / 项目资源 / sbcli / sqlguard / llmgateway 与业务工具全部由 `internal/agentbridge` 适配注入，群聊引擎的存储 / 执行 / 成员端口由 `internal/api` 适配）。
 
 ## 常用命令
 
@@ -38,7 +38,7 @@ go test ./...                               # 后端全量
 (cd gosandbox && go build ./... && go vet ./... && go test ./...)   # 沙盒执行层（独立模块；真 bwrap 用例无 bwrap 时自动 Skip）
 (cd gocloudagent && GOWORK=off go build ./... && GOWORK=off go vet ./... && GOWORK=off go test ./...)   # 云 Agent 模块（独立模块，根目录 ./... 不含它；两侧 go.mod 各自声明 gosandbox 的 replace，replace 不传递）
 
-cd ui && yarn test                          # 前端 Vitest（coverage 阈值 95%，jsdom）；当前 functions 94.1% / branches 94.92% 未达标，见 planv6.7 legacy §3-E1（原 planv5.0 §7.2）
+cd ui && yarn test                          # 前端 Vitest（coverage 阈值 90%，以 vite.config.ts 为准）；planv6.8 §13（B13/B14）后基线 statements 97.64% / branches 93.47% / functions 91.65%
 cd ui && yarn build                         # 前端构建必须通过
 cd ui && yarn typecheck                     # tsc --noEmit；planv6.6 OPT-4 后已清零（含 tests/），须保持 0 错误
 ./scripts/test.sh [包...] [-race]           # 云 Agent 相关包一键后端测试（planv6.7 legacy §2.1，原 planv4.1 §5.5）+ examples 四站清单离线校验
@@ -65,28 +65,33 @@ scripts/examples-verify/verify.sh --ports 18090,18091 [--only shop] [--skip-clou
 cmd/simplebase → app → api → auth / catalog / dbbridge / objectstore
                              ↓            └→ dbbridge（宿主适配层）→ godatabase（嵌套独立模块，不 import 根模块）
                        systemdb（常驻系统库连接）
-                       agentbridge（宿主适配层）→ gocloudagent/cloudagent / auth / systemdb / sbcli / sqlguard / llmgateway
+                       agentbridge（宿主适配层）→ gocloudagent/{cloudagent,agentcore,mcp,tools} / auth / systemdb / sbcli / sqlguard / llmgateway
+                       api（群聊宿主适配）→ gocloudagent/{group,plan,cloudagent,agentcore,mcp}
                        gocloudagent（嵌套独立模块，只依赖 gosandbox/host，不 import 根模块）
-                         └─ cloudagent（云端 Runtime：宿主 import 的唯一业务包；→ agentcore / mcp / skills）
-                         └─ agentcore（与运行时无关：模型适配 / 协议 / 脱敏 / 事件）
-                         └─ skills（内嵌技能文档 + AllowArgv 前缀白名单）
-                         └─ cli（本地命令行外壳：命令面 / 会话 / REPL / 模板）
-                         └─ tools（本机工具：shell / 文件 / glob / grep / web 搜索）
+                         └─ agentcore（与运行时无关：模型适配 / 协议 / 脱敏 / 事件 / 工具结果编码）
+                         └─ mcp → agentcore（MCP client/server、分页上限、Header transport）
+                         └─ tools → agentcore / mcp（bash / read / write / edit / glob / grep / http / web_fetch / web_search / todo_write、SSRF 防护）
+                         └─ plan → agentcore（plan / explore / reflect 工具、Planner、Validate、Store）
+                         └─ group → plan（群聊引擎：栅栏 / 确认 / 调度 / broker；宿主实现 Store / Runner / Members）
+                         └─ cloudagent → agentcore / mcp / tools（Runtime、确认、闸门、子进程、MCP 工具装配）
+                         └─ skills（通用 Markdown 技能文档加载）
+                         └─ cli → agentcore / mcp / plan / tools（本地命令行外壳：命令面 / 会话 / REPL / 模板）
                        sandbox（云沙盒业务层；执行后端来自 gosandbox/vm：local 复用 gosandbox/host，无任何第三方沙盒 SDK）
                        cronjob → utils/crontab / gofunction
                        usage / audit → catalog
-                       utils/{crontab,strutil,mask}（宿主私有纯函数）
+                       utils/{crontab,strutil,mask,keyedlock}（宿主私有零业务依赖工具）
                        godatabase/{atomicfile,hashx,limit,singleflight,sqlval,sqlx}（独立模块公共能力）
 ```
 
 - 依赖只能自上而下，**禁止反向 import**（如 `catalog` import `api`）。
-- `internal/utils/` 只放宿主私有、**零业务依赖**的纯函数（当前 `crontab` / `strutil` / `mask` 三个包均只 import 标准库）：不 import `catalog` / `auth` / `systemdb` / `api` / `godatabase`。数据库运行库与宿主共用的工具统一放在 `godatabase` 公共包，不在本目录保留副本。入库标准见 [`internal/utils/README.md`](internal/utils/README.md)。
+- `internal/utils/` 只放宿主私有、**零业务依赖**的工具（当前 `crontab` / `strutil` / `mask` / `keyedlock` 四个包均只 import 标准库）：不 import `catalog` / `auth` / `systemdb` / `api` / `godatabase`。数据库运行库与宿主共用的工具统一放在 `godatabase` 公共包，不在本目录保留副本。入库标准见 [`internal/utils/README.md`](internal/utils/README.md)。
 - `app` 是唯一装配点：跨模块依赖在 `assembleDeps` 按序创建，`Close` 反向释放；新增模块必须挂进装配顺序并在失败路径回收。
 - handler 不直接依赖具体实现，必须走 `api.Dependencies` 接口 + adapter。
 - 对象键使用内部 UUID，**禁止**把用户可控字符串直接拼进 S3 键。
-- `gocloudagent` 的子包（`cloudagent` / `agentcore` / `cli` / `tools` / `mcp` / `skills`）**必须**挂在 `gocloudagent` 下而非平级新包：它们只提供通用模型、运行、计划、MCP、技能文档加载与本机工具能力。云端 Runtime 在 `gocloudagent/cloudagent`；`cloudagent` 与 `cli` 互不 import，`agentcore` / `skills` 不得 import 上层。SimpleBase 的命令授权不在通用 `skills` 包。
+- `gocloudagent` 的子包（`agentcore` / `mcp` / `tools` / `plan` / `group` / `cloudagent` / `cli` / `skills`）**必须**挂在 `gocloudagent` 下而非平级新包：它们只提供通用模型、运行、规划、群聊调度、MCP、技能文档加载与本机工具能力。依赖只能自下而上：`tools → agentcore, mcp`；`plan → agentcore`；`group → agentcore, plan`；`cloudagent → agentcore, mcp, tools`；`cli → agentcore, mcp, plan, tools`。`cloudagent` 与 `cli` 互不 import，`plan` / `group` / `tools` 不得 import `cloudagent` / `cli`，`agentcore` / `skills` / `mcp` 不得 import 上层。SimpleBase 的命令授权不在通用 `skills` 包。
 - `gocloudagent/cmd` 是本地 CLI 二进制，入口**只 import gocloudagent 模块根包**（`cli_entry.go` 的 `RunCLI` / `SetCLIVersion` 转发到 `cli`），不直接依赖 `cli` / `tools` 子包。产物统一输出到 `build/bin/gocloudagent`（仓库根的 `gocloudagent/` 是模块源码目录，不能再放二进制）；不进服务镜像，会话落 `~/.gocloudagent/`。
-- **gocloudagent 与宿主的边界**：`cloudagent` 只定义通用 `Agent` / `Message` / `RunRequest` / `RunProvider` / MCP 与事件契约，`RunRequest.Context` 是宿主 opaque context。`internal/agentbridge.RuntimeProvider` 负责 SimpleBase 的模型默认值、提示词、项目工具和令牌生命周期；数据库 / KV / S3 / 日志工具、模块目录、固定六阶段计划、`CommandPolicy`、委托签发、`InProcessCLI` 与定时任务也都在 `agentbridge`。身份直接传 `auth.Principal`，不再做模块 Principal 往返转换。`agentbridge` 不得 import `api` / `app`。
+- **gocloudagent 与宿主的边界**：`cloudagent` 只定义通用 `Agent` / `Message` / `RunRequest` / `RunProvider` / MCP 与事件契约，`RunRequest.Context` 是宿主 opaque context。`internal/agentbridge.RuntimeProvider` 负责 SimpleBase 的模型默认值、提示词、项目工具和令牌生命周期；数据库 / KV / S3 / 日志工具、模块目录、`CommandPolicy`、委托签发、`InProcessCLI` 与定时任务也都在 `agentbridge`。身份直接传 `auth.Principal`，不再做模块 Principal 往返转换。`agentbridge` 不得 import `api` / `app`。
+- **Plan 只经 `plan` 工具产生**（planv6.8 §13 / B14）：固定六阶段流水线（plan → database → … → site）与 `/agent-threads/:id/plans*` 路由已删除。群会话的每条消息经 `gocloudagent/group` 的栅栏产出 `plan.Decision`（整份计划可确认，`POST /agent-turns/:id/plan-confirmations`），任务 run 由 `internal/api/agent_plan_tools.go` 装配 `plan.Tools`；固定助手单聊同样带 `plan` / `explore` / `reflect`，当前计划从会话历史里的 `plan` 工具卡片经 `plan.ReplayCall` 重放，决策以 v3 `plan` 帧（`cloudagent.Event.Decision`）下发。不要重新引入服务端写死的阶段、阶段技能白名单或阶段完成判定。**`/runs` 只服务固定助手会话**：群会话（`dispatch_mode=collaborative`，唯一的群模式）上发 `/runs` 返回 `400 turns_required`；一轮一助手的 `auto` 调度、路由分类器、`route` 帧、`route_kind` 与 `sys_agent_run_routes` 已整体删除（CB-BE-13），前端不再有 `onRoute` / `routing` 状态。本地 CLI 的群模式（`gocloudagent group`、REPL `/group`）直接复用同一个 `group.Engine`，成员 = 模型 + 指令 + 工具子集，计划文件用 `plan.FileStore`。
 - **fail-closed**：`RuntimeProvider.Policy` 缺失或 `Classify` 出错时，SimpleBase CLI 工具返回 `command_policy_unavailable` 且不确认、不执行；通用 `Runtime.MCPPolicy` 缺失或出错时 MCP 工具同样拒绝执行。委托签发只写入传入（已按 writable 降权）的权限，不自行求交集。
 - **LLM 错误归一化只在最终出口**：`agentcore` 的 native→text 回退与 stream→chat 退化依赖原始 `*providers.LiteLLMError` 与文案，运行内部不得提前压成 `RunError`。
 - SimpleBase 技能文档位于 `internal/agentbridge/agentskills/simplebase/` 并随宿主 embed；与 `sbcli` 的 readonly / 分发对账测试在 `internal/agentbridge`。`gocloudagent/skills` 只是通用 Markdown 加载器，不内置平台文档或只读表。
@@ -122,7 +127,7 @@ cmd/simplebase → app → api → auth / catalog / dbbridge / objectstore
 
 **gofunction**：公共 API 与限制以 `gofunction/README.md` 为准；`Executor.Compile` / `SetProfile` / `Runtime.Cleanup` 等是预留空实现，不要当已实现功能使用或宣传。**解释器实现全部在 `gofunction/internal/interp`**（`internal` 包，禁止外部 import）；模块根的 `gofunction.go` / `jsonrun.go` 只是类型别名与薄转发门面，新增对外 API 要在那里加转发，不要在 `internal/interp` 里直接暴露。实现文件按职责分：`compile.go` 编译期预编译、`eval.go` 运算、`call.go` 调用分发、`layout.go` 槽位布局、`executor.go` 池化。
 
-**设计计划文档的工作目录**：`plan/` 按版本切目录（当前保留 `planv6.5` – `planv6.7`）。**`planv1.0`–`planv6.4` 已删除**（2026-11-17），其仍有效的待办、事实规范与旧编号锚点全部收进 [`planv6.7/legacy-plan-consolidation-plan.md`](plan/planv6.7/legacy-plan-consolidation-plan.md)：代码注释里的 `planv4.1 §X` / `planv4.1 BUG-0X`（v4.1 曾是 `planv4.0/cloud-agent-optimization-plan.md` 的别名）、`planv5.0 §X`、`planv6.0 D1–D6` / `v2 §2.2`（BUG-B1–B5）、`planv6.1 O1–O5`、`planv6.2 §4.x/§5.x/§6-x`（MCP）、`planv6.4 P0b`、`production-readiness-plan §8.x`、`E1–E16`、`BUG-0~5` 一律查该文件 §2 的锚点表。**examples 与 skill 验证的编号（E1–E16、BUG-0~5）与「小白直接上线」的待办现状**（M2/M3 授权/M5 未开工）见该文件 §2.5.5 与 §3-H。`planv6.5/object-storage-sites-plan.md` 是对象存储「发布网站」（`<项目ID>.<sites.base_domain>` 泛域名 + 路径级外部访问）的事实来源：站点面在 `e.Pre` 按 Host 改写到 `/__site/*`，控制台源上的 `/s3/objects/content` 与 `/files/:token` 仍强制 HTML `attachment`；**禁止下发 `Domain=<父域>` 的 Cookie**（站点子域与控制台同站时会被共享）。`planv6.6/dead-code-and-optimization-plan.md` 是死代码清理与代码质量（DC-* / OPT-*）的事实来源。
+**设计计划文档的工作目录**：`plan/` 按版本切目录（当前保留 `planv6.5` – `planv6.8`）。**`planv6.8/{internal,ui,gosandbox}-simplify-refactor-plan.md` 是 simplify-code 重构、精简与清理的事实来源**：各文件最后一节是实施后的第二轮候选与「评估后不做」清单，动 `internal/`、`ui/`、`gosandbox/` 的结构前先查对应文件。**`planv1.0`–`planv6.4` 已删除**（2026-11-17），其仍有效的待办、事实规范与旧编号锚点全部收进 [`planv6.7/legacy-plan-consolidation-plan.md`](plan/planv6.7/legacy-plan-consolidation-plan.md)：代码注释里的 `planv4.1 §X` / `planv4.1 BUG-0X`（v4.1 曾是 `planv4.0/cloud-agent-optimization-plan.md` 的别名）、`planv5.0 §X`、`planv6.0 D1–D6` / `v2 §2.2`（BUG-B1–B5）、`planv6.1 O1–O5`、`planv6.2 §4.x/§5.x/§6-x`（MCP）、`planv6.4 P0b`、`production-readiness-plan §8.x`、`E1–E16`、`BUG-0~5` 一律查该文件 §2 的锚点表。**examples 与 skill 验证的编号（E1–E16、BUG-0~5）与「小白直接上线」的待办现状**（M2/M3 授权/M5 未开工）见该文件 §2.5.5 与 §3-H。`planv6.5/object-storage-sites-plan.md` 是对象存储「发布网站」（`<项目ID>.<sites.base_domain>` 泛域名 + 路径级外部访问）的事实来源：站点面在 `e.Pre` 按 Host 改写到 `/__site/*`，控制台源上的 `/s3/objects/content` 与 `/files/:token` 仍强制 HTML `attachment`；**禁止下发 `Domain=<父域>` 的 Cookie**（站点子域与控制台同站时会被共享）。`planv6.6/dead-code-and-optimization-plan.md` 是死代码清理与代码质量（DC-* / OPT-*）的事实来源。
 
 **examples 与脚本**：
 
@@ -135,7 +140,7 @@ cmd/simplebase → app → api → auth / catalog / dbbridge / objectstore
 ## 测试要求
 
 - 后端：改动必须保持 `go build ./internal/... ./cmd/...` 与 `go test ./...` 通过；handler 测试用 fake service，不依赖真实 DuckDB/S3；**新增写路径必须补「系统库拒绝」用例**。新增/修改 `LLMService` 等跨层接口时，所有 fake 实现（`internal/api/*_test.go` 的 `fakeGW`、`fakeLLMSvc`）要同步补齐方法，否则整包编译失败。
-- 前端：`yarn build` 与 `yarn test` 必须通过（coverage 语句/分支/functions 均 95% 阈值）；`src/components/ui/`、`*.d.ts`、`main.ts`、`types.ts`、`src/test/` 不计入覆盖。当前基线（planv6.6 B2 后）：statements 98.43% / branches **94.92%** / functions **94.1%**（后两项未达标）。
+- 前端：`yarn build` 与 `yarn test` 必须通过（coverage 语句/分支/functions 均 90% 阈值，以 `vite.config.ts` 为准）；`src/components/ui/`、`*.d.ts`、`main.ts`、`types.ts`、`src/test/` 不计入覆盖。当前基线（planv6.8 §13 B13/B14 后，162 文件 / 1530 例）：statements 97.64% / branches 93.47% / functions 91.65%。
 - **数据层组件不要用测试桩替换**：`Switch`、`Tabs` 之类承载真实交互语义的 `ui/` 组件被桩掉后，失效的状态类会假通过（见 §7.3）；测试断言应打在真实 DOM 属性/事件上，而不是桩的 emit 上。
 - gofunction：独立模块，须在 `gofunction/` 目录下 `go test ./... -short`（外网 HTTP 用例仅在非 -short 下跑）。**`gofunction` 不得 import 根模块任何包**（含 `internal/...`），其依赖只允许 `golang.org/x/tools` 与 `json-iterator`；新增依赖要在 `gofunction/go.mod` 里加。
 

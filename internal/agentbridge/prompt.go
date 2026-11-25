@@ -1,3 +1,33 @@
+// 文件说明：prompt.go — internal/agentbridge 中 PromptParts、AssembleInstruction 等符号的实现
+//
+// 用法
+//
+//	type PromptParts struct{…}
+//	AssembleInstruction(p PromptParts) string
+//	同包调用：truncate() → prompt_test.go, tools.go
+//
+// 调用架构
+//
+//	[上游] internal/agentrun, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/agentbridge/prompt.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] access_db.go, access_llm.go, access_object.go, access_test.go, bridge_test.go 等 33 个
+//	[关键引用] PromptParts ← prompt_test.go, runtime_provider.go；AssembleInstruction ← prompt_test.go, runtime_provider.go；truncate ← prompt_test.go, tools.go
+//
+// 主要符号
+//
+//	const maxPromptSection
+//	type PromptParts struct{…}
+//	const platformSkillsPrompt
+//	const capabilityWritable / capabilityReadonly
+//	AssembleInstruction(p PromptParts) string
+//	truncate(s string, max int) string
+//	truncateSkill(s string) string
+
 package agentbridge
 
 import (

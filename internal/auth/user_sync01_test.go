@@ -1,3 +1,32 @@
+// 文件说明：user_sync01_test.go — internal/auth 的单元测试（TestUserService_WriteNotifiesSync 等）
+//
+// 用法
+//
+//	go test ./internal/auth -run 'TestUserService_WriteNotifiesSync'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/api/perfbench 等 9 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/auth/user_sync01_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] api_key_repository.go, authenticate_middleware_test.go, cache.go, cache_test.go, cached_user_test.go 等 31 个
+//
+// 主要符号
+//
+//	type sync01UserRepo struct{…}
+//	(r *sync01UserRepo) Create(_ context.Context, u User) error
+//	(r *sync01UserRepo) GetByID(_ context.Context, id string) (User, error)
+//	(r *sync01UserRepo) GetByUsername(_ context.Context, uname string) (User, error)
+//	(r *sync01UserRepo) List(_ context.Context, _ int, _ string) ([]User, string, error)
+//	(r *sync01UserRepo) Update(_ context.Context, u User) error
+//	(r *sync01UserRepo) CountByUsername(_ context.Context, uname string) (int, error)
+//	(r *sync01UserRepo) SetProjectOwner(_ context.Context, _, _ string, _ time.Time) error
+//	... 另有 4 个顶层符号
+
 package auth
 
 import (

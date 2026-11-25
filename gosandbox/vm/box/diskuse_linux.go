@@ -1,5 +1,33 @@
 //go:build linux
 
+// 文件说明：diskuse_linux.go — gosandbox/vm/box 的内部实现（diskScanInterval、diskCacheEntry 等）
+//
+// 用法
+//
+//	同包调用：diskUsed() → metrics_linux.go；forgetDiskFrozen() → driver_linux.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/vm/box/diskuse_linux.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] capabilities.go, contracts_linux_test.go, driver_linux.go, driver_other.go, driver_test.go 等 15 个
+//	[关键引用] diskUsed ← metrics_linux.go；forgetDiskFrozen ← driver_linux.go
+//
+// 主要符号
+//
+//	const diskScanInterval
+//	type diskCacheEntry struct{…}
+//	var diskMu / diskCache / diskFrozen
+//	diskUsed(boxDir string) int64
+//	dirSize(root string) int64
+//	(d *Driver) checkDiskLimit(name string, used int64) bool
+//	forgetDiskFrozen(name string)
+
 package box
 
 import (

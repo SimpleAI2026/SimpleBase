@@ -107,7 +107,7 @@ export const api = {
   quota: {
     status: vi.fn()
   },
-  /** planv6.6 DC-5：llm.chat/llm.stream 与 agentSchedules 已删除（零生产引用）。 */
+  /** llm.chat / llm.stream 与 agentSchedules 已删除（零生产引用）。 */
   llmSettings: {
     get: vi.fn(),
     put: vi.fn()
@@ -127,41 +127,40 @@ export const api = {
     remove: vi.fn()
   },
   agentThreads: {
+    capabilities: vi.fn(),
     list: vi.fn(),
-    page: vi.fn(),
     pageBy: vi.fn(),
     create: vi.fn(),
     get: vi.fn(),
     rename: vi.fn(),
     remove: vi.fn(),
     runs: vi.fn(),
+    turns: vi.fn(),
     messages: vi.fn(),
     streamRun: vi.fn(),
     attachRun: vi.fn(),
     streamTurn: vi.fn(),
-    turns: vi.fn(),
+    attachTurn: vi.fn(),
     cancel: vi.fn(),
     active: vi.fn(),
     confirm: vi.fn()
   },
-  /** 工作台标签（群）CRUD（planv6.7 AGC-NAV / v2）。 */
+  /** 工作台标签（群）CRUD。 */
   agentTags: {
     list: vi.fn(),
     create: vi.fn(),
     patch: vi.fn(),
     remove: vi.fn(),
     get: vi.fn(),
-    addMembers: vi.fn(),
-    removeMember: vi.fn(),
-    submitEvent: vi.fn()
+    addMembers: vi.fn()
   },
   /** v2：协作轮次与人工待办。 */
   agentTurns: {
     get: vi.fn(),
     act: vi.fn(),
     reply: vi.fn(),
-    humanTasks: vi.fn(),
-    capabilities: vi.fn()
+    confirmPlan: vi.fn(),
+    humanTasks: vi.fn()
   },
   agentApprovals: {
     list: vi.fn(),
@@ -242,6 +241,18 @@ export function applyApiDefaults() {
     }
   })
   api.auth.logout.mockResolvedValue(undefined)
+  // planv6.8 §13：工作台能力（SSE v3）。页面 bootstrap 对它同步调 .then，未给默认值会让整条加载链中断。
+  // 续接：协作会话先查最近轮次（useThreadNavigation.resumeActiveRun），固定助手会话查最近 run。
+  api.agentThreads.turns.mockResolvedValue([])
+  api.agentThreads.capabilities.mockResolvedValue({
+    protocol_version: 3,
+    collaboration: true,
+    max_tasks: 8,
+    max_depth: 4,
+    max_instruction: 2000,
+    confirm_policy: ['auto', 'always', 'never'],
+    thread_kinds: ['chat']
+  })
   api.auth.me.mockResolvedValue({
     id: 'u1',
     username: 'simplebase2026',
@@ -436,7 +447,6 @@ export function applyApiDefaults() {
     unavailableAgentIds: [], routingPrompt: '', threadKinds: ['chat', 'alert', 'statistics', 'scheduled'], version: 0
   }])
   api.agentThreads.list.mockResolvedValue([])
-  api.agentThreads.page.mockResolvedValue({ threads: [], next_cursor: '' })
   api.agentThreads.rename.mockResolvedValue({ id: 'th-1', title: '已重命名', created_at: 't', updated_at: 't' })
   api.agentThreads.runs.mockResolvedValue([])
   api.agentThreads.create.mockResolvedValue({ id: 'th-1', title: '云助手', created_at: 't', updated_at: 't' })
@@ -444,7 +454,6 @@ export function applyApiDefaults() {
   api.agentThreads.streamRun.mockReturnValue({ close: vi.fn() })
   api.agentThreads.streamTurn.mockReturnValue({ close: vi.fn() })
   api.agentThreads.attachRun.mockReturnValue({ close: vi.fn() })
-  api.agentThreads.turns.mockResolvedValue([])
   api.agentThreads.active.mockResolvedValue([])
   api.agentThreads.cancel.mockResolvedValue({ id: 'run-1', thread_id: 'th-1', agent_id: 'ag-1', status: 'canceled' })
   api.agentThreads.confirm.mockResolvedValue(undefined)
@@ -452,14 +461,6 @@ export function applyApiDefaults() {
   api.agentTurns.act.mockResolvedValue(sampleTurn())
   api.agentTurns.reply.mockResolvedValue(sampleTurn())
   api.agentTurns.humanTasks.mockResolvedValue({ tasks: [], pending: 0 })
-  api.agentTurns.capabilities.mockResolvedValue({
-    protocolVersion: 2,
-    collaboration: true,
-    threadKinds: ['chat', 'alert', 'statistics', 'scheduled'],
-    maxTasks: 8,
-    maxDepth: 4,
-    maxInstruction: 2000
-  })
   api.agentApprovals.list.mockResolvedValue({ approvals: [], pending: 0 })
   api.agentApprovals.resolve.mockResolvedValue(undefined)
   api.mcpServers.list.mockResolvedValue({ servers: [], builtin: [] })

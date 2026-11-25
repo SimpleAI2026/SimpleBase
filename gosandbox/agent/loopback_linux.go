@@ -1,5 +1,29 @@
 //go:build linux
 
+// 文件说明：loopback_linux.go — gosandbox/agent 的内部实现（bringUpLoopback、ifreq 等）
+//
+// 用法
+//
+//	包内实现，无导出与跨文件调用
+//
+// 调用架构
+//
+//	[上游] gosandbox/cmd
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/agent/loopback_linux.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent.go, agent_test.go, fs.go, loopback_other.go, netfilter_linux.go 等 16 个
+//
+// 主要符号
+//
+//	bringUpLoopback() error
+//	type ifreq struct{…}
+//	setIfaceUp(index int) error
+//	ioctlIfreq(fd int, req uint, r *ifreq) error
+
 package agent
 
 import (

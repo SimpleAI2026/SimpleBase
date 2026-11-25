@@ -1,3 +1,27 @@
+// 文件说明：executor_pool_defects_test.go — gofunction/internal/interp 的单元测试（TestExecutorDoubleCloseDoesNotDuplicate、TestExecutorPoolCloseThenExecutorCloseNotNegative 等）
+//
+// 用法
+//
+//	go test ./gofunction/internal/interp -run 'TestExecutorDoubleCloseDoesNotDuplicate|TestExecutorPoolCloseThenExecutorCloseNotNegative|TestExecutorResetClearsInterrupt|TestExecutorStaleTimerDoesNotFireOnNewExecution'
+//
+// 调用架构
+//
+//	[上游] gofunction
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/internal/interp/executor_pool_defects_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] bench_test.go, cachetest_test.go, call.go, call_test.go, cheap_test.go 等 40 个
+//
+// 主要符号
+//
+//	TestExecutorDoubleCloseDoesNotDuplicate(t *testing.T)
+//	TestExecutorPoolCloseThenExecutorCloseNotNegative(t *testing.T)
+//	TestExecutorResetClearsInterrupt(t *testing.T)
+//	TestExecutorStaleTimerDoesNotFireOnNewExecution(t *testing.T)
+
 package interp
 
 import (

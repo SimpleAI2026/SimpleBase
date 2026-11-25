@@ -14,6 +14,8 @@ if [[ -n "$unformatted" ]]; then
 fi
 echo "==> go build ./..."
 go build ./...
+echo "==> 架构门禁（internal-ddd-hexagonal-implementation-plan §8.3：依赖方向 + systemdb 使用面基线）"
+go test -count=1 -run 'TestArchitectureGate' ./internal/app
 echo "==> (cd gocloudagent) go build + go vet（独立模块）"
 (cd gocloudagent && GOWORK=off go build ./... && GOWORK=off go vet ./...)
 echo "==> (cd gosandbox) go build + go vet（独立模块）"

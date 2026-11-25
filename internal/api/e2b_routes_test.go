@@ -1,3 +1,34 @@
+// 文件说明：e2b_routes_test.go — internal/api 的单元测试（TestE2BRouteSetLocked、TestLegacySandboxRoutesRemoved 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestE2BRouteSetLocked|TestLegacySandboxRoutesRemoved|TestUnavailableSandboxAnswers503NotSPA|TestE2BCredentialsAndErrorShape'
+//	同包调用：contextT → sandbox_handler_test.go；fakeRouterSandbox → sandbox_handler_test.go, sandbox_logs_handler_test.go；newFakeRouterSandbox() → e2b_envd_watch_test.go, sandbox_handler_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/e2b_routes_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] contextT ← sandbox_handler_test.go；fakeRouterSandbox ← sandbox_handler_test.go, sandbox_logs_handler_test.go；newFakeRouterSandbox ← e2b_envd_watch_test.go, sandbox_handler_test.go
+//
+// 主要符号
+//
+//	type contextT = context.Context
+//	type fakeRouterSandbox struct{…}
+//	newFakeRouterSandbox(avail bool) *fakeRouterSandbox
+//	(f *fakeRouterSandbox) Available() bool
+//	(f *fakeRouterSandbox) Interactive() bool
+//	(f *fakeRouterSandbox) Capabilities() sandbox.Capabilities
+//	(f *fakeRouterSandbox) Create(_ contextT, projectID string, in sandbox.CreateInput, actor string) (sandbox.San...
+//	(f *fakeRouterSandbox) List(_ contextT, projectID, _, _, _ string, _ int) ([]sandbox.Sandbox, string, error)
+//	... 另有 63 个顶层符号
+
 package api
 
 // b3_sandbox_routes_test.go：沙盒的 E2B 兼容 API 路由与鉴权。

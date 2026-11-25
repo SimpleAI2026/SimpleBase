@@ -1,3 +1,36 @@
+// 文件说明：classifier.go — godatabase/sqlguard 中 Intent、FirstKeyword 等符号的实现
+//
+// 用法
+//
+//	type Intent uint8  // Intent 表示调用方期望的 SQL 意图
+//	FirstKeyword(sql string) string  // FirstKeyword 去除前导空白与 SQL 注释后返回首关键字（大写）
+//	Validate(sql string, intent Intent) error  // Validate 按给定意图校验 SQL
+//	SplitStatements(sql string) ([]string, error)  // SplitStatements 按分号拆成语句
+//
+// 调用架构
+//
+//	[上游] godatabase/cmd, godatabase/ducklake, internal/agentbridge, internal/api
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/sqlguard/classifier.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] classifier_test.go, reserved_prefix_test.go, split_test.go, validator.go
+//	[关键引用] Intent ← reserved_prefix_test.go；FirstKeyword ← classifier_test.go, split_test.go；Validate ← classifier_test.go, reserved_prefix_test.go
+//
+// 主要符号
+//
+//	type Intent uint8
+//	const ReadOnly / WriteAllowed
+//	FirstKeyword(sql string) string
+//	Validate(sql string, intent Intent) error
+//	validateReadOnlyBody(sql, kw string) error
+//	checkCTEMainStatement(s string) error
+//	checkExplainSubject(s string) error
+//	var reservedIdentifierPrefixes
+//	... 另有 19 个顶层符号
+
 package sqlguard
 
 import (

@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"github.com/linkxzhou/SimpleBase/internal/alerts"
+	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/backup"
 	"github.com/linkxzhou/SimpleBase/internal/config"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
@@ -49,7 +50,7 @@ func (a *App) assembleAlertBus(cfg config.Config, store *systemdb.Store) {
 	// 订阅方 1：审计记录。
 	bus.Subscribe(func(sig alerts.Signal) {
 		store.RecordAudit(systemdb.AuditEvent{
-			Actor: "system",
+			Actor: auth.ActorSystem,
 			Kind:  "alert." + sig.Kind,
 			Detail: strings.TrimSpace("severity=" + sig.Severity +
 				" project=" + sig.Project + " " + sig.Detail),
@@ -131,7 +132,7 @@ type backupReporter struct{ app *App }
 func (r backupReporter) BackupSucceeded(at time.Time, projects int) {
 	if r.app.systemStore != nil {
 		r.app.systemStore.RecordAudit(systemdb.AuditEvent{
-			Actor: "system", Kind: "backup.succeeded",
+			Actor: auth.ActorSystem, Kind: "backup.succeeded",
 			Detail: fmt.Sprintf("projects=%d at=%s", projects, at.Format(time.RFC3339)),
 		})
 	}
@@ -147,7 +148,7 @@ func (r backupReporter) BackupFailed(at time.Time, err error) {
 	}
 	if r.app.systemStore != nil {
 		r.app.systemStore.RecordAudit(systemdb.AuditEvent{
-			Actor: "system", Kind: "backup.failed",
+			Actor: auth.ActorSystem, Kind: "backup.failed",
 			Detail: err.Error(),
 		})
 	}

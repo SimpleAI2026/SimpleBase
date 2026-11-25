@@ -1,3 +1,33 @@
+// 文件说明：mcp_handler.go — internal/api 的内部实现（mcpServerHandler、mcpServerDTO 等）
+//
+// 用法
+//
+//	同包调用：mcpServerHandler → mcp_builtin_admin.go, mcp_handler_test.go；mcpTestResult → mcp_builtin_admin.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/mcp_handler.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] mcpServerHandler ← mcp_builtin_admin.go, mcp_handler_test.go；mcpTestResult ← mcp_builtin_admin.go
+//
+// 主要符号
+//
+//	type mcpServerHandler struct{…}
+//	var ErrMCPNameReserved
+//	type mcpServerDTO struct{…}
+//	toMCPServerDTO(m systemdb.MCPServer) mcpServerDTO
+//	(h *mcpServerHandler) List(c echo.Context) error
+//	type mcpServerBody struct{…}
+//	(h *mcpServerHandler) Create(c echo.Context) error
+//	(h *mcpServerHandler) Update(c echo.Context) error
+//	... 另有 7 个顶层符号
+
 // mcp_handler.go — 项目级 MCP Server 配置的 HTTP 面（planv6.2 §6-2）。
 //
 // 凭据口径：headers 只单向写，响应只回 has_credential 与脱敏后的 header 名，
@@ -82,9 +112,9 @@ func toMCPServerDTO(m systemdb.MCPServer) mcpServerDTO {
 }
 
 func (h *mcpServerHandler) List(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	list, err := h.store.ListMCPServers(c.Request().Context(), pc.ID)
 	if err != nil {
@@ -107,9 +137,9 @@ type mcpServerBody struct {
 }
 
 func (h *mcpServerHandler) Create(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	if h.writableGuard(c) != nil {
 		return nil
@@ -169,9 +199,9 @@ func (h *mcpServerHandler) Create(c echo.Context) error {
 }
 
 func (h *mcpServerHandler) Update(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	if h.writableGuard(c) != nil {
 		return nil
@@ -229,9 +259,9 @@ func (h *mcpServerHandler) Update(c echo.Context) error {
 }
 
 func (h *mcpServerHandler) Delete(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	if h.writableGuard(c) != nil {
 		return nil
@@ -254,9 +284,9 @@ type mcpTestResult struct {
 
 // Test 建立一次临时连接并列出工具（planv6.2 §6-2）。
 func (h *mcpServerHandler) Test(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	if h.testConnect == nil {
 		return WriteError(c, echo.NewHTTPError(http.StatusServiceUnavailable, "mcp is not enabled"))

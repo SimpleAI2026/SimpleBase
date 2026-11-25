@@ -1,3 +1,35 @@
+// 文件说明：agent.go — gosandbox/agent 中 Server、Main 等符号的实现
+//
+// 用法
+//
+//	type Server struct{…}  // Server 是 agent 的状态：控制连接、进程表、写侧串行化
+//	Main(args []string, _ []string) int  // Main 是 agent 的入口：解析 --agent --ctrl N，然后在那个 fd 上服务
+//	Serve(in io.Reader, ctrl io.Writer, log io.Writer) error  // Serve 在同一条连接上服务到关闭：in 读、ctrl 写
+//	同包调用：parseAgentArgs() → agent_test.go
+//
+// 调用架构
+//
+//	[上游] gosandbox/cmd
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/agent/agent.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_test.go, fs.go, loopback_linux.go, loopback_other.go, netfilter_linux.go 等 16 个
+//	[关键引用] Server ← fs.go, proc.go；parseAgentArgs ← agent_test.go；Serve ← agent_test.go
+//
+// 主要符号
+//
+//	type Server struct{…}
+//	const networkNone / networkEgress
+//	Main(args []string, _ []string) int
+//	parseAgentArgs(args []string) (*os.File, *UserMapping, string, error)
+//	Serve(in io.Reader, ctrl io.Writer, log io.Writer) error
+//	(s *Server) loop() error
+//	(s *Server) dispatch(m proto.Msg) (bool, error)
+//	(s *Server) send(m *proto.Msg) error
+
 // Package agent 是沙盒内的 PID 1：一个常驻进程，替宿主执行命令、读写文件、
 // 开 PTY、报告用量，并把宿主的入站连接中继到沙盒内的 127.0.0.1。
 //

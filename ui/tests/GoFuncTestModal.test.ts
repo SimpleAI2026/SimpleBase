@@ -1,7 +1,7 @@
 import { flushPromises } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api, resetApiMocks } from '@/test/api-mock'
-import { mountWithApp } from '@/test/helpers'
+import { mountWithApp, inDialog, installJsdomPolyfills, waitDialog, realDialogStubs } from '@/test/helpers'
 
 vi.mock('@/services/api', async () => {
   const m = await import('@/test/api-mock')
@@ -23,6 +23,8 @@ const record = {
   createdAt: 't',
   updatedAt: 't'
 }
+
+installJsdomPolyfills()
 
 describe('GoFuncTestModal / GoFuncVersionsModal', () => {
   beforeEach(() => {
@@ -47,39 +49,39 @@ describe('GoFuncTestModal / GoFuncVersionsModal', () => {
       data: { message: 'hi' },
       error: ''
     })
-    const { wrapper } = await mountWithApp(GoFuncTestModal, {
+    const { wrapper } = await mountWithApp(GoFuncTestModal, { stubs: realDialogStubs,
       props: { open: true, record }
     })
     await flushPromises()
     expect(api.gofunctions.listVersions).toHaveBeenCalled()
-    expect(wrapper.text()).toContain('版本')
-    const body = wrapper.get('textarea')
+    expect(inDialog().text()).toContain('版本')
+    const body = inDialog().get('textarea')
     expect(body.classes()).toEqual(expect.arrayContaining(['sb-code-view', 'sb-mono', 'min-h-[160px]']))
-    expect(wrapper.text()).toContain('导出函数')
-    const send = wrapper.findAll('button').find((b) => b.text().includes('发送请求'))
+    expect(inDialog().text()).toContain('导出函数')
+    const send = inDialog().findAll('button').find((b) => b.text().includes('发送请求'))
     await send!.trigger('click')
     await flushPromises()
     expect(api.gofunctions.test).toHaveBeenCalled()
-    expect(wrapper.text()).toContain('200')
-    expect(wrapper.text()).toContain('hi')
-    const pre = wrapper.get('pre')
+    expect(inDialog().text()).toContain('200')
+    expect(inDialog().text()).toContain('hi')
+    const pre = inDialog().get('pre')
     expect(pre.classes()).toEqual(
       expect.arrayContaining(['sb-code-view', 'sb-mono', 'max-h-56', 'overflow-auto'])
     )
   })
 
   it('test modal rejects invalid JSON and validates body', async () => {
-    const { wrapper } = await mountWithApp(GoFuncTestModal, {
+    const { wrapper } = await mountWithApp(GoFuncTestModal, { stubs: realDialogStubs,
       props: { open: true, record }
     })
     await flushPromises()
-    const ta = wrapper.find('textarea')
+    const ta = inDialog().find('textarea')
     await ta.setValue('{bad')
-    const send = wrapper.findAll('button').find((b) => b.text().includes('发送请求'))
+    const send = inDialog().findAll('button').find((b) => b.text().includes('发送请求'))
     await send!.trigger('click')
     await flushPromises()
     expect(api.gofunctions.test).not.toHaveBeenCalled()
-    const validate = wrapper.findAll('button').find((b) => b.text().includes('校验'))
+    const validate = inDialog().findAll('button').find((b) => b.text().includes('校验'))
     await validate!.trigger('click')
     await flushPromises()
   })
@@ -87,11 +89,11 @@ describe('GoFuncTestModal / GoFuncVersionsModal', () => {
   it('test modal copies invoke URL', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
-    const { wrapper } = await mountWithApp(GoFuncTestModal, {
+    const { wrapper } = await mountWithApp(GoFuncTestModal, { stubs: realDialogStubs,
       props: { open: true, record }
     })
     await flushPromises()
-    const copy = wrapper.findAll('button').find((b) => b.text().includes('复制'))
+    const copy = inDialog().findAll('button').find((b) => b.text().includes('复制'))
     await copy!.trigger('click')
     await flushPromises()
     expect(writeText).toHaveBeenCalled()
@@ -106,16 +108,16 @@ describe('GoFuncTestModal / GoFuncVersionsModal', () => {
       ]
     })
     api.gofunctions.activate.mockResolvedValue({ activeVersion: 2 })
-    const { wrapper } = await mountWithApp(GoFuncVersionsModal, {
+    const { wrapper } = await mountWithApp(GoFuncVersionsModal, { stubs: realDialogStubs,
       props: { open: true, record }
     })
     await flushPromises()
-    expect(wrapper.text()).toContain('v1')
-    expect(wrapper.text()).toContain('生效')
-    const exportsLine = wrapper.findAll('.sb-code-view').find((n) => n.text().includes('导出'))
+    expect(inDialog().text()).toContain('v1')
+    expect(inDialog().text()).toContain('生效')
+    const exportsLine = inDialog().findAll('.sb-code-view').find((n) => n.text().includes('导出'))
     expect(exportsLine).toBeTruthy()
     expect(exportsLine!.classes()).toEqual(expect.arrayContaining(['sb-code-view', 'text-xs']))
-    const activateBtn = wrapper.findAll('button').find((b) => b.text().includes('设为生效'))
+    const activateBtn = inDialog().findAll('button').find((b) => b.text().includes('设为生效'))
     await activateBtn!.trigger('click')
     await flushPromises()
     expect(api.gofunctions.activate).toHaveBeenCalled()
@@ -129,20 +131,20 @@ describe('GoFuncTestModal / GoFuncVersionsModal', () => {
         { version: 1, exports: ['Hello'], note: '', createdAt: 't', active: true }
       ]
     })
-    const { wrapper } = await mountWithApp(GoFuncTestModal, {
+    const { wrapper } = await mountWithApp(GoFuncTestModal, { stubs: realDialogStubs,
       props: { open: true, record }
     })
     await flushPromises()
     // 点 v2
-    const v2 = wrapper.findAll('button').find((b) => b.text().includes('v2'))
+    const v2 = inDialog().findAll('button').find((b) => b.text().includes('v2'))
     await v2!.trigger('click')
     await flushPromises()
-    expect(wrapper.text()).toContain('导出函数（v2）')
+    expect(inDialog().text()).toContain('导出函数（v2）')
     // 点导出 Ping
-    const ping = wrapper.findAll('button').find((b) => b.text().trim() === 'Ping')
+    const ping = inDialog().findAll('button').find((b) => b.text().trim() === 'Ping')
     await ping!.trigger('click')
     await flushPromises()
-    expect(wrapper.text()).toContain('hello/Ping')
+    expect(inDialog().text()).toContain('hello/Ping')
   })
 
   it('test modal shows error payload when ok=false', async () => {
@@ -155,20 +157,20 @@ describe('GoFuncTestModal / GoFuncVersionsModal', () => {
       functionName: 'Hello',
       error: 'boom'
     })
-    const { wrapper } = await mountWithApp(GoFuncTestModal, {
+    const { wrapper } = await mountWithApp(GoFuncTestModal, { stubs: realDialogStubs,
       props: { open: true, record }
     })
     await flushPromises()
-    const send = wrapper.findAll('button').find((b) => b.text().includes('发送请求'))
+    const send = inDialog().findAll('button').find((b) => b.text().includes('发送请求'))
     await send!.trigger('click')
     await flushPromises()
-    expect(wrapper.text()).toContain('执行失败')
-    expect(wrapper.text()).toContain('boom')
+    expect(inDialog().text()).toContain('执行失败')
+    expect(inDialog().text()).toContain('boom')
   })
 
   it('test modal falls back to record versions and draft persistence', async () => {
     api.gofunctions.listVersions.mockRejectedValueOnce(new Error('x'))
-    const { wrapper } = await mountWithApp(GoFuncTestModal, {
+    const { wrapper } = await mountWithApp(GoFuncTestModal, { stubs: realDialogStubs,
       props: {
         open: true,
         record: {
@@ -178,10 +180,10 @@ describe('GoFuncTestModal / GoFuncVersionsModal', () => {
       }
     })
     await flushPromises()
-    expect(wrapper.text()).toContain('Zed')
-    const ta = wrapper.find('textarea')
+    expect(inDialog().text()).toContain('Zed')
+    const ta = inDialog().find('textarea')
     await ta.setValue('{"a":1}')
-    const validate = wrapper.findAll('button').find((b) => b.text().includes('校验'))
+    const validate = inDialog().findAll('button').find((b) => b.text().includes('校验'))
     await validate!.trigger('click')
     await flushPromises()
   })
@@ -196,14 +198,14 @@ describe('GoFuncTestModal / GoFuncVersionsModal', () => {
       functionName: 'Hello',
       error: 'bind fail'
     })
-    const { wrapper } = await mountWithApp(GoFuncTestModal, {
+    const { wrapper } = await mountWithApp(GoFuncTestModal, { stubs: realDialogStubs,
       props: { open: true, record }
     })
     await flushPromises()
-    const send = wrapper.findAll('button').find((b) => b.text().includes('发送请求'))
+    const send = inDialog().findAll('button').find((b) => b.text().includes('发送请求'))
     await send!.trigger('click')
     await flushPromises()
-    expect(wrapper.text()).toContain('400')
+    expect(inDialog().text()).toContain('400')
     // 成功态 prettyData 分支
     api.gofunctions.test.mockResolvedValue({
       ok: true,
@@ -220,26 +222,26 @@ describe('GoFuncTestModal / GoFuncVersionsModal', () => {
 
   it('versions modal handles load/activate/copy errors', async () => {
     api.gofunctions.listVersions.mockRejectedValueOnce(new Error('load fail'))
-    const { wrapper: w1 } = await mountWithApp(GoFuncVersionsModal, {
+    const { wrapper: w1 } = await mountWithApp(GoFuncVersionsModal, { stubs: realDialogStubs,
       props: { open: true, record }
     })
     await flushPromises()
-    expect(w1.text()).toContain('加载失败')
-    expect(w1.text()).toContain('load fail')
-    expect(w1.text()).not.toContain('暂无版本')
+    expect(inDialog().text()).toContain('加载失败')
+    expect(inDialog().text()).toContain('load fail')
+    expect(inDialog().text()).not.toContain('暂无版本')
 
     api.gofunctions.listVersions.mockResolvedValue({
       activeVersion: 1,
       versions: [{ version: 1, exports: ['Hello'], note: '', createdAt: 't', active: true }]
     })
     api.gofunctions.activate.mockRejectedValueOnce(new Error('act fail'))
-    const { wrapper } = await mountWithApp(GoFuncVersionsModal, {
+    const { wrapper } = await mountWithApp(GoFuncVersionsModal, { stubs: realDialogStubs,
       props: { open: true, record }
     })
     await flushPromises()
     // 无设为生效（已是 active）→ 点复制源码走 get 失败
     api.gofunctions.get.mockRejectedValueOnce(new Error('src fail'))
-    const copy = wrapper.findAll('button').find((b) => b.text().includes('复制源码'))
+    const copy = inDialog().findAll('button').find((b) => b.text().includes('复制源码'))
     await copy!.trigger('click')
     await flushPromises()
 
@@ -248,22 +250,22 @@ describe('GoFuncTestModal / GoFuncVersionsModal', () => {
       activeVersion: 1,
       versions: [{ version: 2, exports: ['X'], note: '', createdAt: 't', active: false }]
     })
-    const { wrapper: w3 } = await mountWithApp(GoFuncVersionsModal, {
+    const { wrapper: w3 } = await mountWithApp(GoFuncVersionsModal, { stubs: realDialogStubs,
       props: { open: true, record }
     })
     await flushPromises()
-    const act = w3.findAll('button').find((b) => b.text().includes('设为生效'))
+    const act = inDialog().findAll('button').find((b) => b.text().includes('设为生效'))
     await act!.trigger('click')
     await flushPromises()
   })
 
   it('test modal send network error', async () => {
     api.gofunctions.test.mockRejectedValueOnce(new Error('net'))
-    const { wrapper } = await mountWithApp(GoFuncTestModal, {
+    const { wrapper } = await mountWithApp(GoFuncTestModal, { stubs: realDialogStubs,
       props: { open: true, record }
     })
     await flushPromises()
-    const send = wrapper.findAll('button').find((b) => b.text().includes('发送请求'))
+    const send = inDialog().findAll('button').find((b) => b.text().includes('发送请求'))
     await send!.trigger('click')
     await flushPromises()
   })
@@ -280,11 +282,11 @@ describe('GoFuncTestModal / GoFuncVersionsModal', () => {
       source: 'package main',
       versions: [{ version: 1, exports: ['Hello'], note: '', createdAt: 't', active: true, source: 'package main' }]
     })
-    const { wrapper } = await mountWithApp(GoFuncVersionsModal, {
+    const { wrapper } = await mountWithApp(GoFuncVersionsModal, { stubs: realDialogStubs,
       props: { open: true, record }
     })
     await flushPromises()
-    const copy = wrapper.findAll('button').find((b) => b.text().includes('复制源码'))
+    const copy = inDialog().findAll('button').find((b) => b.text().includes('复制源码'))
     await copy!.trigger('click')
     await flushPromises()
     expect(writeText).toHaveBeenCalledWith('package main')
@@ -292,11 +294,11 @@ describe('GoFuncTestModal / GoFuncVersionsModal', () => {
 
   it('versions modal: viewSource 失败兜底与版本列表空态', async () => {
     api.gofunctions.listVersions.mockResolvedValue({ activeVersion: 0, versions: [] })
-    const { wrapper } = await mountWithApp(GoFuncVersionsModal, {
+    const { wrapper } = await mountWithApp(GoFuncVersionsModal, { stubs: realDialogStubs,
       props: { open: true, record }
     })
     await flushPromises()
-    expect(wrapper.text()).toContain('暂无版本')
+    expect(inDialog().text()).toContain('暂无版本')
     // 有版本但 get 抛错 → 读取源码失败
     api.gofunctions.listVersions.mockResolvedValue({
       activeVersion: 1,
@@ -305,7 +307,7 @@ describe('GoFuncTestModal / GoFuncVersionsModal', () => {
     api.gofunctions.get.mockRejectedValueOnce(new Error('boom'))
     const vm = wrapper.vm as any
     await vm.viewSource({ version: 1, exports: [], note: '', createdAt: 't', active: true })
-    expect(wrapper.text()).toBeTruthy()
+    expect(inDialog().text()).toBeTruthy()
     wrapper.unmount()
   })
 
@@ -317,12 +319,12 @@ describe('GoFuncTestModal / GoFuncVersionsModal', () => {
         { version: 2, exports: ['Hello'], note: '', createdAt: 't', active: true }
       ]
     })
-    const { wrapper } = await mountWithApp(GoFuncVersionsModal, {
+    const { wrapper } = await mountWithApp(GoFuncVersionsModal, { stubs: realDialogStubs,
       props: { open: true, record }
     })
     await flushPromises()
-    expect(wrapper.text()).toContain('注释')
-    expect(wrapper.text()).toContain('● 生效')
+    expect(inDialog().text()).toContain('注释')
+    expect(inDialog().text()).toContain('● 生效')
     // 普通成员视角：激活按钮由模板 v-if 控制（projectStore.isAdmin）
     const vm = wrapper.vm as any
     api.gofunctions.activate.mockRejectedValueOnce('raw')

@@ -4,6 +4,7 @@
 //
 //	(p Principal) HasPermission(perm Permission) bool  // HasPermission 判断 principal 是否拥有给定权限
 //	(p Principal) CanAccessProject(projectID string) bool  // CanAccessProject 判断 principal 是否可访问指定 project
+//	(p Principal) Actor() string  // 规范操作人标识 user:<id> | key:<id> | ""；Actor* 常量 / EndUserActor 是系统与终端用户主体
 //	同包调用：Principal → cache.go, delegation.go 等；Permission → api_key_repository.go, delegation.go 等；HasPermission() → middleware.go, service.go
 //
 // 调用架构
@@ -66,6 +67,30 @@ type Principal struct {
 	// Delegated 标记助手委托令牌主体（planv6.0 D1）：路由级 delegable 标记
 	// 由 api 包注入 Echo context，Require 据此拒绝未标记路由（默认拒绝）。
 	Delegated bool
+}
+
+// 系统主体的规范操作人标识，取代散落的字面量。
+const (
+	ActorSystem    = "system"
+	ActorScheduler = "system:scheduler"
+	ActorTrigger   = "system:trigger"
+	ActorCron      = "system:cron"
+)
+
+// EndUserActor 返回终端用户的规范操作人标识。
+func EndUserActor(id string) string { return "enduser:" + id }
+
+// Actor 返回主体的规范操作人标识，所有落库、比较、透传一律用它：
+// 登录用户 → "user:<UserID>"；API Key → "key:<APIKeyID>"；都为空 → ""。
+// UserID 优先：委托令牌同时携带 UserID 与 APIKeyID 时按用户计。
+func (p Principal) Actor() string {
+	if p.UserID != "" {
+		return "user:" + p.UserID
+	}
+	if p.APIKeyID != "" {
+		return "key:" + p.APIKeyID
+	}
+	return ""
 }
 
 // HasPermission 判断 principal 是否拥有给定权限（含层级继承，见 PermissionImplied）。

@@ -1,3 +1,26 @@
+// 文件说明：limits.go — gocloudagent/mcp 中 MaxToolsPerServer、CodeUnavailable 等符号的实现
+//
+// 用法
+//
+//	const MaxToolsPerServer / MaxToolsPerRun / MaxListPages / MaxSchemaBytes / MaxDescriptionRunes / MaxResultBytes / MaxEventBytes / DefaultConnectTimeout / DefaultCallTimeout / MaxCallTimeout / DefaultTerminateDuration
+//	const CodeUnavailable / CodeTimeout / CodeToolError / CodeInputRequired / CodePolicyUnavailable / CodeWriteNotAllowed / CodeConfirmationDenied / CodeConfirmationUnavailable  // 稳定错误码：与 skillFail 的信封同形，前端与模型都按 code 分支
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/cloudagent, gocloudagent/tools, internal/agentbridge 等 5 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/mcp/limits.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] adapter.go, adapter_test.go, client.go, http_transport.go, http_transport_test.go 等 10 个
+//
+// 主要符号
+//
+//	const MaxToolsPerServer / MaxToolsPerRun / MaxListPages / MaxSchemaBytes / MaxDescriptionRunes / MaxResultBytes / MaxEventBytes / DefaultConnectTimeout / DefaultCallTimeout / MaxCallTimeout / DefaultTerminateDuration
+//	const CodeUnavailable / CodeTimeout / CodeToolError / CodeInputRequired / CodePolicyUnavailable / CodeWriteNotAllowed / CodeConfirmationDenied / CodeConfirmationUnavailable
+
 // Package mcp 是 gocloudagent 的 MCP 客户端封装（planv6.2 §3.1）。
 //
 // 边界：本包只依赖 eino 与官方 go-sdk，**不 import gocloudagent 根包**，
@@ -14,6 +37,8 @@ const (
 	MaxToolsPerServer = 64
 	// MaxToolsPerRun 是一次 run 合计的工具上限（§3.3）。
 	MaxToolsPerRun = 128
+	// MaxListPages 是 tools/list 的最大页数（总预算）。
+	MaxListPages = 8
 	// MaxSchemaBytes 是单个工具 inputSchema 序列化后的上限（§3.3）。
 	MaxSchemaBytes = 16 << 10
 	// MaxDescriptionRunes 是工具描述截断长度（§3.3）。

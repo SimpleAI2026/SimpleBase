@@ -1,3 +1,28 @@
+// 文件说明：strutil_test.go — internal/utils/strutil 的单元测试（TestNormalize、TestTruncate 等）
+//
+// 用法
+//
+//	go test ./internal/utils/strutil -run 'TestNormalize|TestTruncate|TestTruncateRunes|TestTruncateEllipsis'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/api, internal/app, internal/auth 等 12 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/utils/strutil/strutil_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] strutil.go
+//
+// 主要符号
+//
+//	TestNormalize(t *testing.T)
+//	TestTruncate(t *testing.T)
+//	TestTruncateRunes(t *testing.T)
+//	TestTruncateEllipsis(t *testing.T)
+//	TestSplitCSV(t *testing.T)
+
 package strutil
 
 import (

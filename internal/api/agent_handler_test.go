@@ -1,3 +1,34 @@
+// 文件说明：agent_handler_test.go — internal/api 的单元测试（TestAgentCRUDAndSeed、TestStatisticalModulesUnavailableWithoutCLI 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestAgentCRUDAndSeed|TestStatisticalModulesUnavailableWithoutCLI|TestExistingAgentsRejectRunsWhenRequiredCapabilityDisabled|TestCreateRunGeneralThreadDatabaseSkillContract'
+//	同包调用：openAgentStore() → agent_optimization_test.go, agent_sandbox_test.go；agentEcho() → agent_sandbox_test.go；agentReq() → agent_optimization_test.go, agent_sandbox_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/agent_handler_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] openAgentStore ← agent_optimization_test.go, agent_sandbox_test.go；agentEcho ← agent_sandbox_test.go；agentReq ← agent_optimization_test.go, agent_sandbox_test.go
+//
+// 主要符号
+//
+//	openAgentStore(t *testing.T) *systemdb.Store
+//	openAgentStoreDB(t *testing.T) (*systemdb.Store, *sql.DB)
+//	agentEcho(store *systemdb.Store) *echo.Echo
+//	agentReq(e *echo.Echo, method, path string, body any) *httptest.ResponseRecorder
+//	agentReqAs(e *echo.Echo, method, path string, body any, p auth.Principal) *httptest.ResponseRecorder
+//	writePrincipal() auth.Principal
+//	TestAgentCRUDAndSeed(t *testing.T)
+//	TestStatisticalModulesUnavailableWithoutCLI(t *testing.T)
+//	... 另有 2 个顶层符号
+
 package api
 
 import (
@@ -14,6 +45,7 @@ import (
 
 	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
+	"github.com/linkxzhou/SimpleBase/internal/agentrun"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
@@ -42,7 +74,7 @@ func openAgentStoreDB(t *testing.T) (*systemdb.Store, *sql.DB) {
 
 func agentEcho(store *systemdb.Store) *echo.Echo {
 	e := echo.New()
-	h := &cloudAgentHandler{store: store, runtime: &cloudagent.Runtime{Provider: &agentbridge.RuntimeProvider{SkillsCLI: true}}}
+	h := &cloudAgentHandler{store: store, svc: agentrun.NewServiceWithStore(agentrun.Config{SkillsCLI: true}, store, &cloudagent.Runtime{Provider: &agentbridge.RuntimeProvider{SkillsCLI: true}}, nil), writable: true}
 	e.GET("/agents/modules", h.ListModules)
 	e.GET("/agents", h.ListAgents)
 	e.POST("/agents", h.CreateAgent)
@@ -160,7 +192,7 @@ func TestAgentCRUDAndSeed(t *testing.T) {
 func TestStatisticalModulesUnavailableWithoutCLI(t *testing.T) {
 	store := openAgentStore(t)
 	e := agentEcho(store)
-	h := &cloudAgentHandler{store: store}
+	h := &cloudAgentHandler{store: store, svc: testAgentRun(store, nil), writable: true}
 	e.GET("/without-cli/modules", h.ListModules)
 	e.GET("/without-cli/agents", h.ListAgents)
 	e.POST("/without-cli/agents", h.CreateAgent)
@@ -226,7 +258,7 @@ func TestExistingAgentsRejectRunsWhenRequiredCapabilityDisabled(t *testing.T) {
 		}
 		t.Run(module, func(t *testing.T) {
 			e := agentEcho(store)
-			h := &cloudAgentHandler{store: store, runtime: &cloudagent.Runtime{}}
+			h := &cloudAgentHandler{store: store, svc: testAgentRun(store, &cloudagent.Runtime{}), writable: true}
 			e.POST("/capability/:threadID/runs", h.CreateRun)
 			created := agentReq(e, http.MethodPost, "/agent-threads", map[string]any{"agent_id": agent.ID})
 			if created.Code != http.StatusCreated {
@@ -282,7 +314,7 @@ func TestCreateRunGeneralThreadDatabaseSkillContract(t *testing.T) {
 	}
 
 	e := agentEcho(store)
-	e.POST("/agent-threads/:threadID/runs", (&cloudAgentHandler{store: store}).CreateRun)
+	e.POST("/agent-threads/:threadID/runs", (&cloudAgentHandler{store: store, svc: testAgentRun(store, nil), writable: true}).CreateRun)
 	threadRec := agentReq(e, http.MethodPost, "/agent-threads", map[string]any{
 		"title": "general", "agent_id": general.ID,
 	})

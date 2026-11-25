@@ -1,3 +1,32 @@
+// 文件说明：runtime_limits_test.go — gocloudagent/cloudagent 的单元测试（TestRunMaxIterationsReturnsPartialConclusion、TestRunCancelKeepsPartialResponse 等）
+//
+// 用法
+//
+//	go test ./gocloudagent/cloudagent -run 'TestRunMaxIterationsReturnsPartialConclusion|TestRunCancelKeepsPartialResponse'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/cloudagent/runtime_limits_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] callgate.go, callgate_test.go, confirmation.go, confirmation_test.go, errors.go 等 32 个
+//
+// 主要符号
+//
+//	type repeatingToolLLM struct{…}
+//	(*repeatingToolLLM) Chat(context.Context, string, ChatRequest) (ChatResponse, error)
+//	(l *repeatingToolLLM) Stream(ctx context.Context, project string, req ChatRequest) (TokenStream, error)
+//	TestRunMaxIterationsReturnsPartialConclusion(t *testing.T)
+//	type cancelStream struct{…}
+//	(s *cancelStream) Next() (string, bool, error)
+//	(*cancelStream) Close() error
+//	type cancelLLM struct{…}
+//	... 另有 3 个顶层符号
+
 package cloudagent
 
 import (

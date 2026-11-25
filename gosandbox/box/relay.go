@@ -1,6 +1,37 @@
+// 文件说明：relay.go — gosandbox/box 的内部实现（halfCloseWrite、relay 等）
+//
+// 用法
+//
+//	同包调用：newRelay() → files.go, tunnel_test.go
+//
+// 调用架构
+//
+//	[上游] gosandbox/cmd, gosandbox/vm/box
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/box/relay.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] backpressure_test.go, copytree.go, deadline.go, egress_e2e_test.go, files.go 等 26 个
+//	[关键引用] newRelay ← files.go, tunnel_test.go
+//
+// 主要符号
+//
+//	const halfCloseWrite / halfCloseRead
+//	type relay struct{…}
+//	newRelay(s *Session, id uint32) *relay
+//	(r *relay) watchContext(ctx context.Context)
+//	(r *relay) deliver(data []byte)
+//	(r *relay) deliverEOF()
+//	(r *relay) err() error
+//	(r *relay) abort(err error)
+//	... 另有 15 个顶层符号
+
 package box
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net"
@@ -33,6 +64,8 @@ type relay struct {
 	// ready 在第一次收到数据或关闭时关闭，供 DialPort 判断「连上了」。
 	ready     chan struct{}
 	readyOnce sync.Once
+	done      chan struct{}
+	watchDone chan struct{}
 
 	mu sync.Mutex
 	// closed 表示整条连接已断（两端都不再收发）。
@@ -50,7 +83,19 @@ type relay struct {
 // newRelay 建一条中继连接。
 func newRelay(s *Session, id uint32) *relay {
 	r, w := io.Pipe()
-	return &relay{sess: s, id: id, inR: r, inW: w, ready: make(chan struct{})}
+	return &relay{sess: s, id: id, inR: r, inW: w, ready: make(chan struct{}), done: make(chan struct{}), watchDone: make(chan struct{})}
+}
+
+func (r *relay) watchContext(ctx context.Context) {
+	defer close(r.watchDone)
+	select {
+	case <-r.done:
+		return
+	case <-ctx.Done():
+		_ = r.Close()
+	case <-r.sess.done:
+		r.abort(io.ErrClosedPipe)
+	}
 }
 
 // deliver 收 agent 发来的一块数据。由 Session 的读循环调用。
@@ -87,15 +132,7 @@ func (r *relay) err() error {
 }
 
 // abort 以错误结束这条连接（例如 agent 连不上沙盒内的端口）。
-func (r *relay) abort(err error) {
-	r.mu.Lock()
-	if r.pending == nil {
-		r.pending = err
-	}
-	r.mu.Unlock()
-	r.readyOnce.Do(func() { close(r.ready) })
-	_ = r.inW.CloseWithError(err)
-}
+func (r *relay) abort(err error) { r.finish(err, false) }
 
 // Read 实现 net.Conn。
 func (r *relay) Read(p []byte) (int, error) {
@@ -104,6 +141,22 @@ func (r *relay) Read(p []byte) (int, error) {
 		return n, io.EOF
 	}
 	return n, err
+}
+
+func (r *relay) send(m *proto.Msg) error {
+	select {
+	case <-r.done:
+		return net.ErrClosed
+	default:
+	}
+	select {
+	case <-r.done:
+		return net.ErrClosed
+	case <-r.sess.done:
+		return io.ErrClosedPipe
+	case r.sess.out <- outFrame{msg: m}:
+		return nil
+	}
 }
 
 // Write 把字节发给 agent。
@@ -125,7 +178,7 @@ func (r *relay) Write(p []byte) (int, error) {
 		}
 		chunk := make([]byte, n)
 		copy(chunk, p[written:written+n])
-		if err := r.sess.send(&proto.Msg{Kind: proto.KindRelayData, ConnID: r.id, Data: chunk}); err != nil {
+		if err := r.send(&proto.Msg{Kind: proto.KindRelayData, ConnID: r.id, Data: chunk}); err != nil {
 			return written, err
 		}
 		written += n
@@ -145,7 +198,7 @@ func (r *relay) CloseWrite() error {
 	}
 	r.wroteFin = true
 	r.mu.Unlock()
-	return r.sess.send(&proto.Msg{Kind: proto.KindRelayHalfClose, ConnID: r.id, Flags: halfCloseWrite})
+	return r.send(&proto.Msg{Kind: proto.KindRelayHalfClose, ConnID: r.id, Flags: halfCloseWrite})
 }
 
 // CloseRead 半关闭读方向：不再读沙盒的输出。
@@ -158,23 +211,31 @@ func (r *relay) CloseRead() error {
 
 // Close 关掉中继：通知 agent 断开沙盒内的连接。
 func (r *relay) Close() error {
+	r.finish(nil, true)
+	return nil
+}
+
+func (r *relay) finish(err error, notify bool) {
 	r.mu.Lock()
 	if r.closed {
 		r.mu.Unlock()
-		return nil
+		return
 	}
 	r.closed = true
+	if r.pending == nil {
+		r.pending = err
+	}
+	close(r.done)
 	r.mu.Unlock()
-
+	r.readyOnce.Do(func() { close(r.ready) })
+	_ = r.inW.CloseWithError(err)
 	r.sess.mu.Lock()
 	delete(r.sess.relays, r.id)
 	r.sess.mu.Unlock()
-
-	_ = r.inW.Close()
-	_ = r.inR.Close()
-	// 连接已经关掉：发送失败只能忽略（对端可能已断开）。
-	_ = r.sess.send(&proto.Msg{Kind: proto.KindRelayClose, ConnID: r.id})
-	return nil
+	if notify {
+		_ = r.inR.Close()
+		r.sess.queueCleanup(&proto.Msg{Kind: proto.KindRelayClose, ConnID: r.id})
+	}
 }
 
 // LocalAddr / RemoteAddr 只满足 net.Conn 接口：中继没有真实地址。

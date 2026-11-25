@@ -1,3 +1,32 @@
+// 文件说明：agent_collab_test.go — internal/systemdb 的单元测试（TestAgentThreadCollabRoundTrip、TestClaimAgentTurnCAS 等）
+//
+// 用法
+//
+//	go test ./internal/systemdb -run 'TestAgentThreadCollabRoundTrip|TestClaimAgentTurnCAS|TestCreateAgentTurnIdempotency|TestUpdateAgentTurnStatusCAS'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app 等 8 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/systemdb/agent_collab_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_approvals.go, agent_approvals_test.go, agent_collab.go, agent_collab_cron.go, agent_events.go 等 54 个
+//
+// 主要符号
+//
+//	collabCtx() context.Context
+//	newCollabThread(t *testing.T, s *Store, projectID, tagID, kind string) string
+//	TestAgentThreadCollabRoundTrip(t *testing.T)
+//	TestClaimAgentTurnCAS(t *testing.T)
+//	TestCreateAgentTurnIdempotency(t *testing.T)
+//	TestUpdateAgentTurnStatusCAS(t *testing.T)
+//	TestAgentTaskLifecycle(t *testing.T)
+//	TestAgentTurnEventsSeq(t *testing.T)
+//	... 另有 8 个顶层符号
+
 // planv6.7 v2 协作群：agent_collab.go / agent_collab_cron.go 的仓储测试。
 // 覆盖：建会话协作元数据、活动轮次 CAS 抢占与释放、轮次幂等键、
 // 状态 CAS、任务创建/更新/待办统计、事件序号、消息身份幂等、
@@ -7,8 +36,13 @@ package systemdb
 import (
 	"context"
 	"errors"
+	"path/filepath"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/linkxzhou/SimpleBase/godatabase/ducklake"
+	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 )
 
 func collabCtx() context.Context { return context.Background() }
@@ -105,7 +139,7 @@ func TestCreateAgentTurnIdempotency(t *testing.T) {
 	first, reused, err := s.CreateAgentTurn(ctx, AgentTurn{
 		ProjectID: "p1", ThreadID: threadID, TagID: "tag-1",
 		InitiatorKind: TurnInitiatorUser, InitiatorID: "u1",
-		IdempotencyKey: "key-1", Status: TurnStatusRouting,
+		IdempotencyKey: "key-1", Status: TurnStatusPlanning,
 	})
 	if err != nil || reused {
 		t.Fatalf("create turn: %v reused=%v", err, reused)
@@ -151,7 +185,7 @@ func TestUpdateAgentTurnStatusCAS(t *testing.T) {
 	s := newTestStore(t)
 	ctx := collabCtx()
 	threadID := newCollabThread(t, s, "p1", "", ThreadKindChat)
-	turn, _, err := s.CreateAgentTurn(ctx, AgentTurn{ProjectID: "p1", ThreadID: threadID, Status: TurnStatusRouting})
+	turn, _, err := s.CreateAgentTurn(ctx, AgentTurn{ProjectID: "p1", ThreadID: threadID, Status: TurnStatusPlanning})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -355,6 +389,136 @@ func TestListRunningAgentTurnsForConvergence(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("running turn not listed: %+v", list)
+	}
+}
+
+func TestAppendAgentTurnEventAtomic(t *testing.T) {
+	s := newTestStore(t)
+	// 隔离 fixture 使用 SQLite :memory:；限制单连接避免并发拿到独立内存库。
+	s.db.SetMaxOpenConns(1)
+	ctx := collabCtx()
+	threadID := newCollabThread(t, s, "p1", "", ThreadKindChat)
+	turn, _, _ := s.CreateAgentTurn(ctx, AgentTurn{ProjectID: "p1", ThreadID: threadID})
+	const total = 16
+	seqs := make(chan int64, total)
+	errs := make(chan error, total)
+	var wg sync.WaitGroup
+	for range total {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			event, err := s.AppendAgentTurnEventAtomic(ctx, AgentTurnEvent{ProjectID: "p1", TurnID: turn.ID, Kind: "progress"})
+			if err != nil {
+				errs <- err
+				return
+			}
+			seqs <- event.Seq
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	close(seqs)
+	for err := range errs {
+		t.Fatal(err)
+	}
+	seen := map[int64]bool{}
+	for seq := range seqs {
+		if seen[seq] {
+			t.Fatalf("duplicate seq %d", seq)
+		}
+		seen[seq] = true
+	}
+	if len(seen) != total || !seen[1] || !seen[total] {
+		t.Fatalf("atomic seqs = %v", seen)
+	}
+}
+
+// 回归：轮次事件 seq 的分配必须在真实系统库（DuckLake 表）上可用。
+// SQLite 夹具支持 INSERT … RETURNING，DuckLake 会报
+// 「RETURNING clause not yet supported for insertion into DuckLake table」，
+// 线上表现为 POST /agent-threads/:id/turns 500；上面的 SQLite 用例拦不住。
+func TestAppendAgentTurnEventAtomicOnDuckLake(t *testing.T) {
+	dir := t.TempDir()
+	f := &ducklake.Factory{
+		CacheDir: filepath.Join(dir, "system", "dbs"),
+		Options:  ducklake.DefaultOptions(),
+		Syncer:   ducklake.NewLocalSyncer(),
+	}
+	s, err := Bootstrap(context.Background(), BootstrapInput{
+		LocatorDir: filepath.Join(dir, "system"),
+		Name:       DefaultName,
+		Factory:    f,
+		Keys:       objectstore.KeyBuilder{RootPrefix: "simplebase"},
+	})
+	if err != nil {
+		t.Fatalf("bootstrap (needs CGO + ducklake extension): %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	ctx := collabCtx()
+	threadID := newCollabThread(t, s, "p1", "", ThreadKindChat)
+	turn, _, _ := s.CreateAgentTurn(ctx, AgentTurn{ProjectID: "p1", ThreadID: threadID})
+	const total = 4
+	seqs := make(chan int64, total)
+	errs := make(chan error, total)
+	var wg sync.WaitGroup
+	for range total {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			event, err := s.AppendAgentTurnEventAtomic(ctx, AgentTurnEvent{ProjectID: "p1", TurnID: turn.ID, Kind: "progress"})
+			if err != nil {
+				errs <- err
+				return
+			}
+			seqs <- event.Seq
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	close(seqs)
+	for err := range errs {
+		t.Fatal(err)
+	}
+	seen := map[int64]bool{}
+	for seq := range seqs {
+		if seen[seq] {
+			t.Fatalf("duplicate seq %d", seq)
+		}
+		seen[seq] = true
+	}
+	if len(seen) != total || !seen[1] || !seen[total] {
+		t.Fatalf("ducklake seqs = %v", seen)
+	}
+	events, err := s.ListAgentTurnEvents(ctx, "p1", turn.ID, 0, 10)
+	if err != nil || len(events) != total {
+		t.Fatalf("events=%+v err=%v", events, err)
+	}
+}
+
+func TestReplaceAgentTasks(t *testing.T) {
+	s := newTestStore(t)
+	ctx := collabCtx()
+	threadID := newCollabThread(t, s, "p1", "", ThreadKindChat)
+	turn, _, _ := s.CreateAgentTurn(ctx, AgentTurn{ProjectID: "p1", ThreadID: threadID})
+	completed, err := s.CreateAgentTask(ctx, AgentTask{ProjectID: "p1", TurnID: turn.ID, ThreadID: threadID, Seq: 1, Status: TaskStatusCompleted, RunID: "run-1", Attempt: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateAgentTask(ctx, AgentTask{ID: "old", ProjectID: "p1", TurnID: turn.ID, ThreadID: threadID, Seq: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ReplaceAgentTasks(ctx, "p1", turn.ID, []AgentTask{
+		completed,
+		{ID: "new", ProjectID: "p1", TurnID: turn.ID, ThreadID: threadID, Seq: 2, Instruction: "replacement"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	tasks, err := s.ListAgentTasks(ctx, "p1", turn.ID)
+	if err != nil || len(tasks) != 2 {
+		t.Fatalf("replaced tasks: %v %+v", err, tasks)
+	}
+	if tasks[0].ID != completed.ID || tasks[0].RunID != "run-1" || tasks[0].Attempt != 2 || tasks[1].ID != "new" {
+		t.Fatalf("replacement did not preserve completed task: %+v", tasks)
 	}
 }
 

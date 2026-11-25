@@ -1,3 +1,34 @@
+// 文件说明：service_test.go — internal/catalog 的单元测试（TestCreateDatabase_Success、TestCreateDatabase_SQLDataModelRoundTrip 等）
+//
+// 用法
+//
+//	go test ./internal/catalog -run 'TestCreateDatabase_Success|TestCreateDatabase_SQLDataModelRoundTrip|TestCreateDatabase_CrossProjectRejected|TestCreateDatabase_DuplicateNameRejected'
+//	同包调用：newTestDB() → service_paths_test.go, sql_repository_test.go；fakeDescriptorWriter → service_paths_test.go；newTestPrincipal() → always_open_test.go, create_invalidate_test.go
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app 等 10 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/catalog/service_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] always_open_test.go, cache.go, cache_test.go, create_invalidate_test.go, data_model.go 等 20 个
+//	[关键引用] newTestDB ← service_paths_test.go, sql_repository_test.go；fakeDescriptorWriter ← service_paths_test.go；newTestPrincipal ← always_open_test.go, create_invalidate_test.go
+//
+// 主要符号
+//
+//	newTestDB(t *testing.T) *sql.DB
+//	type fakeDescriptorWriter struct{…}
+//	(f *fakeDescriptorWriter) PutJSON(ctx context.Context, key string, value any, opts objectstore.PutOptions) err...
+//	newTestPrincipal(tenantID string, projectIDs ...string) auth.Principal
+//	setupService(t *testing.T, descriptor DescriptorWriter) (*Service, Repository, string, string)
+//	TestCreateDatabase_Success(t *testing.T)
+//	TestCreateDatabase_SQLDataModelRoundTrip(t *testing.T)
+//	TestCreateDatabase_CrossProjectRejected(t *testing.T)
+//	... 另有 10 个顶层符号
+
 package catalog
 
 import (

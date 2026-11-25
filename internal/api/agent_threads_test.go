@@ -1,3 +1,29 @@
+// 文件说明：agent_threads_test.go — internal/api 的单元测试（TestAgentThreadsAndGet、TestAgentCreateRunAndCancel 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestAgentThreadsAndGet|TestAgentCreateRunAndCancel'
+//	同包调用：fullAgentEcho() → agent_optimization_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/agent_threads_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] fullAgentEcho ← agent_optimization_test.go
+//
+// 主要符号
+//
+//	fullAgentEcho(store *systemdb.Store, usage UsageService) *echo.Echo
+//	agentReqOpt(e *echo.Echo, method, path string, body any, withProject, withPrincipal bool) *httptest.ResponseRe...
+//	TestAgentThreadsAndGet(t *testing.T)
+//	TestAgentCreateRunAndCancel(t *testing.T)
+
 package api
 
 import (
@@ -19,7 +45,7 @@ import (
 func fullAgentEcho(store *systemdb.Store, usage UsageService) *echo.Echo {
 	e := echo.New()
 	e.HideBanner = true
-	h := &cloudAgentHandler{store: store, usage: usage}
+	h := &cloudAgentHandler{store: store, svc: testAgentRun(store, nil), usage: usage, writable: true}
 	e.GET("/agents/modules", h.ListModules)
 	e.GET("/agents", h.ListAgents)
 	e.POST("/agents", h.CreateAgent)

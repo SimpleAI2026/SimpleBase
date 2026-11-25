@@ -1,3 +1,34 @@
+// 文件说明：service_test.go — internal/auth 的单元测试（TestAuthenticate_Success、TestAuthenticate_EmptyKey 等）
+//
+// 用法
+//
+//	go test ./internal/auth -run 'TestAuthenticate_Success|TestAuthenticate_EmptyKey|TestAuthenticate_InvalidKey|TestAuthenticate_RevokedKey'
+//	同包调用：newFakeRepo() → authenticate_middleware_test.go, keyring_test.go
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/api/perfbench 等 9 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/auth/service_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] api_key_repository.go, authenticate_middleware_test.go, cache.go, cache_test.go, cached_user_test.go 等 31 个
+//	[关键引用] newFakeRepo ← authenticate_middleware_test.go, keyring_test.go
+//
+// 主要符号
+//
+//	type fakeRepo struct{…}
+//	newFakeRepo() *fakeRepo
+//	(r *fakeRepo) FindByHash(ctx context.Context, keyHash string) (APIKeyRecord, error)
+//	TestAuthenticate_Success(t *testing.T)
+//	TestAuthenticate_EmptyKey(t *testing.T)
+//	TestAuthenticate_InvalidKey(t *testing.T)
+//	TestAuthenticate_RevokedKey(t *testing.T)
+//	TestHashKey_Deterministic(t *testing.T)
+//	... 另有 14 个顶层符号
+
 package auth
 
 import (
@@ -215,7 +246,7 @@ func TestAPIKeyMiddleware_ValidToken(t *testing.T) {
 	e := echo.New()
 	called := false
 	e.Use(APIKeyMiddleware(svc, func(ctx context.Context, p Principal) context.Context {
-		return context.WithValue(ctx, principalKey{}, p)
+		return context.WithValue(ctx, testPrincipalKey{}, p)
 	}))
 	e.GET("/test", func(c echo.Context) error {
 		called = true
@@ -278,7 +309,7 @@ func TestRequire_HasPermission(t *testing.T) {
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			p := Principal{Permissions: map[Permission]struct{}{DatabaseAdmin: {}}}
-			ctx := context.WithValue(c.Request().Context(), principalKey{}, p)
+			ctx := context.WithValue(c.Request().Context(), testPrincipalKey{}, p)
 			c.SetRequest(c.Request().WithContext(ctx))
 			return next(c)
 		}
@@ -288,7 +319,7 @@ func TestRequire_HasPermission(t *testing.T) {
 		called = true
 		return c.String(http.StatusOK, "ok")
 	}, Require(DatabaseAdmin, func(ctx context.Context) (Principal, bool) {
-		p, ok := ctx.Value(principalKey{}).(Principal)
+		p, ok := ctx.Value(testPrincipalKey{}).(Principal)
 		return p, ok
 	}))
 
@@ -305,7 +336,7 @@ func TestRequire_MissingPermission(t *testing.T) {
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			p := Principal{Permissions: map[Permission]struct{}{DatabaseRead: {}}}
-			ctx := context.WithValue(c.Request().Context(), principalKey{}, p)
+			ctx := context.WithValue(c.Request().Context(), testPrincipalKey{}, p)
 			c.SetRequest(c.Request().WithContext(ctx))
 			return next(c)
 		}
@@ -313,7 +344,7 @@ func TestRequire_MissingPermission(t *testing.T) {
 	e.GET("/admin", func(c echo.Context) error {
 		return c.String(http.StatusOK, "ok")
 	}, Require(DatabaseAdmin, func(ctx context.Context) (Principal, bool) {
-		p, ok := ctx.Value(principalKey{}).(Principal)
+		p, ok := ctx.Value(testPrincipalKey{}).(Principal)
 		return p, ok
 	}))
 
@@ -325,5 +356,5 @@ func TestRequire_MissingPermission(t *testing.T) {
 	}
 }
 
-// principalKey 是测试用的 context key
-type principalKey struct{}
+// testPrincipalKey 是测试用的 context key
+type testPrincipalKey struct{}

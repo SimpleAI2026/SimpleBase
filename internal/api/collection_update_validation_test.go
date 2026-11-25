@@ -1,3 +1,24 @@
+// 文件说明：collection_update_validation_test.go — internal/api 的单元测试（TestReadonlyAndRemovedFieldsRealEngines 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestReadonlyAndRemovedFieldsRealEngines'
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/collection_update_validation_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//
+// 主要符号
+//
+//	TestReadonlyAndRemovedFieldsRealEngines(t *testing.T)
+
 package api
 
 import (

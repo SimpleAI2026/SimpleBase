@@ -1,3 +1,34 @@
+// 文件说明：cache_test.go — internal/catalog 的单元测试（TestCatalogReadCacheReducesQueries、TestCatalogCacheTTLExpiry 等）
+//
+// 用法
+//
+//	go test ./internal/catalog -run 'TestCatalogReadCacheReducesQueries|TestCatalogCacheTTLExpiry'
+//	同包调用：countingRepo → create_invalidate_test.go
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app 等 10 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/catalog/cache_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] always_open_test.go, cache.go, create_invalidate_test.go, data_model.go, data_model_test.go 等 20 个
+//	[关键引用] countingRepo ← create_invalidate_test.go
+//
+// 主要符号
+//
+//	type countingRepo struct{…}
+//	(r *countingRepo) GetProjectTenant(ctx context.Context, projectID string) (string, error)
+//	(r *countingRepo) GetProject(ctx context.Context, projectID string) (Project, error)
+//	(r *countingRepo) HasDefaultDatabase(ctx context.Context, projectID string) (bool, error)
+//	(r *countingRepo) GetDatabase(ctx context.Context, projectID, databaseID string) (Database, error)
+//	(r *countingRepo) GetDatabaseByName(ctx context.Context, projectID, name string) (Database, error)
+//	(r *countingRepo) ProjectBelongsToTenant(ctx context.Context, projectID, tenantID string) (bool, error)
+//	TestCatalogReadCacheReducesQueries(t *testing.T)
+//	... 另有 2 个顶层符号
+
 package catalog
 
 import (

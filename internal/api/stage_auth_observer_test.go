@@ -1,3 +1,27 @@
+// 文件说明：stage_auth_observer_test.go — internal/api 的单元测试（TestStageAuthObserverWritesSubStages、TestStageAuthObserverNoopWithoutTimer 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestStageAuthObserverWritesSubStages|TestStageAuthObserverNoopWithoutTimer|TestStageAuthSubStagesExcludedFromAttribution|TestStageDurationsFloatPrecision'
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/stage_auth_observer_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//
+// 主要符号
+//
+//	TestStageAuthObserverWritesSubStages(t *testing.T)
+//	TestStageAuthObserverNoopWithoutTimer(t *testing.T)
+//	TestStageAuthSubStagesExcludedFromAttribution(t *testing.T)
+//	TestStageDurationsFloatPrecision(t *testing.T)
+
 // stage_auth_observer_test.go 验证 planv5.0 §4 P0.1 的认证子阶段桥接：
 // auth.AuthObserver 事件写入请求级 StageTimer，子阶段不与 StageAuth 双算。
 package api

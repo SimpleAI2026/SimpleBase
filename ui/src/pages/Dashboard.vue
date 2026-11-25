@@ -92,15 +92,10 @@
               </TableRow>
             </TableHeader>
             <SbAsyncRegion
+              :state="loadState"
               as="tbody"
               :columns="3"
               :rows="5"
-              :pending="pending"
-              :show-skeleton="showSkeleton"
-              :show-empty="false"
-              :show-error="showError"
-              :refreshing="refreshing"
-              :error="loadError"
               @retry="load"
             >
               <TableRow v-for="row in resourceRows" :key="row.key">
@@ -278,15 +273,14 @@ const resourceRows = computed(() => [
   },
 ])
 
+const loadState = useLoadState({ fallback: 'pages.dashboard.loadFailed' })
 const {
   pending,
   hasData,
   showSkeleton,
   showError,
-  refreshing,
-  error: loadError,
   run
-} = useLoadState({ fallback: 'pages.dashboard.loadFailed' })
+} = loadState
 
 function load() {
   return run(async () => {

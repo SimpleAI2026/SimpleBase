@@ -86,12 +86,12 @@ func (h *KVHandler) acquireStore(c echo.Context, mode godatabase.AccessMode) (*k
 	if _, ok := PrincipalFromContext(c.Request().Context()); !ok {
 		return nil, auth.ErrMissingCredentials
 	}
-	project, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return nil, ErrProjectMissing
+	project, err := requireProject(c)
+	if err != nil {
+		return nil, err
 	}
 	if catalog.IsSystemProject(project.ID) {
-		return nil, NewAPIError(http.StatusNotFound, "kv_store_not_found", "project has no key-value store", RequestIDFromContext(c.Request().Context()))
+		return nil, NewAPIError(http.StatusNotFound, "kv_store_not_found", "project has no key-value store", requestID(c))
 	}
 	ctx := c.Request().Context()
 	db, err := h.svc.GetKVDatabase(ctx, project.TenantID, project.ID)
@@ -301,9 +301,9 @@ func (h *KVHandler) execCmd(c echo.Context, argvs []string) error {
 	spec, ok := kvCommandTable[name]
 	if !ok {
 		return WriteError(c, NewAPIError(http.StatusBadRequest, "kv_unknown_command",
-			"unknown command "+name, RequestIDFromContext(c.Request().Context())))
+			"unknown command "+name, requestID(c)))
 	}
-	run, err := spec.parse(c, argvs[1:])
+	run, err := spec.parse(argvs[1:])
 	if err != nil {
 		return WriteError(c, err)
 	}
@@ -341,7 +341,7 @@ func (h *KVHandler) execCmd(c echo.Context, argvs []string) error {
 		var result any
 		if verr := l.store.View(ctx, func(tx *kv.Tx) error {
 			var derr error
-			result, derr = run(tx)
+			result, derr = run(ctx, tx)
 			return derr
 		}); verr != nil {
 			return WriteError(c, verr)
@@ -361,7 +361,7 @@ func (h *KVHandler) execCmd(c echo.Context, argvs []string) error {
 	execScope := timer.StageScope(StageDBExec)
 	uerr := l.store.Update(ctx, func(tx *kv.Tx) error {
 		var derr error
-		result, derr = run(tx)
+		result, derr = run(ctx, tx)
 		return derr
 	})
 	execScope.Done()
@@ -406,10 +406,11 @@ func kvInvalidArgumentRaw(msg string) error {
 }
 
 func kvInvalidArgument(msg string, c echo.Context) error {
-	return NewAPIError(http.StatusBadRequest, "kv_invalid_argument", msg, RequestIDFromContext(c.Request().Context()))
+	return NewAPIError(http.StatusBadRequest, "kv_invalid_argument", msg, requestID(c))
 }
 
-// kvInvalidArgError 在事务内使用（拿不到 echo.Context），WriteError 统一映射。
+// kvInvalidArgError 是命令表 / 事务内的参数错误（拿不到 echo.Context），Error() 统一映射为
+// 400 kv_invalid_argument；文案即 msg。
 type kvInvalidArgError struct{ msg string }
 
 func (e *kvInvalidArgError) Error() string { return "kv_invalid_argument: " + e.msg }

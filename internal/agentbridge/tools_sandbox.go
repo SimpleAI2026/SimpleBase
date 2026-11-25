@@ -10,6 +10,7 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/components/tool/utils"
 
+	"github.com/linkxzhou/SimpleBase/gocloudagent/agentcore"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 )
 
@@ -71,7 +72,7 @@ func buildSandboxTools(out *[]tool.BaseTool, want map[string]bool, deps toolDeps
 				if err != nil {
 					return "", err
 				}
-				return marshalToolJSON(sandboxOutputJSON(out))
+				return agentcore.MarshalToolJSON(sandboxOutputJSON(out))
 			})); err != nil {
 			return err
 		}
@@ -93,7 +94,7 @@ func buildSandboxTools(out *[]tool.BaseTool, want map[string]bool, deps toolDeps
 				if err != nil {
 					return "", err
 				}
-				return marshalToolJSON(sandboxOutputJSON(out))
+				return agentcore.MarshalToolJSON(sandboxOutputJSON(out))
 			})); err != nil {
 			return err
 		}
@@ -109,7 +110,7 @@ func buildSandboxTools(out *[]tool.BaseTool, want map[string]bool, deps toolDeps
 				if err != nil {
 					return "", err
 				}
-				return marshalToolJSON(map[string]any{
+				return agentcore.MarshalToolJSON(map[string]any{
 					"stdout":    text,
 					"stderr":    "",
 					"exit_code": 0,
@@ -128,7 +129,7 @@ func buildSandboxTools(out *[]tool.BaseTool, want map[string]bool, deps toolDeps
 				if err := deps.Sandbox.WriteFile(ctx, rc.ProjectID, rc.ThreadID, in.Path, in.Content); err != nil {
 					return "", err
 				}
-				return marshalToolJSON(map[string]any{
+				return agentcore.MarshalToolJSON(map[string]any{
 					"stdout":    "",
 					"stderr":    "",
 					"exit_code": 0,

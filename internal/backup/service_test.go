@@ -1,3 +1,27 @@
+// 文件说明：service_test.go — internal/backup 的单元测试（TestBackupRestoreAndIntegrity 等）
+//
+// 用法
+//
+//	go test ./internal/backup -run 'TestBackupRestoreAndIntegrity'
+//
+// 调用架构
+//
+//	[上游] internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/backup/service_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] model.go, repository.go, restore.go, scheduler.go, scheduler_test.go 等 6 个
+//
+// 主要符号
+//
+//	type testCatalog struct{…}
+//	(c testCatalog) ResolveProjectStorage(context.Context, string, string) (catalog.Database, error)
+//	TestBackupRestoreAndIntegrity(t *testing.T)
+//	objectstoreKeys() objectstore.KeyBuilder
+
 package backup
 
 import (

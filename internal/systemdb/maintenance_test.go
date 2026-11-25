@@ -1,3 +1,32 @@
+// 文件说明：maintenance_test.go — internal/systemdb 的单元测试（TestMaintenanceRunnerStepsInOrder、TestMaintenanceRunnerSkipsWhenNotWriter 等）
+//
+// 用法
+//
+//	go test ./internal/systemdb -run 'TestMaintenanceRunnerStepsInOrder|TestMaintenanceRunnerSkipsWhenNotWriter|TestMaintenanceRunnerStepErrorContinues|TestMaintenanceRunnerCloseStopsLoop'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app 等 8 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/systemdb/maintenance_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_approvals.go, agent_approvals_test.go, agent_collab.go, agent_collab_cron.go, agent_collab_test.go 等 54 个
+//
+// 主要符号
+//
+//	type fakeExec struct{…}
+//	(f *fakeExec) run(_ context.Context, query string, args ...any) (sql.Result, error)
+//	newMaintRunner(f *fakeExec, writable func() bool) *MaintenanceRunner
+//	TestMaintenanceRunnerStepsInOrder(t *testing.T)
+//	TestMaintenanceRunnerSkipsWhenNotWriter(t *testing.T)
+//	TestMaintenanceRunnerStepErrorContinues(t *testing.T)
+//	TestMaintenanceRunnerCloseStopsLoop(t *testing.T)
+//	TestMaintenanceRunnerNoDB(t *testing.T)
+//	... 另有 6 个顶层符号
+
 package systemdb
 
 import (

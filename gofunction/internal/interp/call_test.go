@@ -1,3 +1,34 @@
+// 文件说明：call_test.go — gofunction/internal/interp 的单元测试（TestCallExternalAndBuiltinDirect、TestCallSSAMissingArgsAndFreeVars 等）
+//
+// 用法
+//
+//	go test ./gofunction/internal/interp -run 'TestCallExternalAndBuiltinDirect|TestCallSSAMissingArgsAndFreeVars|TestUnknownBuiltinAndRecoverIdle|TestBuiltinPanicCall'
+//	同包调用：mustPanic() → gaps_test.go, instruction_test.go；runSrc() → instruction_test.go, runframe_test.go
+//
+// 调用架构
+//
+//	[上游] gofunction
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/internal/interp/call_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] bench_test.go, cachetest_test.go, call.go, cheap_test.go, compile.go 等 40 个
+//	[关键引用] mustPanic ← gaps_test.go, instruction_test.go；runSrc ← instruction_test.go, runframe_test.go
+//
+// 主要符号
+//
+//	TestCallExternalAndBuiltinDirect(t *testing.T)
+//	TestCallSSAMissingArgsAndFreeVars(t *testing.T)
+//	TestUnknownBuiltinAndRecoverIdle(t *testing.T)
+//	TestBuiltinPanicCall(t *testing.T)
+//	TestUnrecoveredPanicSetsError(t *testing.T)
+//	TestMakeFuncMethodValue(t *testing.T)
+//	TestStdconvAtoiExtract(t *testing.T)
+//	mustPanic(t *testing.T, name string, fn func())
+//	... 另有 11 个顶层符号
+
 package interp
 
 // 本文件覆盖函数调用链路：callSSA/callBuiltin/callExternal、

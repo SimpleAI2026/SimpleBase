@@ -1,3 +1,28 @@
+// 文件说明：runner_test.go — internal/functionrun 的单元测试（TestRunnerActiveVersionAndInvokeRecord、TestRunnerSharedConcurrencyGate 等）
+//
+// 用法
+//
+//	go test ./internal/functionrun -run 'TestRunnerActiveVersionAndInvokeRecord|TestRunnerSharedConcurrencyGate'
+//
+// 调用架构
+//
+//	[上游] internal/api, internal/app, internal/trigger
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/functionrun/runner_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] runner.go
+//
+// 主要符号
+//
+//	type fakeStore struct{…}
+//	(s *fakeStore) ResolveActiveSource(context.Context, string, string) (systemdb.GoFuncVersion, error)
+//	(s *fakeStore) RecordGoFuncInvoke(_ context.Context, _, _, _ string, _ int64, channel string, _ int, _ int64, ...
+//	TestRunnerActiveVersionAndInvokeRecord(t *testing.T)
+//	TestRunnerSharedConcurrencyGate(t *testing.T)
+
 package functionrun
 
 import (

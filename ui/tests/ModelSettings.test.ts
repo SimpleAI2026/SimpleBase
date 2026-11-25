@@ -2,7 +2,7 @@ import { flushPromises } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ModelSettings from '@/pages/ModelSettings.vue'
 import { resetApiMocks } from '@/test/api-mock'
-import { mountWithApp } from '@/test/helpers'
+import { clickTab, mountWithApp } from '@/test/helpers'
 
 vi.mock('@/services/api', async () => {
   const module = await import('@/test/api-mock')
@@ -32,7 +32,7 @@ describe('ModelSettings', () => {
       stubs: extraStubs
     })
     // 页签顺序固定：模型 → MCP → 审批队列 → Trace。
-    const triggers = wrapper.findAll('.tab-trigger')
+    const triggers = wrapper.findAll('[role="tab"]')
     expect(triggers.map((x) => x.text())).toEqual(['模型', 'MCP', '审批队列', 'Trace'])
     expect(wrapper.find('.panel-models').exists()).toBe(true)
 
@@ -41,7 +41,8 @@ describe('ModelSettings', () => {
       onTabChange: (t: string) => void
       openDetail: (id: string) => void
     }
-    vm.onTabChange('mcp')
+    // 真实页签触发器：点「MCP」
+    await clickTab(wrapper, 'mcp')
     await flushPromises()
     expect(vm.activeTab).toBe('mcp')
     expect(wrapper.find('.panel-mcp').exists()).toBe(true)

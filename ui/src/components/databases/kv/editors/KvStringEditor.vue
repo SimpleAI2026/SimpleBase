@@ -1,16 +1,6 @@
 <template>
   <div class="flex flex-col gap-3">
-    <SbAsyncRegion
-      class="flex flex-col gap-3"
-      block="spinner"
-      :pending="pending"
-      :show-skeleton="showSkeleton"
-      :show-empty="false"
-      :show-error="showError"
-      :refreshing="refreshing"
-      :error="error"
-      @retry="load"
-    >
+    <SbAsyncRegion class="flex flex-col gap-3" block="spinner" :state="state" @retry="load">
       <Textarea v-model="value" :rows="6" :disabled="readonly" class="sb-mono text-xs" :placeholder="t('components.kvString.valuePlaceholder')" />
       <div v-if="!readonly" class="flex flex-wrap items-center gap-2">
         <Button size="sm" :disabled="saving || value === original" @click="save">{{ t('components.kvString.save') }}</Button>
@@ -24,16 +14,12 @@
 </template>
 
 <script setup lang="ts">
-import { errorMessage } from '@/utils/format'
-import { ref, watch } from 'vue'
+import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
-import { api } from '../../../../services/api'
 import SbAsyncRegion from '../../../SbAsyncRegion.vue'
-import { useLoadState } from '@/composables/useLoadState'
+import { useKvEditor } from '@/composables/useKvEditor'
 
 const props = defineProps<{
   projectId: string
@@ -49,31 +35,33 @@ const value = ref('')
 const original = ref('')
 const delta = ref('1')
 const saving = ref(false)
-const { pending, showSkeleton, showError, refreshing, error, run } = useLoadState({ fallback: 'components.kvString.loadFailed' })
 const incring = ref(false)
 
-function load() {
-  return run(async () => {
-    const r = await api.kv.exec(props.projectId, { type: 'cmd', argvs: ['GET', props.kvKey] })
-    const v = typeof r === 'string' ? r : ''
+// 写回与自增都用命令返回值原地更新，不重新读取（保持输入框内容与光标）。
+const { state, load, mutate } = useKvEditor({
+  projectId: () => props.projectId,
+  kvKey: () => props.kvKey,
+  fallback: 'components.kvString.loadFailed',
+  read: () => ({ type: 'cmd', argvs: ['GET', props.kvKey] }),
+  parse: (r) => (typeof r === 'string' ? r : ''),
+  apply: (v) => {
     value.value = v
     original.value = v
-    return true
-  })
-}
+  },
+  changed: () => emit('changed')
+})
 
 async function save() {
   saving.value = true
   try {
-    await api.kv.exec(props.projectId, {
-      type: 'String',
-      args: { key: props.kvKey, value: value.value, keep_ttl: true }
+    await mutate({ type: 'String', args: { key: props.kvKey, value: value.value, keep_ttl: true } }, {
+      failKey: 'components.kvString.saveFailed',
+      successKey: 'components.kvString.saved',
+      reload: false,
+      onSuccess: () => {
+        original.value = value.value
+      }
     })
-    original.value = value.value
-    toast.success(t('components.kvString.saved'))
-    emit('changed')
-  } catch (e) {
-    toast.error(errorMessage(e, t('components.kvString.saveFailed')))
   } finally {
     saving.value = false
   }
@@ -84,19 +72,16 @@ async function incr() {
   if (!Number.isFinite(d)) return
   incring.value = true
   try {
-    const r = await api.kv.exec(props.projectId, {
-      type: 'cmd',
-      argvs: ['INCRBY', props.kvKey, String(Math.trunc(d))]
+    await mutate({ type: 'cmd', argvs: ['INCRBY', props.kvKey, String(Math.trunc(d))] }, {
+      failKey: 'components.kvString.incrFailed',
+      reload: false,
+      onSuccess: (r) => {
+        value.value = String(r)
+        original.value = value.value
+      }
     })
-    value.value = String(r)
-    original.value = value.value
-    emit('changed')
-  } catch (e) {
-    toast.error(errorMessage(e, t('components.kvString.incrFailed')))
   } finally {
     incring.value = false
   }
 }
-
-watch(() => props.kvKey, () => void load(), { immediate: true })
 </script>

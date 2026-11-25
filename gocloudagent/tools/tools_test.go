@@ -1,3 +1,34 @@
+// 文件说明：tools_test.go — gocloudagent/tools 的单元测试（TestResolvePathBlocksEscape、TestResolvePathBlocksSiblingPrefix 等）
+//
+// 用法
+//
+//	go test ./gocloudagent/tools -run 'TestResolvePathBlocksEscape|TestResolvePathBlocksSiblingPrefix|TestIsDangerousShell|TestWorkspaceApproveFailsClosed'
+//	同包调用：testWorkspace() → isolation_test.go；findTool() → isolation_test.go, symlink_test.go；invoke() → isolation_test.go, netguard_test.go
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/cloudagent, internal/agentbridge
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/tools/tools_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] base.go, fsutil.go, http.go, isolation_test.go, mcp.go 等 15 个
+//	[关键引用] testWorkspace ← isolation_test.go；findTool ← isolation_test.go, symlink_test.go；invoke ← isolation_test.go, netguard_test.go
+//
+// 主要符号
+//
+//	testWorkspace(t *testing.T) (*Workspace, string)
+//	TestResolvePathBlocksEscape(t *testing.T)
+//	TestResolvePathBlocksSiblingPrefix(t *testing.T)
+//	TestIsDangerousShell(t *testing.T)
+//	TestWorkspaceApproveFailsClosed(t *testing.T)
+//	TestSanitizedEnvStripsCredentials(t *testing.T)
+//	TestSearchToolAbsentWithoutProvider(t *testing.T)
+//	TestSearchBraveRequiresKey(t *testing.T)
+//	... 另有 14 个顶层符号
+
 package tools
 
 import (
@@ -226,7 +257,7 @@ func TestReadFileToolBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	read := findTool(t, tools, "read_file")
+	read := findTool(t, tools, "read")
 	mustWrite(t, filepath.Join(root, "note.txt"), "line1\nline2\n")
 
 	out := invoke(t, read, `{"path":"note.txt"}`)
@@ -255,7 +286,7 @@ func TestShellToolBlocksDangerousWithoutConfirm(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sh := findTool(t, tools, "shell")
+	sh := findTool(t, tools, "bash")
 
 	out := invoke(t, sh, `{"command":"rm -rf /tmp/nope-not-real"}`)
 	if !strings.Contains(out, "confirmation_denied") {
@@ -274,7 +305,7 @@ func TestShellToolBlocksCwdEscape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out := invoke(t, findTool(t, tools, "shell"), `{"command":"pwd","cwd":".."}`)
+	out := invoke(t, findTool(t, tools, "bash"), `{"command":"pwd","cwd":".."}`)
 	if !strings.Contains(out, "path_not_allowed") {
 		t.Fatalf("cwd escape must be rejected: %s", out)
 	}
@@ -287,7 +318,7 @@ func TestWriteFileToolRequiresConfirmOnOverwrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	write := findTool(t, tools, "write_file")
+	write := findTool(t, tools, "write")
 
 	if out := invoke(t, write, `{"path":"new.txt","content":"a"}`); !strings.Contains(out, `"ok":true`) {
 		t.Fatalf("new file should be written: %s", out)
@@ -309,7 +340,7 @@ func TestEditFileToolRequiresUniqueMatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	edit := findTool(t, tools, "edit_file")
+	edit := findTool(t, tools, "edit")
 	mustWrite(t, filepath.Join(root, "dup.txt"), "x\nx\n")
 
 	if out := invoke(t, edit, `{"path":"dup.txt","old_text":"x","new_text":"y"}`); !strings.Contains(out, "ambiguous") {

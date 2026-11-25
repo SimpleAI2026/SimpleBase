@@ -1,6 +1,36 @@
+// 文件说明：schema_aggregate_test.go — internal/api 的单元测试（TestSQLColumnKind、TestAggregateTableGroupsRealColumns 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestSQLColumnKind|TestAggregateTableGroupsRealColumns|TestAggregateTableTimeBucketAndBinUseColumnTypes|TestAggregateTableRejectsBadInput'
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/schema_aggregate_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//
+// 主要符号
+//
+//	setupSchemaAggregateRouter(t *testing.T, svc *fakeDataService) *echo.Echo
+//	var ordersColumns
+//	sqlAggregateFixture(columns [][]any, results ...godatabase.QueryResult) (*fakeDataService, *fakeSQLLease)
+//	aggregateURL(table string, q url.Values) string
+//	TestSQLColumnKind(t *testing.T)
+//	TestAggregateTableGroupsRealColumns(t *testing.T)
+//	TestAggregateTableTimeBucketAndBinUseColumnTypes(t *testing.T)
+//	TestAggregateTableRejectsBadInput(t *testing.T)
+//	... 另有 9 个顶层符号
+
 package api
 
 import (
+	"github.com/linkxzhou/SimpleBase/internal/collection/query"
 	"net/http"
 	"net/url"
 	"strings"
@@ -63,8 +93,8 @@ func TestSQLColumnKind(t *testing.T) {
 		"JSON": "json", "BLOB": "json", "STRUCT(a INTEGER)": "json", "INTEGER[]": "text",
 	}
 	for in, want := range cases {
-		if got := sqlColumnKind(in); got != want {
-			t.Errorf("sqlColumnKind(%q) = %q, want %q", in, got, want)
+		if got := query.SQLColumnKind(in); got != want {
+			t.Errorf("query.SQLColumnKind(%q) = %q, want %q", in, got, want)
 		}
 	}
 }
@@ -314,11 +344,11 @@ func TestAggregateTableSystemDatabaseHidesSensitiveColumns(t *testing.T) {
 }
 
 func TestSQLTableOrderFallbacks(t *testing.T) {
-	cols := func(names ...string) ([]sqlTableColumn, map[string]sqlTableColumn) {
-		out := make([]sqlTableColumn, 0, len(names))
-		by := map[string]sqlTableColumn{}
+	cols := func(names ...string) ([]query.SQLTableColumn, map[string]query.SQLTableColumn) {
+		out := make([]query.SQLTableColumn, 0, len(names))
+		by := map[string]query.SQLTableColumn{}
 		for _, n := range names {
-			c := sqlTableColumn{Name: n, Kind: "text"}
+			c := query.SQLTableColumn{Name: n, Kind: "text"}
 			out = append(out, c)
 			by[n] = c
 		}
@@ -335,8 +365,8 @@ func TestSQLTableOrderFallbacks(t *testing.T) {
 		{nil, ``},
 	} {
 		c, by := cols(tc.names...)
-		if got := sqlTableOrder(c, by); got != tc.want {
-			t.Errorf("sqlTableOrder(%v) = %q, want %q", tc.names, got, tc.want)
+		if got := query.SQLTableOrder(c, by); got != tc.want {
+			t.Errorf("query.SQLTableOrder(%v) = %q, want %q", tc.names, got, tc.want)
 		}
 	}
 }
@@ -346,17 +376,17 @@ func TestSQLTableEnvSkipsInvalidAndSensitiveColumns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	env := sqlTableEnv(dialect, []sqlTableColumn{
+	env := query.SQLTableEnv(dialect, []query.SQLTableColumn{
 		{Name: "ok_col", Kind: "number"},
 		{Name: "bad-name", Kind: "number"},
 		{Name: "1starts_with_digit", Kind: "number"},
 		{Name: "secret", Kind: "text"},
 	}, func(n string) bool { return n == "secret" })
-	if _, err := env.lookup("ok_col"); err != nil {
+	if _, err := env.Lookup("ok_col"); err != nil {
 		t.Fatalf("ok_col: %v", err)
 	}
 	for _, name := range []string{"bad-name", "1starts_with_digit", "secret", "missing", ""} {
-		if _, err := env.lookup(name); err == nil {
+		if _, err := env.Lookup(name); err == nil {
 			t.Errorf("%q must not resolve", name)
 		}
 	}

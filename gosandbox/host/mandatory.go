@@ -1,3 +1,34 @@
+// 文件说明：mandatory.go — gosandbox/host 中 ForceDenyWritePaths 等符号的实现
+//
+// 用法
+//
+//	ForceDenyWritePaths(p Policy, home string, exists func(string) bool) []string  // ForceDenyWritePaths 返回应当强制只读的绝对路径，已去重、排序，且只含 exists 判定存在的路径
+//	同包调用：readOnlyPaths() → bwrap_args.go, mandatory_test.go；userHome() → bwrap_args.go, policy.go；effectiveDenyRead() → policy.go, seatbelt.go
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/tools, gosandbox/box, gosandbox/vm/box 等 5 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/host/mandatory.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] bwrap_args.go, bwrap_args_extra_test.go, cgroup.go, cgroup_linux.go, cgroup_linux_test.go 等 36 个
+//	[关键引用] ForceDenyWritePaths ← mandatory_test.go；readOnlyPaths ← bwrap_args.go, mandatory_test.go；userHome ← bwrap_args.go, policy.go
+//
+// 主要符号
+//
+//	var ForceDenyWriteSubpaths
+//	var ForceDenyWriteHomeFiles
+//	pathExists(p string) bool
+//	ForceDenyWritePaths(p Policy, home string, exists func(string) bool) []string
+//	covers(root, path string) bool
+//	readOnlyPaths(p Policy, home string, exists func(string) bool) []string
+//	userHome() string
+//	var DefaultDenyReadHomePaths
+//	... 另有 3 个顶层符号
+
 package host
 
 import (

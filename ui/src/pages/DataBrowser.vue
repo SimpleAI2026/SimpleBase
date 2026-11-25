@@ -42,21 +42,21 @@
               :range="range"
               :time-field="timeField"
               :date-fields="dateFields"
-              :filter="filterDraft"
-              :history="history"
-              :chips="chips"
+              :filter="filter.draft.value"
+              :history="filter.history.value"
+              :chips="filter.chips.value"
               :field-names="fieldNames"
-              :dirty="Boolean(appliedFilter || chips.length || (timeField && range !== 'all'))"
-              :pending="filterDraft.trim() !== appliedFilter"
+              :dirty="Boolean(filter.applied.value || filter.chips.value.length || (timeField && range !== 'all'))"
+              :pending="filter.draft.value.trim() !== filter.applied.value"
               :error="filterError"
               @update:range="range = $event"
               @update:time-field="timeField = $event"
-              @update:filter="filterDraft = $event"
-              @apply="applyFilter"
+              @update:filter="filter.draft.value = $event"
+              @apply="filter.apply"
               @clear="clearFilters"
-              @append-field="appendField"
-              @use-history="useHistory"
-              @remove-chip="removeChip"
+              @append-field="filter.appendField"
+              @use-history="filter.useHistory"
+              @remove-chip="filter.removeChip"
             />
           </template>
         </CardContent>
@@ -117,7 +117,7 @@
               @edit="openEditor"
               @duplicate="duplicateWidget"
               @remove="askRemove"
-              @chip="addChip"
+              @chip="filter.addChip"
               @outcome="recordOutcome(w.id, $event)"
             />
           </div>
@@ -142,7 +142,7 @@
 </template>
 
 <script setup lang="ts">
-// DataBrowser：数据看板（planv6.7）。页面只做编排：
+// DataBrowser：数据看板。页面只做编排：
 //   - 库 → 数据源（集合 / SQL 表）→ 字段的加载链在 useBiDataSource；
 //   - 明细表的取数在 useBiDetail；
 //   - 看板配置与全局条件在这里接线；图表、请求、校验都在 components/bi 与 composables。
@@ -154,13 +154,14 @@ import { PlusIcon, RotateCcwIcon, TableIcon } from '@lucide/vue'
 import { api } from '@/services/api'
 import type { BiWidget } from '@/services/types'
 import { useProjectStore } from '@/stores/project'
-import { useAuthStore } from '@/stores/auth'
+import { useCanWrite } from '@/composables/useCanWrite'
 import { errorMessage } from '@/utils/format'
 import { downloadBlob } from '@/utils/download'
 import { COLLECTION_TRAITS, MAX_WIDGETS, useBiDashboard } from '@/composables/useBiDashboard'
 import { useBiDataSource } from '@/composables/useBiDataSource'
 import { useBiDetail } from '@/composables/useBiDetail'
-import { combine, pushHistory, rangeExpr, type FilterChip, type RangeKey } from '@/utils/bi-filter'
+import { useFilterChips } from '@/composables/useFilterChips'
+import { combine, rangeExpr, type RangeKey } from '@/utils/bi-filter'
 import { sourceKeyPart } from '@/utils/bi-source'
 import type { BiDefaultLabels } from '@/utils/bi-defaults'
 import PageContainer from '@/components/PageContainer.vue'
@@ -180,16 +181,13 @@ import { Card, CardContent } from '@/components/ui/card'
 
 const { t } = useI18n()
 const project = useProjectStore()
-const auth = useAuthStore()
-const { projectId, isAdmin } = storeToRefs(project)
+const { projectId } = storeToRefs(project)
 
 // —— 全局条件（先声明：数据源清空时要重置它们）——
 const range = ref<RangeKey>('all')
 const timeField = ref('created_at')
-const filterDraft = ref('')
-const appliedFilter = ref('')
-const history = ref<string[]>([])
-const chips = ref<FilterChip[]>([])
+const filter = useFilterChips()
+const { chips } = filter
 const refreshKey = ref<RefreshKey>('off')
 const refreshTick = ref(0)
 
@@ -229,7 +227,7 @@ const emptyDescription = computed(() => {
 })
 
 // —— 权限：看板是只读视图，写入口（Schema / 视图 / 导入）按角色与数据源种类禁用 ——
-const canWriteData = computed(() => !isAdmin.value && auth.canWrite)
+const canWriteData = useCanWrite()
 const canEditSchema = computed(() => canWriteData.value && Boolean(collectionName.value) && !ds.isView.value)
 const canCreateView = computed(() => canWriteData.value && Boolean(ds.databaseId.value))
 const canImport = computed(() => canWriteData.value && Boolean(collectionName.value) && !ds.isView.value)
@@ -248,10 +246,10 @@ const clock = ref(Date.now())
 watch(range, () => { clock.value = Date.now() }, { flush: 'sync' })
 // 没有时间列时不套时间范围（时间范围控件也会随之隐藏），否则会拼出引用不存在列的条件。
 const globalFilter = computed(() =>
-  combine([timeField.value ? rangeExpr(range.value, timeField.value, new Date(clock.value)) : '', appliedFilter.value, ...chips.value.map((c) => c.expr)])
+  combine([timeField.value ? rangeExpr(range.value, timeField.value, new Date(clock.value)) : '', filter.applied.value, ...chips.value.map((c) => c.expr)])
 )
 /** 条件的「身份」：只有用户改动条件才变，时钟前进不算——否则每次自动刷新都会把明细表翻回第一页。 */
-const conditionKey = computed(() => JSON.stringify([timeField.value, range.value, appliedFilter.value, chips.value.map((c) => c.expr)]))
+const conditionKey = computed(() => JSON.stringify([timeField.value, range.value, filter.applied.value, chips.value.map((c) => c.expr)]))
 
 /**
  * 卡片请求结果（按 widget id）：条件写错时所有卡片会一起失败，逐张重复报错没有意义。
@@ -298,14 +296,14 @@ const importOpen = ref(false)
 
 watch(projectId, () => { void ds.loadDatabases() }, { immediate: true })
 
-// 自动刷新：页面隐藏时暂停（planv6.7 F12）。
+// 自动刷新：页面隐藏时暂停。
 let timer: ReturnType<typeof setInterval> | null = null
 const REFRESH_MS: Record<Exclude<RefreshKey, 'off'>, number> = { s30: 30_000, m1: 60_000, m5: 300_000 }
 watch(refreshKey, (key) => {
   if (timer) clearInterval(timer)
   timer = null
   if (key === 'off') return
-  timer = setInterval(() => { if (typeof document === 'undefined' || document.visibilityState !== 'hidden') refreshBoard() }, REFRESH_MS[key])
+  timer = setInterval(() => { if (document.visibilityState !== 'hidden') refreshBoard() }, REFRESH_MS[key])
 })
 onBeforeUnmount(() => { if (timer) clearInterval(timer) })
 
@@ -317,11 +315,8 @@ function clearBelowSource() {
   detail.clear()
   dashboard.clear()
   outcomes.value = {}
-  chips.value = []
-  appliedFilter.value = ''
-  filterDraft.value = ''
-  // 历史里的表达式引用的是上一个数据源的字段，带到新来源只会产生必然失败的条件。
-  history.value = []
+  // 连历史一起清：历史里的表达式引用的是上一个数据源的字段，带到新来源只会产生必然失败的条件。
+  filter.reset()
   range.value = 'all'
 }
 
@@ -368,29 +363,10 @@ async function manualRefresh() {
 }
 
 // —— 全局条件操作 ——
-function applyFilter() {
-  appliedFilter.value = filterDraft.value.trim()
-  history.value = pushHistory(history.value, appliedFilter.value)
-}
 /** 清除全部条件：时间范围、表达式、联动 chip 一起恢复（只有时间范围时也能清）。 */
 function clearFilters() {
-  filterDraft.value = ''
-  appliedFilter.value = ''
-  chips.value = []
+  filter.clear()
   range.value = 'all'
-}
-function appendField(name: string) {
-  filterDraft.value += (filterDraft.value && !filterDraft.value.endsWith(' ') ? ' && ' : '') + name
-}
-function useHistory(filter: string) {
-  filterDraft.value = filter
-  applyFilter()
-}
-function addChip(chip: FilterChip) {
-  if (!chips.value.some((c) => c.id === chip.id)) chips.value = [...chips.value, chip]
-}
-function removeChip(id: string) {
-  chips.value = chips.value.filter((c) => c.id !== id)
 }
 
 // —— 看板操作 ——

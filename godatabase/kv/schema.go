@@ -1,3 +1,28 @@
+// 文件说明：schema.go — godatabase/kv 中 EnsureSchema 等符号的实现
+//
+// 用法
+//
+//	EnsureSchema(ctx context.Context, db *sql.DB) error  // EnsureSchema 幂等初始化 KV 保留表与索引
+//	同包调用：ensureSchemaLocked() → executor.go
+//
+// 调用架构
+//
+//	[上游] godatabase/cmd, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/kv/schema.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] bugfix_test.go, collections_test.go, conn_schema_test.go, core.go, executor.go 等 20 个
+//	[关键引用] ensureSchemaLocked ← executor.go
+//
+// 主要符号
+//
+//	var schemaDDL
+//	EnsureSchema(ctx context.Context, db *sql.DB) error
+//	ensureSchemaLocked(ctx context.Context, db *sql.DB) error
+
 package kv
 
 import (

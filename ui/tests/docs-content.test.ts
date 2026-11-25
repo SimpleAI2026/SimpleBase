@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { marked, type Tokens } from 'marked'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { docCatalog, isLargeDoc, parseFrontmatter } from '@/docs/catalog'
+import { docCatalog, parseFrontmatter } from '@/docs/catalog'
+
+/** 唯一按需加载的大文档（src/docs/catalog.ts 的 largeModules）：目录里只放元数据桩，正文类检查跳过。 */
+const LAZY_DOC = 'data/ducklake.md'
 import { renderMarkdown, rewriteDocHref } from '@/docs/render'
 
 const root = resolve(import.meta.dirname, '../../docs')
@@ -35,7 +38,7 @@ describe('文档内容完整性', () => {
       const { data, body } = parseFrontmatter(raw!)
       expect(data.title, page.filePath).toBeTruthy()
       expect(typeof data.order, page.filePath).toBe('number')
-      if (!isLargeDoc(page.filePath)) {
+      if (page.filePath !== LAZY_DOC) {
         const headings = marked.lexer(body).filter((token) => token.type === 'heading' && token.depth === 1)
         expect(headings.length, page.filePath).toBe(1)
       }
@@ -75,7 +78,7 @@ describe('文档内容完整性', () => {
   it('代码围栏均标注语言', () => {
     const missing: string[] = []
     for (const [file, raw] of files) {
-      if (isLargeDoc(file)) continue // 上游 HTML details 在 marked lexer 中会将有语言的围栏误判为无语言代码
+      if (file === LAZY_DOC) continue // 上游 HTML details 在 marked lexer 中会将有语言的围栏误判为无语言代码
       const body = parseFrontmatter(raw).body
       for (const token of marked.lexer(body)) {
         if (token.type === 'code' && !token.lang) missing.push(file)

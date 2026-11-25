@@ -1,3 +1,33 @@
+// 文件说明：skills.go — gocloudagent/skills 中 Catalog、Load 等符号的实现
+//
+// 用法
+//
+//	type Catalog struct{…}  // Catalog is an immutable collection of Markdown skill documents keyed by their ex...
+//	Load(fsys fs.FS, root string) (*Catalog, error)  // Load reads all Markdown documents below root. YAML frontmatter is omitted.
+//	ReadDocument(fsys fs.FS, filePath string) (string, error)  // ReadDocument 读取单个 Markdown 文档：去掉 YAML frontmatter 并裁掉首尾空白
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge/agentskills
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/skills/skills.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] skills_test.go
+//	[关键引用] Catalog ← skills_test.go；Load ← skills_test.go；ReadDocument ← skills_test.go
+//
+// 主要符号
+//
+//	type Catalog struct{…}
+//	Load(fsys fs.FS, root string) (*Catalog, error)
+//	(c *Catalog) IDs() []string
+//	(c *Catalog) Body(id string) string
+//	(c *Catalog) Prompt(ids ...string) string
+//	ReadDocument(fsys fs.FS, filePath string) (string, error)
+//	stripFrontmatter(body string) string
+
 // Package skills loads prompt documents from any filesystem without prescribing
 // a skill naming scheme, command policy, or host platform.
 package skills
@@ -30,7 +60,7 @@ func Load(fsys fs.FS, root string) (*Catalog, error) {
 		if entry.IsDir() || !strings.HasSuffix(filePath, ".md") {
 			return nil
 		}
-		body, err := fs.ReadFile(fsys, filePath)
+		body, err := ReadDocument(fsys, filePath)
 		if err != nil {
 			return err
 		}
@@ -38,7 +68,7 @@ func Load(fsys fs.FS, root string) (*Catalog, error) {
 		if root == "." {
 			id = strings.TrimSuffix(strings.TrimPrefix(filePath, "./"), ".md")
 		}
-		catalog.documents[id] = strings.TrimSpace(stripFrontmatter(string(body)))
+		catalog.documents[id] = body
 		catalog.ids = append(catalog.ids, id)
 		return nil
 	})
@@ -74,6 +104,17 @@ func (c *Catalog) Prompt(ids ...string) string {
 		}
 	}
 	return strings.Join(parts, "\n\n")
+}
+
+// ReadDocument 读取单个 Markdown 文档：去掉 YAML frontmatter 并裁掉首尾空白。
+//
+// 只处理以 LF 换行、以独立一行 "---" 结束的 frontmatter；其他形态原样保留。
+func ReadDocument(fsys fs.FS, filePath string) (string, error) {
+	body, err := fs.ReadFile(fsys, filePath)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(stripFrontmatter(string(body))), nil
 }
 
 func stripFrontmatter(body string) string {

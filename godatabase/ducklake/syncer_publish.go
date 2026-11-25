@@ -1,3 +1,31 @@
+// 文件说明：syncer_publish.go — godatabase/ducklake 的内部实现（publishSnapshot、verifyExistingSnapshot 等）
+//
+// 用法
+//
+//	同包调用：catalogExtFor() → local_catalog.go, syncer_capture.go
+//
+// 调用架构
+//
+//	[上游] internal/app, internal/systemdb
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/ducklake/syncer_publish.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] c4_syncer_lease_test.go, c4_syncer_ordering_test.go, catalog_syncer.go, catalog_syncer_test.go, coverage_test.go 等 35 个
+//	[关键引用] catalogExtFor ← local_catalog.go, syncer_capture.go
+//
+// 主要符号
+//
+//	(s *CatalogSyncer) publishSnapshot(ctx context.Context, meta godatabase.Spec, snap int64, data []byte) (int64,...
+//	(s *CatalogSyncer) verifyExistingSnapshot(ctx context.Context, snapKey string, size int64, sha string) error
+//	(s *CatalogSyncer) nextManifestSeq(ctx context.Context, meta godatabase.Spec) (int64, error)
+//	(s *CatalogSyncer) markSplitBrain(meta godatabase.Spec, snap, seq int64)
+//	(s *CatalogSyncer) engineFor() string
+//	catalogExtFor(engine string) string
+//	catalogContentTypeFor(engine string) string
+
 package ducklake
 
 import (
@@ -34,7 +62,14 @@ func (s *CatalogSyncer) publishSnapshot(ctx context.Context, meta godatabase.Spe
 	}
 	if _, err := s.Store.PutIfAbsent(ctx, snapKey, data, catalogContentTypeFor(engine)); err != nil {
 		if errors.Is(err, blob.ErrPreconditionFailed) {
-			// 同 epoch 同 snap 已上传过：幂等，继续推进 manifest。
+			// B12：同 key 已存在时必须核对内容——若本次生成的字节与已存在
+			// 对象不同（引擎重试可产生不同字节），继续用本次摘要登记 manifest
+			// 会让恢复时校验失败。不一致 fail closed，不推进 manifest。
+			if verr := s.verifyExistingSnapshot(ctx, snapKey, int64(len(data)), sha); verr != nil {
+				err = fmt.Errorf("ducklake: snapshot object exists with different content: %w", verr)
+				s.recordSyncStage(meta.ID, "upload_snapshot", time.Since(uploadStart), err)
+				return 0, 0, "", err
+			}
 			if s.Logger != nil {
 				s.Logger.Debug("ducklake snapshot object already uploaded",
 					zap.String("database_id", meta.ID), zap.Int64("snapshot_id", snap))
@@ -69,6 +104,26 @@ func (s *CatalogSyncer) publishSnapshot(ctx context.Context, meta godatabase.Spe
 	return nextSeq, epoch, snapKey, nil
 }
 
+// verifyExistingSnapshot 核对已存在的快照对象与本次生成内容一致（B12）。
+// 先 Head 比对大小，再读内容比对 sha256；任何一步失败都返回错误。
+func (s *CatalogSyncer) verifyExistingSnapshot(ctx context.Context, snapKey string, size int64, sha string) error {
+	info, err := s.Store.Head(ctx, snapKey)
+	if err != nil {
+		return fmt.Errorf("head: %w", err)
+	}
+	if info.Size != size {
+		return fmt.Errorf("size mismatch: existing=%d current=%d", info.Size, size)
+	}
+	data, _, err := s.Store.GetBytes(ctx, snapKey)
+	if err != nil {
+		return fmt.Errorf("get: %w", err)
+	}
+	if got := hashx.Sum(data); got != sha {
+		return fmt.Errorf("sha256 mismatch: existing=%s current=%s", got, sha)
+	}
+	return nil
+}
+
 // nextManifestSeq 返回下一个 manifest seq（远端最大 seq + 1）。
 // 锚点取内存水位，进程重启后回退到 local-state 的 SyncedSeq（O(1) 探测）。
 // 锚点缺失（断链/远端被重置）时退化到全链发现：全空说明远端被重置，
@@ -85,10 +140,7 @@ func (s *CatalogSyncer) nextManifestSeq(ctx context.Context, meta godatabase.Spe
 			cached = st.SyncedSeq
 		}
 	}
-	latest, err := ReadLatestManifest(ctx, s.Store, s.Remote, meta.ProjectID, meta.ID, cached)
-	if err != nil && IsManifestChainBroken(err) && cached > 0 {
-		latest, err = ReadLatestManifest(ctx, s.Store, s.Remote, meta.ProjectID, meta.ID, 0)
-	}
+	latest, err := readLatestManifestAnchored(ctx, s.Store, s.Remote, meta.ProjectID, meta.ID, cached)
 	if err != nil {
 		return 0, err
 	}

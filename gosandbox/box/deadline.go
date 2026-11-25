@@ -1,3 +1,25 @@
+// 文件说明：deadline.go — gosandbox/box 的内部实现（setReadDeadline 等）
+//
+// 用法
+//
+//	同包调用：setReadDeadline() → session.go
+//
+// 调用架构
+//
+//	[上游] gosandbox/cmd, gosandbox/vm/box
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/box/deadline.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] backpressure_test.go, copytree.go, egress_e2e_test.go, files.go, handle.go 等 26 个
+//	[关键引用] setReadDeadline ← session.go
+//
+// 主要符号
+//
+//	setReadDeadline(c net.Conn, d time.Duration) error
+
 package box
 
 import (

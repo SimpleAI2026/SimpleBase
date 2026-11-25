@@ -1,3 +1,28 @@
+// 文件说明：cached_user_test.go — internal/auth 的单元测试（TestCachedUserHitAfterPrincipalLoad、TestCachedUserInvalidatedOnChange 等）
+//
+// 用法
+//
+//	go test ./internal/auth -run 'TestCachedUserHitAfterPrincipalLoad|TestCachedUserInvalidatedOnChange|TestCachedUserExpiresWithTTL|TestCachedUserReflectsUpdate'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/api/perfbench 等 9 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/auth/cached_user_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] api_key_repository.go, authenticate_middleware_test.go, cache.go, cache_test.go, delegation.go 等 31 个
+//
+// 主要符号
+//
+//	TestCachedUserHitAfterPrincipalLoad(t *testing.T)
+//	TestCachedUserInvalidatedOnChange(t *testing.T)
+//	TestCachedUserExpiresWithTTL(t *testing.T)
+//	TestCachedUserReflectsUpdate(t *testing.T)
+//	TestCachedUserInvalidatedOnMarkLogin(t *testing.T)
+
 // cached_user_test.go 验证 planv5.0 §4 P1.3：
 // CachedUser 与 Principal 缓存同源同新鲜度——命中复用、
 // 禁用/变更即时失效、TTL 过期后回查。

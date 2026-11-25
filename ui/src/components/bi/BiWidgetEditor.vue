@@ -165,11 +165,11 @@
       <div class="flex flex-wrap gap-3">
         <Field class="min-w-32 flex-1">
           <FieldLabel>{{ t('components.bi.editor.limit') }}</FieldLabel>
-          <Input type="number" min="1" :max="limitMax" :model-value="draft.limit ?? ''" data-field="limit" @update:model-value="setLimit(String($event))" />
+          <Input type="number" min="1" :max="limitMax" :model-value="draft.limit ?? ''" data-field="limit" @update:model-value="patch({ limit: toLimit(String($event)) })" />
         </Field>
         <Field class="min-w-32 flex-1">
           <FieldLabel>{{ t('components.bi.editor.span') }}</FieldLabel>
-          <Select :model-value="String(draft.span)" @update:model-value="setSpan($event)">
+          <Select :model-value="String(draft.span)" @update:model-value="patch({ span: Number($event) as BiSpan })">
             <SelectTrigger class="w-full" data-field="span"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="4">{{ t('components.bi.editor.spanQuarter') }}</SelectItem>
@@ -202,7 +202,7 @@
 </template>
 
 <script setup lang="ts">
-// BiWidgetEditor：图表配置弹窗（planv6.7 §2.2，F9）。
+// BiWidgetEditor：图表配置弹窗。
 // 校验全部来自 bi-compat（与类型选择器、Agent 结果校验同一份口径）；
 // 保存时只回传一个 BiWidget，由页面决定是新增还是更新。
 import { computed, reactive, ref, watch } from 'vue'
@@ -344,17 +344,22 @@ function setBin(text: string) {
   draft.groupBy = Number.isFinite(step) && step > 0 ? formatGroupBy({ field: groupField.value, bin: step }) : `${groupField.value}:bin=${text || 0}`
 }
 
+/** 单字段写入：所有「只改一个字段、不联动别的字段」的 setter 走这里。 */
+function patch(partial: Partial<BiWidget>) {
+  Object.assign(draft, partial)
+}
+
 type PlainKey = 'x' | 'y' | 'size' | 'series'
-function setField(key: PlainKey, value: unknown) {
+/** 下拉值 → 字段值：哨兵 / 空串表示「无」。 */
+const unNone = (value: unknown): string | undefined => {
   const v = String(value)
-  draft[key] = v === NONE || v === '' ? undefined : v
+  return v === NONE || v === '' ? undefined : v
 }
-function setLimit(text: string) {
+const setField = (key: PlainKey, value: unknown) => patch({ [key]: unNone(value) })
+/** 空串或非有限数视为未设置（走服务端默认上限）。 */
+const toLimit = (text: string): number | undefined => {
   const n = Number(text)
-  draft.limit = text === '' || !Number.isFinite(n) ? undefined : n
-}
-function setSpan(value: unknown) {
-  draft.span = Number(value) as BiSpan
+  return text === '' || !Number.isFinite(n) ? undefined : n
 }
 
 const limitMax = computed(() => (scatterMode.value ? POINTS_MAX_LIMIT : AGGREGATE_MAX_LIMIT))

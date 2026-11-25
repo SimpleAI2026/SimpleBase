@@ -1,9 +1,43 @@
+// 文件说明：traces.go — internal/systemdb 中 LLMTrace、LLMTraceQuery 等符号的实现
+//
+// 用法
+//
+//	type LLMTrace struct{…}  // LLMTrace 是 sys_llm_traces 一行：一次模型调用（Chat 或 Stream）或一次工具执行的观测记录
+//	type LLMTraceQuery struct{…}  // LLMTraceQuery 是 trace 查询条件
+//	type LLMTraceGroupQuery struct{…}  // LLMTraceGroupQuery 是分组列表（二期 §9.3）的查询条件
+//	type LLMTraceGroup struct{…}  // LLMTraceGroup 是一次顶层调用的聚合视图（列表行）
+//	type AgentToolCard struct{…}  // AgentToolCard 是 gocloudagent.RunResult.ToolCallsJSON 的单张工具卡片形状
+//	同包调用：insertLLMTraces() → async_flush.go
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app 等 8 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/systemdb/traces.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_approvals.go, agent_approvals_test.go, agent_collab.go, agent_collab_cron.go, agent_collab_test.go 等 54 个
+//	[关键引用] LLMTrace ← async_flush.go, store.go；LLMTraceQuery ← traces_test.go；LLMTraceGroupQuery ← traces_test.go
+//
+// 主要符号
+//
+//	type LLMTrace struct{…}
+//	type LLMTraceQuery struct{…}
+//	type LLMTraceGroupQuery struct{…}
+//	type LLMTraceGroup struct{…}
+//	const traceErrorMessageMax / traceSpanInputMax / traceSpanOutputMax / traceToolOutputMax / traceToolCardMaxChars
+//	(s *Store) RecordLLMTrace(t LLMTrace)
+//	truncateTraceJSON(s string, max int) string
+//	(s *Store) FlushTraces(ctx context.Context) error
+//	... 另有 15 个顶层符号
+
 // Package systemdb 提供系统库 sys_llm_traces 的写缓冲与查询（planv6.5 model-settings-and-trace-plan §3.1）。
 package systemdb
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -156,9 +190,11 @@ func truncateTraceJSON(s string, max int) string {
 
 // FlushTraces 将缓冲 trace 写入 sys_llm_traces（批量单事务）。
 func (s *Store) FlushTraces(ctx context.Context) error {
-	if s == nil || s.db == nil {
+	_, connErr := s.conn()
+	if connErr != nil {
 		return nil
 	}
+
 	return s.flushTracesBatch(ctx, s.drainTraces())
 }
 
@@ -191,17 +227,7 @@ func insertLLMTraces(ctx context.Context, ex execer, batch []LLMTrace) error {
 
 // flushTracesBatch 单事务批量写 trace；空批 no-op。
 func (s *Store) flushTracesBatch(ctx context.Context, batch []LLMTrace) error {
-	if s == nil || s.db == nil || len(batch) == 0 {
-		return nil
-	}
-	if err := insertLLMTraces(ctx, s.db, batch); err != nil {
-		s.mu.Lock()
-		s.traceBuf = append(batch, s.traceBuf...)
-		s.mu.Unlock()
-		return err
-	}
-	s.notifyWrite(ctx)
-	return nil
+	return flushBatch(ctx, s, batch, insertLLMTraces, func(b []LLMTrace) { s.traceBuf = append(b, s.traceBuf...) })
 }
 
 // traceTimeArg 把时间统一为 RFC3339Nano 文本再绑定。
@@ -222,7 +248,7 @@ const traceSelectColumns = `id, project_id, request_id, source, provider, model,
 	                  trace_id, caller, span_kind, name, input_json, output_json, tools_json, created_at`
 
 // scanLLMTrace 把当前行扫进 LLMTrace。
-func scanLLMTrace(rows *sql.Rows) (LLMTrace, error) {
+func scanLLMTrace(rows rowScanner) (LLMTrace, error) {
 	var t LLMTrace
 	var stream int64
 	if err := rows.Scan(&t.ID, &t.ProjectID, &t.RequestID, &t.Source, &t.Provider, &t.Model, &t.Status,
@@ -247,9 +273,6 @@ func scanLLMTrace(rows *sql.Rows) (LLMTrace, error) {
 // QueryLLMTraces 按条件查询模型调用 trace。
 // From 为空时默认取最近 24h（对齐 QueryLogs 的剪枝策略，避免全表扫描）。
 func (s *Store) QueryLLMTraces(ctx context.Context, q LLMTraceQuery) ([]LLMTrace, error) {
-	if s == nil || s.db == nil {
-		return nil, ErrUnavailable
-	}
 	q.Limit = limit.Normalize(q.Limit, 50, 200)
 	if q.Offset < 0 {
 		q.Offset = 0
@@ -282,27 +305,16 @@ func (s *Store) QueryLLMTraces(ctx context.Context, q LLMTraceQuery) ([]LLMTrace
 	}
 	sqlStr += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
 	args = append(args, int64(q.Limit), int64(q.Offset))
-	rows, err := s.db.QueryContext(ctx, sqlStr, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := make([]LLMTrace, 0)
-	for rows.Next() {
-		t, err := scanLLMTrace(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, t)
-	}
-	return out, rows.Err()
+	return queryList(ctx, s, scanLLMTrace, sqlStr, args...)
 }
 
 // CountLLMTraces 按 QueryLLMTraces 同条件计数（分页 total）。
 func (s *Store) CountLLMTraces(ctx context.Context, q LLMTraceQuery) (int64, error) {
-	if s == nil || s.db == nil {
-		return 0, ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return 0, connErr
 	}
+
 	if q.From.IsZero() {
 		q.From = time.Now().UTC().Add(-24 * time.Hour)
 	}
@@ -329,7 +341,7 @@ func (s *Store) CountLLMTraces(ctx context.Context, q LLMTraceQuery) (int64, err
 		args = append(args, traceTimeArg(q.To))
 	}
 	var n int64
-	err := s.db.QueryRowContext(ctx, sqlStr, args...).Scan(&n)
+	err := sqlDB.QueryRowContext(ctx, sqlStr, args...).Scan(&n)
 	return n, err
 }
 
@@ -364,9 +376,11 @@ func traceGroupWhere(q LLMTraceGroupQuery) (string, []any) {
 // QueryLLMTraceGroups 按 trace_id 分组聚合顶层调用（二期 §9.3 列表）。
 // From 为空时默认 24h 窗口；status=error 表示该 trace 任一 span 出错。
 func (s *Store) QueryLLMTraceGroups(ctx context.Context, q LLMTraceGroupQuery) ([]LLMTraceGroup, error) {
-	if s == nil || s.db == nil {
-		return nil, ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return nil, connErr
 	}
+
 	q.Limit = limit.Normalize(q.Limit, 50, 200)
 	if q.Offset < 0 {
 		q.Offset = 0
@@ -388,7 +402,7 @@ func (s *Store) QueryLLMTraceGroups(ctx context.Context, q LLMTraceGroupQuery) (
 	           FROM sys_llm_traces` + where + ` GROUP BY trace_id
 	           ORDER BY MAX(created_at) DESC LIMIT ? OFFSET ?`
 	args = append(args, int64(q.Limit), int64(q.Offset))
-	rows, err := s.db.QueryContext(ctx, sqlStr, args...)
+	rows, err := sqlDB.QueryContext(ctx, sqlStr, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -436,45 +450,31 @@ func parseTraceTime(s string) time.Time {
 
 // CountLLMTraceGroups 按 QueryLLMTraceGroups 同条件计数（分组 total）。
 func (s *Store) CountLLMTraceGroups(ctx context.Context, q LLMTraceGroupQuery) (int64, error) {
-	if s == nil || s.db == nil {
-		return 0, ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return 0, connErr
 	}
+
 	if q.From.IsZero() {
 		q.From = time.Now().UTC().Add(-24 * time.Hour)
 	}
 	where, args := traceGroupWhere(q)
 	sqlStr := `SELECT COUNT(DISTINCT trace_id) FROM sys_llm_traces` + where
 	var n int64
-	err := s.db.QueryRowContext(ctx, sqlStr, args...).Scan(&n)
+	err := sqlDB.QueryRowContext(ctx, sqlStr, args...).Scan(&n)
 	return n, err
 }
 
 // QueryTraceSpans 取一个 trace 的全部 span（按时间升序；详情视图）。
 // traceID 为空或不属于 project 时返回空切片。
 func (s *Store) QueryTraceSpans(ctx context.Context, projectID, traceID string) ([]LLMTrace, error) {
-	if s == nil || s.db == nil {
-		return nil, ErrUnavailable
-	}
 	if traceID == "" {
 		return []LLMTrace{}, nil
 	}
 	sqlStr := `SELECT ` + traceSelectColumns + `
 	           FROM sys_llm_traces WHERE project_id = ? AND trace_id = ?
 	           ORDER BY created_at ASC, id ASC`
-	rows, err := s.db.QueryContext(ctx, sqlStr, projectID, traceID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := make([]LLMTrace, 0)
-	for rows.Next() {
-		t, err := scanLLMTrace(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, t)
-	}
-	return out, rows.Err()
+	return queryList(ctx, s, scanLLMTrace, sqlStr, projectID, traceID)
 }
 
 // AgentToolCard 是 gocloudagent.RunResult.ToolCallsJSON 的单张工具卡片形状。

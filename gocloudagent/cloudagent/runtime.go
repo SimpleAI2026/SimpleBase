@@ -1,7 +1,37 @@
+// 文件说明：runtime.go — gocloudagent/cloudagent 中 Runtime 等符号的实现
+//
+// 用法
+//
+//	type Runtime struct{…}  // Runtime executes agent turns through eino ChatModelAgent.
+//	同包调用：runOutcome → runtime_events_test.go；finishRun() → runtime_events_test.go
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/cloudagent/runtime.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] callgate.go, callgate_test.go, confirmation.go, confirmation_test.go, errors.go 等 32 个
+//	[关键引用] Runtime ← runthread.go, runtime_history_test.go；runOutcome ← runtime_events_test.go；finishRun ← runtime_events_test.go
+//
+// 主要符号
+//
+//	type Runtime struct{…}
+//	(r *Runtime) StartRun(ctx context.Context, req RunRequest, emit func(Event)) (RunResult, error)
+//	(r *Runtime) prepare(ctx context.Context, req RunRequest, emit func(Event)) (RunPreparation, error)
+//	toolNameSet(ctx context.Context, tools []tool.BaseTool) map[string]bool
+//	(r *Runtime) maxIterations() int
+//	(r *Runtime) newChatModel(scope, modelName string, tr Tracer) (*agentcore.Model, *ChatUsage)
+//	newChatAgent(ctx context.Context, req RunRequest, instruction string, chatModel *agentcore.Model, tools []tool...
+//	(r *Runtime) startRunTimeout(ctx context.Context, req RunRequest, rc RunContext) (context.Context, func())
+//	... 另有 3 个顶层符号
+
 package cloudagent
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,7 +44,6 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
-	"github.com/google/uuid"
 	"go.uber.org/zap"
 
 	"github.com/linkxzhou/SimpleBase/gocloudagent/agentcore"
@@ -55,7 +84,22 @@ func (r *Runtime) StartRun(ctx context.Context, req RunRequest, emit func(Event)
 	defer r.releaseThread(req.ThreadID, req.RunID)
 	started := time.Now()
 
-	prep, err := r.prepare(ctx, req, emit)
+	// 超时与取消登记覆盖整个 run（含 Provider.Prepare 与 MCP 装配）：准备期卡在外部依赖上时，
+	// RunTimeout 与 CancelRun 同样生效。
+	//
+	// 清理顺序（defer 逆序）固定为：stop（取消并清除登记）→ mcpSet.Close → prep.Cleanup →
+	// releaseThread。stop 要最先运行，所以它必须在其余清理项之后才注册；而 Prepare 之前就要
+	// 有可取消的 ctx。因此用 stopOnce 先创建 ctx，并在所有清理 defer 注册完之后再 defer 它。
+	rc := RunContext{RunID: req.RunID, ThreadID: req.ThreadID, Value: req.Context, Emit: emit}
+	runCtx, stopOnce := r.startRunTimeout(ctx, req, rc)
+	stopRegistered := false
+	defer func() {
+		if !stopRegistered { // 提前返回（Prepare 失败等）时，清理 defer 尚未注册完整
+			stopOnce()
+		}
+	}()
+
+	prep, err := r.prepare(runCtx, req, emit)
 	if prep.Cleanup != nil {
 		defer prep.Cleanup()
 	}
@@ -63,11 +107,10 @@ func (r *Runtime) StartRun(ctx context.Context, req RunRequest, emit func(Event)
 		return RunResult{}, err
 	}
 
-	rc := RunContext{RunID: req.RunID, ThreadID: req.ThreadID, Value: req.Context, Emit: emit}
-	mcpTools, mcpSet, notes, err := buildMCPTools(ctx, mcpBuildParams{
+	mcpTools, mcpSet, notes, err := buildMCPTools(runCtx, mcpBuildParams{
 		Req: req, RC: rc, Connector: r.MCP, Policy: r.MCPPolicy,
-		Confirm: r.Confirm, ConfirmTimeout: r.confirmTimeout(), CallTimeout: r.MCPCallTimeout,
-		Trace: r.trace(), Reserved: toolNameSet(ctx, prep.Tools),
+		Confirm: r.Confirm, ConfirmTimeout: r.ConfirmTimeout, CallTimeout: r.MCPCallTimeout,
+		Trace: r.trace(), Reserved: toolNameSet(runCtx, prep.Tools),
 	})
 	if mcpSet != nil {
 		defer mcpSet.Close()
@@ -75,6 +118,9 @@ func (r *Runtime) StartRun(ctx context.Context, req RunRequest, emit func(Event)
 	if err != nil {
 		return RunResult{}, err
 	}
+	// 清理 defer 已全部注册：此后 stop 作为最后注册的 defer 最先执行。
+	stopRegistered = true
+	defer stopOnce()
 	prep.Tools = wrapToolErrors(append(prep.Tools, mcpTools...))
 	prep.Notes = append(prep.Notes, notes...)
 	if len(prep.Notes) > 0 {
@@ -91,20 +137,18 @@ func (r *Runtime) StartRun(ctx context.Context, req RunRequest, emit func(Event)
 		zap.Bool("stream", req.Stream),
 		zap.Bool("headless", req.Headless),
 		zap.Int("history", len(req.History)),
-		zap.String("user", hashSummary(req.UserText)),
-		zap.String("instruction", hashSummary(prep.Instruction)),
+		zap.String("user", HashSummary(req.UserText)),
+		zap.String("instruction", HashSummary(prep.Instruction)),
 	)
 	tr.Payload("gocloudagent: instruction", "instruction", prep.Instruction)
 	tr.Payload("gocloudagent: user text", "text", req.UserText)
 
 	chatModel, usage := r.newChatModel(prep.ModelScope, prep.Model, tr)
-	agent, err := newChatAgent(ctx, req, prep.Instruction, chatModel, prep.Tools, r.maxIterations())
+	agent, err := newChatAgent(runCtx, req, prep.Instruction, chatModel, prep.Tools, r.maxIterations())
 	if err != nil {
 		return RunResult{}, err
 	}
 
-	runCtx, stop := r.startRunTimeout(ctx, req, rc)
-	defer stop()
 	assistant, toolCards, calls, runErr := r.consumeEvents(runCtx, req, agent, emit, tr, prep.OnToolCall)
 	return finishRun(req, tr, started, runOutcome{
 		assistant: assistant, toolCards: toolCards, calls: calls, usage: *usage,
@@ -155,7 +199,7 @@ func (r *Runtime) maxIterations() int {
 	return 8
 }
 
-func (r *Runtime) newChatModel(scope, modelName string, tr tracer) (*agentcore.Model, *ChatUsage) {
+func (r *Runtime) newChatModel(scope, modelName string, tr Tracer) (*agentcore.Model, *ChatUsage) {
 	chatModel := agentcore.NewModel(r.LLM, scope, modelName)
 	chatModel.Warn = tr.Warn
 	if r.ToolProtocol != "" {
@@ -197,16 +241,14 @@ func (r *Runtime) startRunTimeout(ctx context.Context, req RunRequest, rc RunCon
 	}
 }
 
-func (r *Runtime) consumeEvents(runCtx context.Context, req RunRequest, agent adk.Agent, emit func(Event), tr tracer, onToolCall func(string)) (string, []map[string]any, map[string]map[string]any, error) {
+func (r *Runtime) consumeEvents(runCtx context.Context, req RunRequest, agent adk.Agent, emit func(Event), tr Tracer, onToolCall func(string)) (string, []map[string]any, map[string]map[string]any, error) {
 	runner := adk.NewRunner(runCtx, adk.RunnerConfig{Agent: agent, EnableStreaming: req.Stream})
 	msgs := historyToSchema(req.History)
 	msgs = append(msgs, schema.UserMessage(truncate(req.UserText, maxUserChars)))
 	iter := runner.Run(runCtx, msgs)
 
 	var assistant strings.Builder
-	var toolCards []map[string]any
-	calls := map[string]map[string]any{}
-	callStarts := map[string]time.Time{}
+	events := newToolEvents(req.RunID, emit, tr, onToolCall)
 	var runErr error
 	for {
 		event, ok := iter.Next()
@@ -225,46 +267,7 @@ func (r *Runtime) consumeEvents(runCtx context.Context, req RunRequest, agent ad
 		}
 		mv := event.Output.MessageOutput
 		if mv.Role == schema.Tool {
-			content, name := agentcore.ConsumeVariant(mv)
-			name = cmp.Or(mv.ToolName, name)
-			id := ""
-			if mv.Message != nil {
-				id = mv.Message.ToolCallID
-			}
-			card := calls[id]
-			if card == nil {
-				for i := len(toolCards) - 1; i >= 0; i-- {
-					if toolCards[i]["name"] == name && toolCards[i]["content"] == nil {
-						card = toolCards[i]
-						id, _ = card["call_id"].(string)
-						break
-					}
-				}
-			}
-			if card == nil {
-				card = map[string]any{"call_id": id, "name": name}
-				toolCards = append(toolCards, card)
-			}
-			const maxToolCardChars = 4000
-			truncated := len([]rune(content)) > maxToolCardChars
-			content = truncate(content, maxToolCardChars)
-			duration := time.Since(callStarts[id]).Milliseconds()
-			if callStarts[id].IsZero() {
-				duration = 0
-			}
-			card["content"] = content
-			card["duration_ms"] = duration
-			card["truncated"] = truncated
-			isErr := toolResultIsError(content)
-			card["is_error"] = isErr
-			if emit != nil {
-				emit(Event{Type: "tool_result", CallID: id, Name: name, Content: content, DurationMS: duration, Truncated: truncated, IsError: isErr})
-			}
-			tr.Meta("gocloudagent: tool result",
-				zap.String("run_id", req.RunID), zap.String("tool", name), zap.String("call_id", id),
-				zap.Int64("duration_ms", duration), zap.Bool("is_error", isErr), zap.Bool("truncated", truncated),
-			)
-			tr.Payload("gocloudagent: tool result body", "content", content)
+			events.result(mv)
 			continue
 		}
 		if mv.Role != schema.Assistant && mv.Role != "" {
@@ -278,26 +281,9 @@ func (r *Runtime) consumeEvents(runCtx context.Context, req RunRequest, agent ad
 		if msg == nil {
 			continue
 		}
-		for _, tc := range msg.ToolCalls {
-			id := tc.ID
-			if id == "" {
-				id = "call_" + uuid.NewString()
-			}
-			card := map[string]any{"call_id": id, "name": tc.Function.Name, "arguments": tc.Function.Arguments}
-			calls[id] = card
-			callStarts[id] = time.Now()
-			toolCards = append(toolCards, card)
-			if onToolCall != nil {
-				onToolCall(id)
-			}
-			if emit != nil {
-				emit(Event{Type: "tool_call", CallID: id, Name: tc.Function.Name, Arguments: tc.Function.Arguments})
-			}
-			tr.Meta("gocloudagent: tool call", zap.String("run_id", req.RunID), zap.String("tool", tc.Function.Name), zap.String("call_id", id))
-			tr.Payload("gocloudagent: tool arguments", "arguments", tc.Function.Arguments)
-		}
+		events.calls(msg.ToolCalls)
 	}
-	return assistant.String(), toolCards, calls, runErr
+	return assistant.String(), events.cards, events.byID, runErr
 }
 
 type runOutcome struct {
@@ -310,7 +296,7 @@ type runOutcome struct {
 	iterations int
 }
 
-func finishRun(req RunRequest, tr tracer, started time.Time, out runOutcome) (RunResult, error) {
+func finishRun(req RunRequest, tr Tracer, started time.Time, out runOutcome) (RunResult, error) {
 	toolJSON := "[]"
 	if len(out.toolCards) > 0 {
 		body, _ := json.Marshal(out.toolCards)
@@ -321,33 +307,21 @@ func finishRun(req RunRequest, tr tracer, started time.Time, out runOutcome) (Ru
 		PromptTokens: out.usage.PromptTokens, CompletionTokens: out.usage.CompletionTokens,
 		ReasoningTokens: out.usage.ReasoningTokens, ToolCalls: len(out.calls), Reason: "stop",
 	}
-	if errors.Is(out.runErr, adk.ErrExceedMaxIterations) {
+	var err error
+	switch {
+	case errors.Is(out.runErr, adk.ErrExceedMaxIterations):
 		result.Content += fmt.Sprintf("\n已达到工具调用上限（%d 次），以上为当前结论", out.iterations)
 		result.Reason = "max_iterations"
-		tr.finish(req, result)
-		return result, nil
-	}
-	if errors.Is(out.runErr, agentcore.ErrMaxTokensExceeded) {
+	case errors.Is(out.runErr, agentcore.ErrMaxTokensExceeded):
 		result.Content += "\n\n⚠️ 输出被 max_tokens 截断，内容可能不完整。可尝试拆分任务或提高 token 限额。"
 		result.Reason = "length"
-		tr.finish(req, result)
-		return result, nil
-	}
-	if errors.Is(out.runErr, context.Canceled) || errors.Is(out.runCtx.Err(), context.Canceled) {
-		result.Reason = "canceled"
-		tr.finish(req, result)
-		return result, context.Canceled
-	}
-	if errors.Is(out.runErr, context.DeadlineExceeded) || errors.Is(out.runCtx.Err(), context.DeadlineExceeded) {
-		result.Reason = "timeout"
-		tr.finish(req, result)
-		return result, context.DeadlineExceeded
-	}
-	if out.runErr != nil {
-		result.Reason = "error"
-		tr.finish(req, result)
-		return result, out.runErr
+	case errors.Is(out.runErr, context.Canceled) || errors.Is(out.runCtx.Err(), context.Canceled):
+		result.Reason, err = "canceled", context.Canceled
+	case errors.Is(out.runErr, context.DeadlineExceeded) || errors.Is(out.runCtx.Err(), context.DeadlineExceeded):
+		result.Reason, err = "timeout", context.DeadlineExceeded
+	case out.runErr != nil:
+		result.Reason, err = "error", out.runErr
 	}
 	tr.finish(req, result)
-	return result, nil
+	return result, err
 }

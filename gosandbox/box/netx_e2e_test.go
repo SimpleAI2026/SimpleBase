@@ -1,5 +1,33 @@
 //go:build linux
 
+// 文件说明：netx_e2e_test.go — gosandbox/box 的单元测试（TestNetworkIsolationKeepsLoopback、TestBuildArgsUnsharesNet 等）
+//
+// 用法
+//
+//	go test ./gosandbox/box -run 'TestNetworkIsolationKeepsLoopback|TestBuildArgsUnsharesNet|TestNetworkIsolationBlocksMetadata'
+//	同包调用：runCapture() → egress_e2e_test.go
+//
+// 调用架构
+//
+//	[上游] gosandbox/cmd, gosandbox/vm/box
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/box/netx_e2e_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] backpressure_test.go, copytree.go, deadline.go, egress_e2e_test.go, files.go 等 26 个
+//	[关键引用] runCapture ← egress_e2e_test.go
+//
+// 主要符号
+//
+//	runCapture(t *testing.T, s *Session, script string) string
+//	TestNetworkIsolationKeepsLoopback(t *testing.T)
+//	TestBuildArgsUnsharesNet(t *testing.T)
+//	flagValue(argv []string, flag string) string
+//	hasFlag(argv []string, flag string) bool
+//	TestNetworkIsolationBlocksMetadata(t *testing.T)
+
 package box
 
 // netx_e2e_test.go：网络隔离与入站中继的相互作用。

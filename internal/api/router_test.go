@@ -1,3 +1,34 @@
+// 文件说明：router_test.go — internal/api 的单元测试（TestHealthLive、TestHealthReadyFailure 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestHealthLive|TestHealthReadyFailure|TestRequestIDGenerated|TestRequestIDAcceptedFromClient'
+//	同包调用：testDeps() → route_meta_test.go, router_stack_test.go；fakeHealth → agent_skills_router_e2e_test.go, health_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/router_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] testDeps ← route_meta_test.go, router_stack_test.go；fakeHealth ← agent_skills_router_e2e_test.go, health_test.go
+//
+// 主要符号
+//
+//	testDeps(t *testing.T, health HealthChecker) Dependencies
+//	type fakeHealth struct{…}
+//	(f *fakeHealth) Live(ctx context.Context) error
+//	(f *fakeHealth) Ready(ctx context.Context) error
+//	TestHealthLive(t *testing.T)
+//	TestHealthReadyFailure(t *testing.T)
+//	TestRequestIDGenerated(t *testing.T)
+//	TestRequestIDAcceptedFromClient(t *testing.T)
+//	... 另有 3 个顶层符号
+
 package api
 
 import (

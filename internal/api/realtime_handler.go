@@ -3,9 +3,9 @@
 // 用法
 //
 //	NewRealtimeHandler(maxConns int) *RealtimeHandler
-//	(h *RealtimeHandler) PublishRecord(event RecordEvent)
+//	(h *RealtimeHandler) PublishRecord(event collection.RecordEvent)  // PublishRecord 实现 recordEventPublisher：集合变更 → 实时帧
 //	(h *RealtimeHandler) Subscribe(c echo.Context) error
-//	同包调用：PublishRecord() → data_handler.go, event_fanout.go；Subscribe() → e2b_process_handler.go, router.go；RealtimeHandler → router.go
+//	同包调用：PublishRecord() 实现 data_handler.go 的 recordEventPublisher 端口，由 internal/app 的 fan-out 调用；Subscribe() → e2b_process_handler.go, router.go；RealtimeHandler → router.go
 //
 // 调用架构
 //
@@ -15,15 +15,15 @@
 //	[本文件] internal/api/realtime_handler.go
 //	         │ 依赖
 //	         ▼
-//	[下游] internal/realtime, internal/utils/strutil
+//	[下游] internal/collection（发布语言）, internal/realtime, internal/utils/strutil
 //	[同包] adapter.go, agent_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
-//	[关键引用] PublishRecord() ← data_handler.go, event_fanout.go
+//	[关键引用] PublishRecord() ← internal/app 的 fan-out（经 recordEventPublisher 端口）
 //
 // 主要符号
 //
 //	type RealtimeHandler struct {…}
 //	NewRealtimeHandler(maxConns int) *RealtimeHandler
-//	(h *RealtimeHandler) PublishRecord(event RecordEvent)
+//	(h *RealtimeHandler) PublishRecord(event collection.RecordEvent)  // PublishRecord 实现 recordEventPublisher：集合变更 → 实时帧
 //	(h *RealtimeHandler) Subscribe(c echo.Context) error
 //	(h *RealtimeHandler) UpdateSubscription(c echo.Context) error
 //	... 另有 5 个顶层符号
@@ -39,6 +39,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/linkxzhou/SimpleBase/internal/collection"
 	"github.com/linkxzhou/SimpleBase/internal/realtime"
 	"github.com/linkxzhou/SimpleBase/internal/utils/strutil"
 )
@@ -51,7 +52,8 @@ func NewRealtimeHandler(maxConns int) *RealtimeHandler {
 	return &RealtimeHandler{hub: realtime.NewHub(maxConns)}
 }
 
-func (h *RealtimeHandler) PublishRecord(event RecordEvent) {
+// PublishRecord 把集合变更事件推给实时订阅者；实现 data_handler 的 recordEventPublisher 端口。
+func (h *RealtimeHandler) PublishRecord(event collection.RecordEvent) {
 	h.hub.Publish(realtime.Event{ProjectID: event.ProjectID, Collection: event.Collection, RecordID: event.RecordID, Action: event.Action, Changed: event.Changed, Data: event.Data})
 }
 
@@ -128,7 +130,7 @@ func (h *RealtimeHandler) UpdateSubscription(c echo.Context) error {
 		Events      []string `json:"events"`
 	}
 	if err := decodeJSONBody(c, &body, false); err != nil || body.ClientID == "" {
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "client_id and subscription are required", RequestIDFromContext(c.Request().Context())))
+		return WriteError(c, badRequest(c, "client_id and subscription are required"))
 	}
 	collections := splitRealtimeNames(strings.Join(body.Collections, ","), true)
 	if err := h.checkScope(c, collections); err != nil {
@@ -144,10 +146,10 @@ func (h *RealtimeHandler) UpdateSubscription(c echo.Context) error {
 func (h *RealtimeHandler) checkScope(c echo.Context, collections []string) error {
 	for _, name := range collections {
 		if name != "*" && !collectionNamePattern.MatchString(name) {
-			return NewAPIError(http.StatusBadRequest, "invalid_request", "invalid collection", RequestIDFromContext(c.Request().Context()))
+			return badRequest(c, "invalid collection")
 		}
 		if policy := scopedPolicy(c); policy != nil && !policy.Allows("collection:"+name, "read", time.Now().UTC()) {
-			return NewAPIError(http.StatusForbidden, "key_scope_denied", "key scope denied", RequestIDFromContext(c.Request().Context()))
+			return NewAPIError(http.StatusForbidden, "key_scope_denied", "key scope denied", requestID(c))
 		}
 	}
 	return nil
@@ -186,7 +188,7 @@ func writeRealtimeFrame(c echo.Context, id, name string, payload any) error {
 
 func realtimeAPIError(c echo.Context, err error) error {
 	if errors.Is(err, realtime.ErrConnectionLimit) {
-		return WriteError(c, NewAPIError(http.StatusTooManyRequests, "realtime_connection_limit", "realtime connection limit", RequestIDFromContext(c.Request().Context())))
+		return WriteError(c, NewAPIError(http.StatusTooManyRequests, "realtime_connection_limit", "realtime connection limit", requestID(c)))
 	}
-	return WriteError(c, NewAPIError(http.StatusNotFound, "realtime_subscription_not_found", "subscription not found", RequestIDFromContext(c.Request().Context())))
+	return WriteError(c, NewAPIError(http.StatusNotFound, "realtime_subscription_not_found", "subscription not found", requestID(c)))
 }

@@ -30,14 +30,9 @@
       </div>
     </div>
     <SbAsyncRegion
+      :state="loadState"
       block="lines"
       class="min-h-40"
-      :pending="pending"
-      :show-skeleton="showSkeleton"
-      :show-empty="showEmpty"
-      :show-error="showError"
-      :refreshing="refreshing"
-      :error="docError"
       @retry="reload"
     >
       <template #empty>
@@ -108,15 +103,8 @@ const props = defineProps<{
 const { t } = useI18n()
 const route = useRoute()
 const raw = ref<string | null>(null)
-const {
-  pending,
-  showSkeleton,
-  showEmpty,
-  showError,
-  refreshing,
-  error: docError,
-  run
-} = useLoadState()
+const loadState = useLoadState()
+const { run } = loadState
 const rendered = computed(() => {
   if (!raw.value?.trim()) return { html: '', toc: [] as DocHeading[] }
   try { return renderMarkdown(raw.value, props.moduleId) }

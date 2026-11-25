@@ -1,3 +1,26 @@
+// 文件说明：snapshot.go — godatabase/filedb 中 SnapshotFile、ValidateSnapshot 等符号的实现
+//
+// 用法
+//
+//	SnapshotFile(ctx context.Context, db *sql.DB, source, engine, dst string) (godatabase.SnapshotInfo, error)
+//	ValidateSnapshot(ctx context.Context, path, engine string) error
+//
+// 调用架构
+//
+//	[上游] godatabase/cmd, internal/app, internal/backup
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/filedb/snapshot.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] dialect_bucket_test.go, factory.go, factory_test.go, path.go, remote.go 等 9 个
+//
+// 主要符号
+//
+//	SnapshotFile(ctx context.Context, db *sql.DB, source, engine, dst string) (godatabase.SnapshotInfo, error)
+//	ValidateSnapshot(ctx context.Context, path, engine string) error
+
 package filedb
 
 import (
@@ -31,10 +54,7 @@ func SnapshotFile(ctx context.Context, db *sql.DB, source, engine, dst string) (
 			return info, fmt.Errorf("filedb: sqlite snapshot: %w", err)
 		}
 	case godatabase.EngineDuckDB:
-		if _, err := db.ExecContext(ctx, "CHECKPOINT"); err != nil {
-			return info, fmt.Errorf("filedb: duckdb checkpoint: %w", err)
-		}
-		d, err := copyFileHashed(source, dst)
+		d, err := snapshotDuckDBFile(ctx, db, source, dst)
 		if err != nil {
 			return info, err
 		}

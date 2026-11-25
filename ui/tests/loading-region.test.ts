@@ -157,3 +157,47 @@ describe('SbAsyncRegion', () => {
     expect(wrapper.find('.custom-sk').exists()).toBe(true)
   })
 })
+
+describe('SbAsyncRegion：state 与散装 props 等价', () => {
+  const states = [
+    { name: '空闲', pending: false, showSkeleton: false, showEmpty: false, showError: false, refreshing: false, error: '' },
+    { name: '首次加载（骨架）', pending: true, showSkeleton: true, showEmpty: false, showError: false, refreshing: false, error: '' },
+    { name: '首次加载（占位保留高度）', pending: true, showSkeleton: false, showEmpty: false, showError: false, refreshing: false, error: '' },
+    { name: '有数据时刷新', pending: true, showSkeleton: false, showEmpty: false, showError: false, refreshing: true, error: '' },
+    { name: '空态', pending: false, showSkeleton: false, showEmpty: true, showError: false, refreshing: false, error: '' },
+    { name: '错误态', pending: false, showSkeleton: false, showEmpty: false, showError: true, refreshing: false, error: '加载失败了' }
+  ]
+
+  for (const as of ['div', 'tbody'] as const) {
+    for (const s of states) {
+      it(`${as} / ${s.name}：两种传法渲染完全相同`, () => {
+        const { name: _n, ...fields } = s
+        const loose = mountRegion({ as, columns: 2, emptyTitle: '没有数据', ...fields }, '<p class="content">内容</p>')
+        const viaState = mountRegion({ as, columns: 2, emptyTitle: '没有数据', state: fields }, '<p class="content">内容</p>')
+        expect(viaState.html()).toBe(loose.html())
+      })
+    }
+  }
+
+  it('state 的字段可以是 ref：状态变化时视图跟着变', async () => {
+    const { ref } = await import('vue')
+    const pending = ref(true)
+    const showSkeleton = ref(true)
+    const state = { pending, showSkeleton, showEmpty: ref(false), showError: ref(false), refreshing: ref(false), error: ref('') }
+    const wrapper = mountRegion({ as: 'div', state }, '<p class="content">内容</p>')
+    expect(wrapper.attributes('aria-busy')).toBe('true')
+    expect(wrapper.find('.content').exists()).toBe(false)
+    pending.value = false
+    showSkeleton.value = false
+    await wrapper.vm.$nextTick()
+    expect(wrapper.attributes('aria-busy')).toBe('false')
+    expect(wrapper.find('.content').exists()).toBe(true)
+  })
+
+  it('传了 state 就忽略散装 props', () => {
+    const state = { pending: false, showSkeleton: false, showEmpty: false, showError: false, refreshing: false, error: '' }
+    const wrapper = mountRegion({ as: 'div', state, showError: true, error: '不该出现' }, '<p class="content">内容</p>')
+    expect(wrapper.find('.content').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('不该出现')
+  })
+})

@@ -1,11 +1,12 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import type { VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'vue-sonner'
 import { useAuthStore } from '@/stores/auth'
 import { ADMIN_PROJECT_ID, useProjectStore } from '@/stores/project'
 import { api, resetApiMocks } from '@/test/api-mock'
-import { clickText, mountWithApp, uiStubs } from '@/test/helpers'
+import { clickText, installJsdomPolyfills, mountWithApp, realPopoverStubs, uiStubs } from '@/test/helpers'
 
 vi.mock('@/services/api', async () => {
   const m = await import('@/test/api-mock')
@@ -13,6 +14,10 @@ vi.mock('@/services/api', async () => {
 })
 
 import GlobalProjectSwitcher from '@/components/GlobalProjectSwitcher.vue'
+
+const popoverStubs = { ...realPopoverStubs }
+const trigger = (w: VueWrapper) => w.get('[data-slot="popover-trigger"]')
+const optionEls = () => Array.from(document.body.querySelectorAll<HTMLElement>('[data-slot="command-item"]'))
 
 const modalStub = {
   CreateProjectModal: {
@@ -24,6 +29,7 @@ const modalStub = {
 }
 
 describe('GlobalProjectSwitcher', () => {
+  installJsdomPolyfills()
   beforeEach(() => {
     resetApiMocks()
     api.projects.list.mockResolvedValue([
@@ -33,19 +39,32 @@ describe('GlobalProjectSwitcher', () => {
   })
 
   it('lists server projects only, selects one, and opens create', async () => {
-    const { wrapper, pinia } = await mountWithApp(GlobalProjectSwitcher, { stubs: modalStub })
+    const { wrapper, pinia } = await mountWithApp(GlobalProjectSwitcher, { stubs: { ...popoverStubs, ...modalStub }, attachTo: document.body })
     const store = useProjectStore(pinia)
     store.remember('orphan-id')
     await flushPromises()
-    expect(wrapper.text()).not.toContain('orphan-id')
-    const items = wrapper.findAll('.cmd-item')
-    expect(items.length).toBeGreaterThan(0)
-    await items[items.length - 1].trigger('click')
+    // 真实 Popover：先点触发器打开弹层，选项在 body 里（teleport）
+    await trigger(wrapper).trigger('click')
     await flushPromises()
+    expect(document.body.textContent).not.toContain('orphan-id')
+    let items = optionEls()
+    expect(items.map((el) => el.textContent?.trim())).toEqual([expect.stringContaining('dev-shop'), expect.stringContaining('p-b')])
+    items[items.length - 1].click()
+    await flushPromises()
+    expect(store.id).toBe('p-b')
     expect(toast.success).toHaveBeenCalled()
+    // 选中后弹层关闭
+    expect(trigger(wrapper).attributes('aria-expanded')).toBe('false')
 
-    await items[0].trigger('click')
-    await clickText(wrapper, '新建项目')
+    await trigger(wrapper).trigger('click')
+    await flushPromises()
+    items = optionEls()
+    items[0].click()
+    await flushPromises()
+    expect(store.id).toBe('dev-shop')
+    await trigger(wrapper).trigger('click')
+    await flushPromises()
+    ;Array.from(document.body.querySelectorAll<HTMLElement>('button')).find((b) => b.textContent?.includes('新建项目'))!.click()
     await flushPromises()
     expect(store.createModalOpen).toBe(true)
     api.projects.list.mockResolvedValue([
@@ -64,7 +83,7 @@ describe('GlobalProjectSwitcher', () => {
       { id: 'dev-shop', name: '商城', createdAt: 't' },
       { id: ADMIN_PROJECT_ID, name: 'admin', createdAt: 't', managed: true }
     ])
-    const { wrapper, pinia } = await mountWithApp(GlobalProjectSwitcher, { stubs: modalStub })
+    const { wrapper, pinia } = await mountWithApp(GlobalProjectSwitcher, { stubs: { ...popoverStubs, ...modalStub }, attachTo: document.body })
     const auth = useAuthStore(pinia)
     auth.user = {
       id: 'u1',
@@ -76,11 +95,15 @@ describe('GlobalProjectSwitcher', () => {
       mustChangePassword: false
     }
     await flushPromises()
-    expect(wrapper.text()).not.toContain('★')
-    expect(wrapper.text()).toContain('（只读）')
-    expect(wrapper.text()).not.toContain('admin 管理数据库')
-    expect(wrapper.text()).not.toContain('全部项目')
-    expect(wrapper.text()).not.toContain('我的项目')
+    // 项目列表在真实 Popover 里：先打开再读 body
+    await trigger(wrapper).trigger('click')
+    await flushPromises()
+    const text = document.body.textContent ?? ''
+    expect(text).not.toContain('★')
+    expect(text).toContain('（只读）')
+    expect(text).not.toContain('admin 管理数据库')
+    expect(text).not.toContain('全部项目')
+    expect(text).not.toContain('我的项目')
   })
   it('handles close interactions', async () => {
     const pinia = createPinia()
@@ -107,9 +130,17 @@ describe('GlobalProjectSwitcher', () => {
     store.history = ['orphan']
     store.projectId = 'missing-current'
     store.projectName = 'Ghost'
-    const w = mount(GlobalProjectSwitcher, { global: { plugins: [pinia], stubs: uiStubs } })
+    const w = mount(GlobalProjectSwitcher, { attachTo: document.body, global: { plugins: [pinia], stubs: { ...uiStubs, ...popoverStubs } } })
     await flushPromises()
-    if (w.find('.pop-open').exists()) await w.get('.pop-open').trigger('click')
-    if (w.find('.pop-close').exists()) await w.get('.pop-close').trigger('click')
+    // 真实 Popover：触发器开合；列表为空时显示「无匹配」，历史里的孤儿项不出现
+    expect(trigger(w).attributes('aria-expanded')).toBe('false')
+    await trigger(w).trigger('click')
+    await flushPromises()
+    expect(trigger(w).attributes('aria-expanded')).toBe('true')
+    expect(optionEls()).toHaveLength(0)
+    expect(document.body.textContent).not.toContain('orphan')
+    await trigger(w).trigger('click')
+    await flushPromises()
+    expect(trigger(w).attributes('aria-expanded')).toBe('false')
     w.unmount()
   })

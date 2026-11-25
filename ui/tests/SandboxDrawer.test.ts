@@ -1,9 +1,9 @@
-import { flushPromises, type VueWrapper } from '@vue/test-utils'
+import { DOMWrapper, flushPromises, type VueWrapper } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { toast } from 'vue-sonner'
 import { api, resetApiMocks } from '@/test/api-mock'
-import { mountWithApp } from '@/test/helpers'
+import { installJsdomPolyfills, mountWithApp, realDialogStubs, waitDialog, inDialog } from '@/test/helpers'
 import type { SandboxItem, SandboxCapabilities } from '@/services/types'
 
 vi.mock('vue-sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() } }))
@@ -27,7 +27,8 @@ const item: SandboxItem = {
 /** 页签用真实 Tabs（uiStubs 里的桩不承载真实交互语义），其余沿用 mountWithApp 默认桩。 */
 const realTabs = { Tabs: false, TabsList: false, TabsTrigger: false, TabsContent: false }
 const terminalStub = { template: '<div data-terminal />' }
-const drawerStubs = { ...realTabs, SandboxTerminal: terminalStub }
+const drawerStubs = {
+  ...realDialogStubs, ...realTabs, SandboxTerminal: terminalStub }
 
 /**
  * jsdom 的 Blob 没有 arrayBuffer()，组件读文件时依赖它。这里给一个只实现
@@ -38,19 +39,29 @@ function fakeBlob(bytes: number[]): Blob {
   return { size: buf.byteLength, arrayBuffer: async () => buf.buffer } as unknown as Blob
 }
 
-/** reka 的 TabsTrigger 在 mousedown 上切换，不是 click。 */
-async function openTab(w: VueWrapper, label: string) {
-  const trigger = w.findAll('[data-slot="tabs-trigger"]').find((t) => t.text() === label)
-  if (!trigger) throw new Error('tab not found: ' + label)
+/**
+ * 抽屉内容（Sheet）teleport 到 body：查询一律以文档为根。
+ * reka 的 TabsTrigger 在 mousedown 上切换，不是 click。
+ */
+async function openTab(_w: VueWrapper, label: string) {
+  await waitDialog()
+  const trigger = new DOMWrapper(document.body).findAll('[data-slot="tabs-trigger"]').find((t) => t.text() === label)
+  if (!trigger) {
+    const all = new DOMWrapper(document.body).findAll('[data-slot="tabs-trigger"]').map((t) => t.text())
+    throw new Error(`tab not found: ${label}. tabs=${all.join(', ')}`)
+  }
   await trigger.trigger('mousedown')
   await flushPromises()
 }
-async function clickText(w: VueWrapper, text: string) {
-  const btn = w.findAll('button').find((b) => b.text().includes(text))
+async function clickText(_w: VueWrapper, text: string) {
+  await waitDialog()
+  const btn = new DOMWrapper(document.body).findAll('button').find((b) => b.text().includes(text))
   if (!btn) throw new Error('button not found: ' + text)
   await btn.trigger('click')
   await flushPromises()
 }
+
+installJsdomPolyfills()
 
 describe('SandboxDrawer', () => {
   beforeEach(() => {
@@ -66,7 +77,7 @@ describe('SandboxDrawer', () => {
     await openTab(wrapper, '终端')
     await flushPromises()
     // 终端组件在状态非 running 时显示不可用提示。由于终端是懒加载动态 import，我们只能桩掉整个组件。
-    expect(wrapper.find('[data-terminal]').exists()).toBe(true)
+    expect(inDialog().find('[data-terminal]').exists()).toBe(true)
     wrapper.unmount()
   })
 
@@ -83,22 +94,22 @@ describe('SandboxDrawer', () => {
     await openTab(wrapper, '文件')
     await flushPromises()
     expect(api.sandboxes.files.list).toHaveBeenCalledWith('p', 'sbx-1', '/workspace')
-    expect(wrapper.text()).toContain('a.txt')
-    const entry = wrapper.findAll('button').find((b) => b.text().includes('[目录] sub'))
+    expect(inDialog().text()).toContain('a.txt')
+    const entry = inDialog().findAll('button').find((b) => b.text().includes('[目录] sub'))
     await entry!.trigger('click')
     await flushPromises()
     expect(api.sandboxes.files.list).toHaveBeenCalledWith('p', 'sbx-1', '/workspace/sub')
     await clickText(wrapper, '上一级')
     await flushPromises()
     expect(api.sandboxes.files.list).toHaveBeenLastCalledWith('p', 'sbx-1', '/workspace')
-    const fileBtn = wrapper.findAll('button').find((b) => b.text() === 'a.txt')
+    const fileBtn = inDialog().findAll('button').find((b) => b.text() === 'a.txt')
     await fileBtn!.trigger('click')
     await flushPromises()
     expect(api.sandboxes.files.read).toHaveBeenCalledWith('p', 'sbx-1', '/workspace/a.txt')
-    const editor = wrapper.find('textarea')
+    const editor = inDialog().find('textarea')
     expect(editor.element.value).toBe('abc')
     await clickText(wrapper, '新建文件')
-    await wrapper.get('[aria-label="文件内容"]').setValue('hello')
+    await inDialog().get('[aria-label="文件内容"]').setValue('hello')
     await clickText(wrapper, '保存')
     await flushPromises()
     expect(api.sandboxes.files.write).toHaveBeenCalledWith('p', 'sbx-1', '/workspace/new.txt', 'hello')
@@ -122,12 +133,12 @@ describe('SandboxDrawer', () => {
     const binary = { name: 'data.bin', size: 3, arrayBuffer: async () => new Uint8Array([0, 255, 128]).buffer }
     await vm.uploadFile({ target: { files: [binary], value: '' } } as unknown as Event)
     expect(api.sandboxes.files.write).toHaveBeenCalledWith('p', 'sbx-1', '/workspace/data.bin', binary)
-    const fileBtn = wrapper.findAll('button').find((b) => b.text() === 'data.bin')
+    const fileBtn = inDialog().findAll('button').find((b) => b.text() === 'data.bin')
     await fileBtn!.trigger('click')
     await flushPromises()
     expect(vm.fileBinary).toBe(true)
     expect(vm.fileText).toBe('')
-    expect(wrapper.text()).toContain('二进制文件无法编辑')
+    expect(inDialog().text()).toContain('二进制文件无法编辑')
     await clickText(wrapper, '下载')
     await flushPromises()
     expect(click).toHaveBeenCalled()
@@ -146,7 +157,7 @@ describe('SandboxDrawer', () => {
     })
     await openTab(wrapper, '文件')
     await flushPromises()
-    expect(wrapper.find('[data-slot="sb-error-state"]').exists()).toBe(true)
+    expect(inDialog().find('[data-slot="sb-error-state"]').exists()).toBe(true)
     await clickText(wrapper, '重试')
     await flushPromises()
     const vm = wrapper.vm as unknown as { saving: boolean; saveFile: () => Promise<void>; filePath: string; fileText: string }
@@ -170,12 +181,12 @@ describe('SandboxDrawer', () => {
       stubs: drawerStubs
     })
     await openTab(wrapper, '信息')
-    expect(wrapper.text()).toContain('running · api')
-    expect(wrapper.text()).toContain('python:3.12-slim')
-    expect(wrapper.text()).toContain('1C / 256MB')
-    expect(wrapper.text()).toContain('restart failed')
-    expect(wrapper.text()).toContain('SSH 登录')
-    expect(wrapper.text()).toContain('E2B SDK 接入')
+    expect(inDialog().text()).toContain('running · api')
+    expect(inDialog().text()).toContain('python:3.12-slim')
+    expect(inDialog().text()).toContain('1C / 256MB')
+    expect(inDialog().text()).toContain('restart failed')
+    expect(inDialog().text()).toContain('SSH 登录')
+    expect(inDialog().text()).toContain('E2B SDK 接入')
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
     await clickText(wrapper, '复制 SSH 命令')
@@ -193,10 +204,10 @@ describe('SandboxDrawer', () => {
     })
     await openTab(wrapper, '文件')
     await flushPromises()
-    await wrapper.findAll('button').find((b) => b.text() === 'big.txt')!.trigger('click')
+    await inDialog().findAll('button').find((b) => b.text() === 'big.txt')!.trigger('click')
     await flushPromises()
     expect(toast.warning).toHaveBeenCalledWith('文件超出大小限制，已按二进制处理')
-    expect(wrapper.find('textarea').element.value).toBe('')
+    expect(inDialog().find('textarea').element.value).toBe('')
     wrapper.unmount()
   })
 
@@ -211,7 +222,7 @@ describe('SandboxDrawer', () => {
     })
     await openTab(wrapper, '文件')
     await flushPromises()
-    await wrapper.findAll('button').find((b) => b.text() === 'a.txt')!.trigger('click')
+    await inDialog().findAll('button').find((b) => b.text() === 'a.txt')!.trigger('click')
     await flushPromises()
     expect(toast.error).toHaveBeenCalled()
     const vm = wrapper.vm as unknown as {
@@ -353,8 +364,8 @@ describe('SandboxDrawer 边界分支', () => {
     expect(vm.directory).toBe('/workspace')
 
     await openTab(wrapper, '信息')
-    expect(wrapper.text()).toContain('ssh -p 2222')
-    expect(wrapper.text()).not.toContain('SHA256')
+    expect(inDialog().text()).toContain('ssh -p 2222')
+    expect(inDialog().text()).not.toContain('SHA256')
     click.mockRestore()
     vi.unstubAllGlobals()
     wrapper.unmount()

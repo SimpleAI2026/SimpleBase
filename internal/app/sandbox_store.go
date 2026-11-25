@@ -83,6 +83,17 @@ func toSandboxRow(r sandbox.Sandbox) systemdb.SandboxRow {
 	}
 	return out
 }
+func mapSandboxes(rows []systemdb.SandboxRow, err error) ([]sandbox.Sandbox, error) {
+	if err != nil {
+		return nil, err
+	}
+	out := make([]sandbox.Sandbox, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, toSandbox(row))
+	}
+	return out, nil
+}
+
 func (a sandboxStoreAdapter) CreateSandbox(ctx context.Context, r sandbox.Sandbox) (sandbox.Sandbox, error) {
 	row, err := a.s.CreateSandbox(ctx, toSandboxRow(r))
 	return toSandbox(row), err
@@ -108,12 +119,9 @@ func (a sandboxStoreAdapter) ListSandboxes(ctx context.Context, p, status, sourc
 	if errors.Is(err, systemdb.ErrSandboxCursor) {
 		return nil, "", fmt.Errorf("%w: cursor", sandbox.ErrInvalidSpec)
 	}
+	out, err := mapSandboxes(rows, err)
 	if err != nil {
 		return nil, "", err
-	}
-	out := make([]sandbox.Sandbox, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, toSandbox(r))
 	}
 	return out, next, nil
 }
@@ -128,47 +136,19 @@ func (a sandboxStoreAdapter) SoftDeleteSandbox(ctx context.Context, p, id, msg s
 }
 func (a sandboxStoreAdapter) ListExpiredSandboxes(ctx context.Context, now time.Time, limit int) ([]sandbox.Sandbox, error) {
 	rows, err := a.s.ListExpiredSandboxes(ctx, now, limit)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]sandbox.Sandbox, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, toSandbox(r))
-	}
-	return out, nil
+	return mapSandboxes(rows, err)
 }
 func (a sandboxStoreAdapter) ListIdleRunningSandboxes(ctx context.Context, before time.Time, limit int) ([]sandbox.Sandbox, error) {
 	rows, err := a.s.ListIdleRunningSandboxes(ctx, before, limit)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]sandbox.Sandbox, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, toSandbox(r))
-	}
-	return out, nil
+	return mapSandboxes(rows, err)
 }
 func (a sandboxStoreAdapter) ListStaleRunSandboxes(ctx context.Context, before time.Time, limit int) ([]sandbox.Sandbox, error) {
 	rows, err := a.s.ListStaleRunSandboxes(ctx, before, limit)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]sandbox.Sandbox, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, toSandbox(r))
-	}
-	return out, nil
+	return mapSandboxes(rows, err)
 }
 func (a sandboxStoreAdapter) ListFailedSandboxRemovals(ctx context.Context, limit int) ([]sandbox.Sandbox, error) {
 	rows, err := a.s.ListFailedSandboxRemovals(ctx, limit)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]sandbox.Sandbox, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, toSandbox(r))
-	}
-	return out, nil
+	return mapSandboxes(rows, err)
 }
 func (a sandboxStoreAdapter) PurgeDeletedSandboxes(ctx context.Context, before time.Time) (int64, error) {
 	return a.s.PurgeDeletedSandboxes(ctx, before)

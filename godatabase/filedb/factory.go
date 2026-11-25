@@ -1,3 +1,35 @@
+// 文件说明：factory.go — godatabase/filedb 中 Options、Factory 等符号的实现
+//
+// 用法
+//
+//	type Options struct{…}
+//	type Factory struct{…}
+//	同包调用：sqliteConnector → snapshot.go
+//
+// 调用架构
+//
+//	[上游] godatabase/cmd, internal/app, internal/backup
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/filedb/factory.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] dialect_bucket_test.go, factory_test.go, path.go, remote.go, remote_test.go 等 9 个
+//	[关键引用] Factory ← dialect_bucket_test.go, factory_test.go；sqliteConnector ← snapshot.go
+//
+// 主要符号
+//
+//	type Options struct{…}
+//	type Factory struct{…}
+//	var openFiles
+//	markOpen(filePath string) error
+//	unmarkOpen(filePath string)
+//	(f *Factory) filePath(meta godatabase.Spec) (string, error)
+//	(f *Factory) DatabaseFilePath(meta godatabase.Spec) (string, error)
+//	(f *Factory) Open(ctx context.Context, meta godatabase.Spec, mode godatabase.AccessMode) (*sql.DB, error)
+//	... 另有 20 个顶层符号
+
 package filedb
 
 import (
@@ -189,7 +221,6 @@ func (f *Factory) open(ctx context.Context, meta godatabase.Spec, mode godatabas
 	}
 	connector := &trackedConnector{base: base, initSQL: initSQL, release: release, singleInit: engine == godatabase.EngineDuckDB}
 	sqlDB := sql.OpenDB(connector)
-	connector.db = sqlDB
 	if engine == godatabase.EngineSQLite {
 		sqlDB.SetMaxOpenConns(1)
 		sqlDB.SetMaxIdleConns(1)
@@ -310,7 +341,6 @@ type trackedConnector struct {
 	initSQL []string
 	release func()
 	once    sync.Once
-	db      *sql.DB
 	// singleInit 为 true 时 initSQL 仅在首个成功连接执行一次（DuckDB）：
 	// 同一路径的连接共享数据库实例，配置为数据库级；lock_configuration
 	// 置位后，后续连接重复 SET 会报 "configuration has been locked"。

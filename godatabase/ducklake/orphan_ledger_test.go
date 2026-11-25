@@ -1,3 +1,27 @@
+// 文件说明：orphan_ledger_test.go — godatabase/ducklake 的单元测试（TestOrphanLedgerRecord、TestMaintenanceGate 等）
+//
+// 用法
+//
+//	go test ./godatabase/ducklake -run 'TestOrphanLedgerRecord|TestMaintenanceGate|TestPruneRecordsOrphansAndGateBlocksLostLease'
+//
+// 调用架构
+//
+//	[上游] internal/app, internal/systemdb
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/ducklake/orphan_ledger_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] c4_syncer_lease_test.go, c4_syncer_ordering_test.go, catalog_syncer.go, catalog_syncer_test.go, coverage_test.go 等 35 个
+//
+// 主要符号
+//
+//	TestOrphanLedgerRecord(t *testing.T)
+//	TestMaintenanceGate(t *testing.T)
+//	TestPruneRecordsOrphansAndGateBlocksLostLease(t *testing.T)
+//	writeChainAt(t *testing.T, store blob.Store, remote RemoteStorage, tenant, db string, startSeq, n int64)
+
 package ducklake
 
 import (

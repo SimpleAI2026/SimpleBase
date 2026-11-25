@@ -1,5 +1,34 @@
 //go:build linux
 
+// 文件说明：inner_linux_test.go — gosandbox/host/inner 的单元测试（TestApplyABIGate、TestApplyOrder 等）
+//
+// 用法
+//
+//	go test ./gosandbox/host/inner -run 'TestApplyABIGate|TestApplyOrder|TestApplyStopsOnFailure|TestApplyRejectsUnknownMode'
+//
+// 调用架构
+//
+//	[上游] gosandbox/cmd
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/host/inner/inner_linux_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] inner_linux.go
+//
+// 主要符号
+//
+//	stub(t *testing.T) (restricted *int, loaded *int)
+//	TestApplyABIGate(t *testing.T)
+//	TestApplyOrder(t *testing.T)
+//	TestApplyStopsOnFailure(t *testing.T)
+//	TestApplyRejectsUnknownMode(t *testing.T)
+//	TestLandlockRulesByMode(t *testing.T)
+//	ruleStrings(rules []landlock.Rule) []string
+//	TestParseArgs(t *testing.T)
+//	... 另有 6 个顶层符号
+
 package inner
 
 import (

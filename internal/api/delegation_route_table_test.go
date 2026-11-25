@@ -1,3 +1,28 @@
+// 文件说明：delegation_route_table_test.go — internal/api 的单元测试（TestDelegation_RouteTable 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestDelegation_RouteTable'
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/delegation_route_table_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//
+// 主要符号
+//
+//	var expectedDelegableRoutes
+//	TestDelegation_RouteTable(t *testing.T)
+//	const echoContentType
+//	materializeRoute(path string) string
+//	(env *skillRouterEnv) delegationToken(t *testing.T) string
+
 package api
 
 // delegation_route_table_test.go：planv6.0 §3.1 委托白名单路由表驱动测试。

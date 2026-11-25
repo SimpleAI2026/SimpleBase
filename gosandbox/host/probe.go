@@ -1,3 +1,36 @@
+// 文件说明：probe.go — gosandbox/host 中 Caps、ResetProbeCache 等符号的实现
+//
+// 用法
+//
+//	type Caps struct{…}  // Caps 是本机隔离能力的探测结果
+//	ResetProbeCache()  // ResetProbeCache 清掉进程内的探测缓存（测试用）
+//	Probe(ctx context.Context, p Policy) (Caps, error)  // Probe 探测本机能否按 p 建立隔离
+//	同包调用：unavailable() → metrics_other.go, probe_linux.go；resolveBwrap() → probe_test.go；firstLine() → run_darwin.go, run_linux.go
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/tools, gosandbox/box, gosandbox/vm/box 等 5 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/host/probe.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] bwrap_args.go, bwrap_args_extra_test.go, cgroup.go, cgroup_linux.go, cgroup_linux_test.go 等 36 个
+//	[关键引用] Caps ← probe_linux.go, run_darwin.go；ResetProbeCache ← probe_test.go, run_linux_test.go；Probe ← probe_test.go, run_darwin.go
+//
+// 主要符号
+//
+//	type Caps struct{…}
+//	const MinLandlockABI
+//	var lookPath / landlockABIFn / seccompFn / cgroupDetectFn / runProbe
+//	type probeKey struct{…}
+//	var probeMu / probeCache
+//	type probeEntry struct{…}
+//	ResetProbeCache()
+//	Probe(ctx context.Context, p Policy) (Caps, error)
+//	... 另有 4 个顶层符号
+
 package host
 
 import (

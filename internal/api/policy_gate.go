@@ -53,7 +53,7 @@ func policyGate(next echo.HandlerFunc) echo.HandlerFunc {
 			action = "invoke"
 		}
 		if !principal.Scope.Allows(policyResource(c), action, time.Now().UTC()) {
-			return WriteError(c, NewAPIError(http.StatusForbidden, "key_scope_denied", "key scope denied", RequestIDFromContext(c.Request().Context())))
+			return WriteError(c, NewAPIError(http.StatusForbidden, "key_scope_denied", "key scope denied", requestID(c)))
 		}
 		return next(c)
 	}
@@ -88,6 +88,6 @@ func policyResource(c echo.Context) string {
 }
 
 func scopedPolicy(c echo.Context) *auth.KeyPolicy {
-	principal, _ := PrincipalFromContext(c.Request().Context())
+	principal := principalOf(c)
 	return principal.Scope
 }

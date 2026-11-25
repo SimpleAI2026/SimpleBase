@@ -1,3 +1,33 @@
+// 文件说明：testutil_test.go — internal/agentbridge 的测试辅助代码
+//
+// 用法
+//
+//	同包调用：testPolicy → failclosed_test.go, module_skills_test.go；onceStream → failclosed_test.go；errDB → tools_build_errors_test.go
+//
+// 调用架构
+//
+//	[上游] internal/agentrun, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/agentbridge/testutil_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] access_db.go, access_llm.go, access_object.go, access_test.go, bridge_test.go 等 33 个
+//	[关键引用] testPolicy ← failclosed_test.go, module_skills_test.go；onceStream ← failclosed_test.go；errDB ← tools_build_errors_test.go
+//
+// 主要符号
+//
+//	type testPolicy struct{…}
+//	(testPolicy) Classify(argv []string, stdin string) (cloudagent.ToolDecision, error)
+//	(testPolicy) RedactArgv(argv []string) []string
+//	isTestDestructive(argv []string, stdin string) bool
+//	type onceStream struct{…}
+//	(s *onceStream) Next() (string, bool, error)
+//	(*onceStream) Close() error
+//	type errDB struct{…}
+//	... 另有 10 个顶层符号
+
 package agentbridge
 
 import (
@@ -6,16 +36,17 @@ import (
 	"io"
 	"strings"
 
+	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 )
 
 type testPolicy struct{}
 
-func (testPolicy) Classify(argv []string, stdin string) (ToolDecision, error) {
+func (testPolicy) Classify(argv []string, stdin string) (cloudagent.ToolDecision, error) {
 	if len(argv) < 2 {
-		return ToolDecision{}, fmt.Errorf("invalid argv")
+		return cloudagent.ToolDecision{}, fmt.Errorf("invalid argv")
 	}
-	return ToolDecision{
+	return cloudagent.ToolDecision{
 		ReadOnly:    argv[1] == "list" || argv[1] == "query" || argv[1] == "get" || argv[1] == "stats",
 		Destructive: isTestDestructive(argv, stdin),
 	}, nil
@@ -126,4 +157,10 @@ func (f *errLogs) LevelStats(context.Context, string) ([]LogLevelCount, error) {
 		return nil, fmt.Errorf("stats: %w", f.err)
 	}
 	return f.stats, nil
+}
+
+func withRunContext(ctx context.Context, rc RunContext) context.Context {
+	return cloudagent.WithRunContext(ctx, cloudagent.RunContext{
+		RunID: rc.RunID, ThreadID: rc.ThreadID, Value: rc, Emit: rc.Emit,
+	})
 }

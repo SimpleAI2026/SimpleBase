@@ -1,7 +1,7 @@
 import type { ApiError } from '@/services/types'
 
 /**
- * 「资源尚未建立」类错误码（planv6.0 §2）。
+ * 「资源尚未建立」类错误码。
  *
  * 这类 404 的含义是「当前项目/实例上还没有这份存储」，属于**空**而不是**失败**：
  * 界面应当展示空态，而不是红色错误块 + toast。
@@ -17,4 +17,16 @@ export function isEmptyResourceError(e: unknown): boolean {
   const err = e as ApiError
   if (err.status !== 404) return false
   return typeof err.code === 'string' && EMPTY_RESOURCE_CODES.includes(err.code)
+}
+
+/** 后端业务错误码（`code` 字段）；非对象或无 code 时为 undefined。 */
+export function errorCode(e: unknown): string | undefined {
+  if (!e || typeof e !== 'object') return undefined
+  const code = (e as ApiError).code
+  return typeof code === 'string' ? code : undefined
+}
+
+/** 是否为 HTTP 409（并发版本冲突、ID 冲突等）。 */
+export function isConflict(e: unknown): boolean {
+  return !!e && typeof e === 'object' && (e as ApiError).status === 409
 }

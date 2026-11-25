@@ -23,8 +23,8 @@
             <TableHead class="w-40">{{ t('components.documentList.colActions') }}</TableHead>
           </TableRow></TableHeader>
           <SbAsyncRegion
-            as="tbody" :columns="3" :pending="pending" :show-skeleton="showSkeleton"
-            :show-empty="showEmpty" :show-error="showError" :refreshing="refreshing" :error="error" @retry="load"
+            :state="loadState"
+            as="tbody" :columns="3"
           >
             <template #empty>{{ t('components.documentList.empty') }}</template>
             <TableRow v-for="record in rows" :key="record.id">
@@ -114,7 +114,8 @@ const saving = ref(false)
 const title = computed(() => props.collection ? t('components.documentList.titleOf', { collection: props.collection }) : t('components.documentList.title'))
 const total = computed(() => totalItems.value ?? (page.value - 1) * pageSize + rows.value.length + (nextCursor.value ? 1 : 0))
 const pageCount = computed(() => nextCursor.value ? page.value + 1 : page.value)
-const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({ fallback: 'components.documentList.loadFailed' })
+const loadState = useLoadState({ fallback: 'components.documentList.loadFailed' })
+const { pending, run } = loadState
 function docFields(row: DbRow): Record<string, unknown> {
   const { id, created_at, updated_at, ...rest } = row
   void id

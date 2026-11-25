@@ -1,3 +1,29 @@
+// 文件说明：agent_e2e_usage_retry_test.go — internal/api 的单元测试（TestAgentE2EUsageAggregatesAcrossToolTurns、TestAgentE2EConcurrentRunRejected 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestAgentE2EUsageAggregatesAcrossToolTurns|TestAgentE2EConcurrentRunRejected|TestAgentE2ERetryReusesUserMessage|TestAgentE2ERetryRejectsNonFailedRun'
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/agent_e2e_usage_retry_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//
+// 主要符号
+//
+//	TestAgentE2EUsageAggregatesAcrossToolTurns(t *testing.T)
+//	TestAgentE2EConcurrentRunRejected(t *testing.T)
+//	TestAgentE2ERetryReusesUserMessage(t *testing.T)
+//	TestAgentE2ERetryRejectsNonFailedRun(t *testing.T)
+//	TestAgentE2EModelsEndpoint(t *testing.T)
+//	TestAgentE2ESeededGeneralAgentFirst(t *testing.T)
+
 package api
 
 // agent_e2e_usage_retry_test.go：用量、重试与接口行为（planv4.1 §5.2 E11–E19）。

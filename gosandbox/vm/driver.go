@@ -1,3 +1,37 @@
+// 文件说明：driver.go — gosandbox/vm 中 LogFunc、Spec 等符号的实现
+//
+// 用法
+//
+//	type LogFunc func(level, msg string, kv ...any)  // LogFunc 接收驱动日志，避免模块依赖具体日志库
+//	type Spec struct{…}  // Spec 是创建 VM 时的规格；已存在的 VM 以云端持久配置为准
+//	type Target struct{…}  // Target 定位一个 VM：云端名 + 懒创建所需规格
+//	type ExecSpec struct{…}  // ExecSpec 是一次命令执行请求
+//	type ExecResult struct{…}  // ExecResult 是驱动返回的执行结果；输出可能受后端配置的字节限额约束
+//	type FileEntry struct{…}  // FileEntry 是单层目录项
+//
+// 调用架构
+//
+//	[上游] gosandbox/vm/box, gosandbox/vm/fake, gosandbox/vm/local, internal/api 等 7 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/vm/driver.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] env.go, env_test.go, errors.go, output.go, output_test.go 等 9 个
+//
+// 主要符号
+//
+//	type LogFunc func(level, msg string, kv ...any)
+//	const VMRunning / VMStopped / VMAbsent
+//	type Spec struct{…}
+//	type Target struct{…}
+//	type ExecSpec struct{…}
+//	type ExecResult struct{…}
+//	type FileEntry struct{…}
+//	type Driver interface{…}
+//	... 另有 19 个顶层符号
+
 package vm
 
 import (
@@ -46,7 +80,7 @@ type ExecSpec struct {
 	Timeout time.Duration
 }
 
-// ExecResult 是驱动返回的原始结果（未截断）。
+// ExecResult 是驱动返回的执行结果；输出可能受后端配置的字节限额约束。
 // 超时不是 error：TimedOut=true、ExitCode=-1。
 type ExecResult struct {
 	Stdout   []byte
@@ -67,7 +101,7 @@ type FileEntry struct {
 }
 
 // Driver 是执行后端。所有需要 VM 的操作都按 Target 懒创建 / 接回，
-// 操作完成即释放句柄，不保活（§3.3）。
+// 会话生命周期由后端管理：local 按命令隔离，box 保持常驻 agent。
 type Driver interface {
 	Ensure(ctx context.Context, t Target) error
 	Exec(ctx context.Context, t Target, req ExecSpec) (ExecResult, error)

@@ -47,6 +47,7 @@ import (
 	"github.com/linkxzhou/SimpleBase/godatabase/sqlx"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/collection"
+	"github.com/linkxzhou/SimpleBase/internal/collection/query"
 )
 
 type importRecord struct {
@@ -102,7 +103,7 @@ func (d *csvDecoder) Next() (map[string]any, int, error) {
 		}
 		seen := map[string]struct{}{}
 		for _, name := range header {
-			if !fieldNamePattern.MatchString(name) && name != "id" && name != "created_at" && name != "updated_at" {
+			if !collection.FieldNamePattern.MatchString(name) && name != "id" && name != "created_at" && name != "updated_at" {
 				return nil, 0, &collection.ValidationError{Code: "invalid_field", Field: name, Message: "invalid CSV header"}
 			}
 			if _, ok := seen[name]; ok {
@@ -210,7 +211,7 @@ func (h *DataHandler) Import(c echo.Context) error {
 		return validationAPIError(c, err)
 	}
 	if schema != nil && schema.SchemaMode == "view" {
-		return WriteError(c, NewAPIError(http.StatusConflict, "collection_read_only", "view collections are read-only", RequestIDFromContext(c.Request().Context())))
+		return WriteError(c, NewAPIError(http.StatusConflict, "collection_read_only", "view collections are read-only", requestID(c)))
 	}
 	decoder, err := newImportDecoder(c.Request().Header.Get(echo.HeaderContentType), c.Request().Body, schema, h.importLimit)
 	if err != nil {
@@ -303,7 +304,7 @@ func (h *DataHandler) Import(c echo.Context) error {
 	}
 	lease.NotifyWrite(c.Request().Context())
 	for _, record := range committed {
-		h.publish(c, RecordEvent{Collection: name, RecordID: record.id, Action: "create", Data: record.doc})
+		h.publish(c, collection.RecordEvent{Collection: name, RecordID: record.id, Action: "create", Data: record.doc})
 	}
 	return c.JSON(http.StatusCreated, result)
 }
@@ -354,13 +355,13 @@ func importAPIError(c echo.Context, err error) error {
 	var validation *collection.ValidationError
 	if errors.As(err, &validation) {
 		if validation.Code == "unsupported_media_type" {
-			return WriteError(c, NewAPIError(http.StatusUnsupportedMediaType, validation.Code, validation.Message, RequestIDFromContext(c.Request().Context())))
+			return WriteError(c, NewAPIError(http.StatusUnsupportedMediaType, validation.Code, validation.Message, requestID(c)))
 		}
 		return validationAPIError(c, validation)
 	}
 	var parseError *csv.ParseError
 	if errors.As(err, &parseError) {
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_document", "invalid CSV input", RequestIDFromContext(c.Request().Context())))
+		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_document", "invalid CSV input", requestID(c)))
 	}
 	return WriteError(c, err)
 }
@@ -387,7 +388,7 @@ func (h *DataHandler) Export(c echo.Context) error {
 	if err != nil {
 		return WriteError(c, err)
 	}
-	filterSQL, args, err := compileFilter(c.QueryParam("filter"), schema, dialect)
+	filterSQL, args, err := query.CompileFilter(c.QueryParam("filter"), schema, dialect)
 	if err != nil {
 		return validationAPIError(c, err)
 	}
@@ -402,7 +403,7 @@ func (h *DataHandler) Export(c echo.Context) error {
 			return validationAPIError(c, err)
 		}
 	}
-	fields, err := parseFields(c.QueryParam("fields"), schema)
+	fields, err := collection.ParseFields(c.QueryParam("fields"), schema)
 	if err != nil {
 		return validationAPIError(c, err)
 	}
@@ -411,10 +412,10 @@ func (h *DataHandler) Export(c echo.Context) error {
 		format = "ndjson"
 	}
 	if format != "ndjson" && format != "csv" && format != "json" {
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "format must be ndjson, csv or json", RequestIDFromContext(c.Request().Context())))
+		return WriteError(c, badRequest(c, "format must be ndjson, csv or json"))
 	}
 	if format == "csv" && schema == nil && len(fields) == 0 {
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "fields is required for CSV export without a schema", RequestIDFromContext(c.Request().Context())))
+		return WriteError(c, badRequest(c, "fields is required for CSV export without a schema"))
 	}
 	rows, err := lease.Raw().QueryContext(c.Request().Context(), selectCollectionDocumentsSQL(name, schema)+where+" ORDER BY "+order, args...)
 	if err != nil {
@@ -477,7 +478,7 @@ func writeNDJSONExport(c echo.Context, writer *bufio.Writer, rows *sql.Rows, fie
 		if err != nil {
 			return nil
 		}
-		dto.Data = hideDocumentFields(dto.Data, hiddenFieldNames(schema))
+		dto.Data = collection.HideDocumentFields(dto.Data, hiddenFieldNames(schema))
 		if err := encoder.Encode(flattenDocument(dto)); err != nil {
 			return nil
 		}
@@ -501,7 +502,7 @@ func writeJSONExport(c echo.Context, writer *bufio.Writer, rows *sql.Rows, field
 		if err != nil {
 			return nil
 		}
-		dto.Data = hideDocumentFields(dto.Data, hiddenFieldNames(schema))
+		dto.Data = collection.HideDocumentFields(dto.Data, hiddenFieldNames(schema))
 		encoded, err := json.Marshal(flattenDocument(dto))
 		if err != nil {
 			return nil
@@ -545,7 +546,7 @@ func writeCSVExport(c echo.Context, writer *bufio.Writer, rows *sql.Rows, fields
 		if err != nil {
 			return nil
 		}
-		dto.Data = hideDocumentFields(dto.Data, hiddenFieldNames(schema))
+		dto.Data = collection.HideDocumentFields(dto.Data, hiddenFieldNames(schema))
 		flat := flattenDocument(dto)
 		record := make([]string, len(columns))
 		for i, column := range columns {

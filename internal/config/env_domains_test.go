@@ -1,3 +1,25 @@
+// 文件说明：env_domains_test.go — internal/config 的单元测试（TestR2_EnvDuckLakeDomain、TestR2_EnvS3Domain 等）
+//
+// 用法
+//
+//	go test ./internal/config -run 'TestR2_EnvDuckLakeDomain|TestR2_EnvS3Domain'
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/api, internal/api/perfbench, internal/app 等 6 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/config/env_domains_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] agent_config_test.go, backup.go, config.go, config_agent_types.go, config_example_test.go 等 24 个
+//
+// 主要符号
+//
+//	TestR2_EnvDuckLakeDomain(t *testing.T)
+//	TestR2_EnvS3Domain(t *testing.T)
+
 package config
 
 // r2_env_domains_test.go：planv6.0 R2-B1 env 侧表征测试（提取前先行）。

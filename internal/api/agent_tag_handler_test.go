@@ -1,3 +1,32 @@
+// 文件说明：agent_tag_handler_test.go — internal/api 的单元测试（TestListAgentTagsMergesBuiltinDefaults、TestCreateAgentTagValidation 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestListAgentTagsMergesBuiltinDefaults|TestCreateAgentTagValidation|TestPatchAndDeleteAgentTag|TestAgentTagReadonlyAndDeny'
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/agent_tag_handler_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//
+// 主要符号
+//
+//	tagEcho(store *systemdb.Store, writable bool) *echo.Echo
+//	tagReq(e *echo.Echo, method, path string, body any) *httptest.ResponseRecorder
+//	TestListAgentTagsMergesBuiltinDefaults(t *testing.T)
+//	TestCreateAgentTagValidation(t *testing.T)
+//	TestPatchAndDeleteAgentTag(t *testing.T)
+//	TestAgentTagReadonlyAndDeny(t *testing.T)
+//	TestAgentTagsUnavailableAgents(t *testing.T)
+//	TestAgentThreadsTagFilter(t *testing.T)
+//	... 另有 1 个顶层符号
+
 // planv6.7 AGC-NAV：标签 CRUD handler 测试（§7.12）。
 // 覆盖：权限（denyReadonly）、只读实例 503、系统项目拒绝、跨项目助手 ID 400、
 // 超长提示词 400、预置不可删、列表合并默认值无写副作用、tag_id 分区列表、
@@ -18,10 +47,10 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
 
-func tagEcho(store *systemdb.Store, writable *bool) *echo.Echo {
+func tagEcho(store *systemdb.Store, writable bool) *echo.Echo {
 	e := echo.New()
 	e.HideBanner = true
-	h := &cloudAgentHandler{store: store, writable: writable}
+	h := &cloudAgentHandler{store: store, svc: testAgentRun(store, nil), writable: writable}
 	e.GET("/agent-tags", h.ListAgentTags)
 	e.POST("/agent-tags", h.CreateAgentTag)
 	e.PATCH("/agent-tags/:tagID", h.PatchAgentTag)
@@ -38,7 +67,7 @@ func tagReq(e *echo.Echo, method, path string, body any) *httptest.ResponseRecor
 
 func TestListAgentTagsMergesBuiltinDefaults(t *testing.T) {
 	store := openAgentStore(t)
-	e := tagEcho(store, nil)
+	e := tagEcho(store, true)
 
 	// 先播种助手（ListAgents 路径会 ensureAgents，这里直接 Seed）
 	if err := store.SeedDefaultCloudAgents(context.Background(), "testprj1"); err != nil {
@@ -103,7 +132,7 @@ func TestCreateAgentTagValidation(t *testing.T) {
 		t.Fatalf("agents: %v", err)
 	}
 	first := agents[0].ID
-	e := tagEcho(store, nil)
+	e := tagEcho(store, true)
 
 	// 正常创建
 	rec := tagReq(e, http.MethodPost, "/agent-tags", map[string]any{
@@ -170,7 +199,7 @@ func TestPatchAndDeleteAgentTag(t *testing.T) {
 	if err := store.SeedDefaultCloudAgents(context.Background(), "testprj1"); err != nil {
 		t.Fatal(err)
 	}
-	e := tagEcho(store, nil)
+	e := tagEcho(store, true)
 
 	rec := tagReq(e, http.MethodPost, "/agent-tags", map[string]any{"name": "统计复盘", "agent_ids": []string{}})
 	if rec.Code != http.StatusCreated {
@@ -268,14 +297,14 @@ func TestAgentTagReadonlyAndDeny(t *testing.T) {
 	store := openAgentStore(t)
 	// 只读实例 → 503
 	ro := false
-	eRO := tagEcho(store, &ro)
+	eRO := tagEcho(store, ro)
 	rec := tagReq(eRO, http.MethodPost, "/agent-tags", map[string]any{"name": "x"})
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("readonly instance: %d", rec.Code)
 	}
-	// denyReadonly 走 h.writable；writable 为 nil 表示可写，正常通过。
+	// denyReadonly 走 h.writable；writable 为 true 时正常通过。
 	w := true
-	eW := tagEcho(store, &w)
+	eW := tagEcho(store, w)
 	rec = tagReq(eW, http.MethodPost, "/agent-tags", map[string]any{"name": "可写"})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("writable create: %d %s", rec.Code, rec.Body.String())
@@ -287,7 +316,7 @@ func TestAgentTagsUnavailableAgents(t *testing.T) {
 	if err := store.SeedDefaultCloudAgents(context.Background(), "testprj1"); err != nil {
 		t.Fatal(err)
 	}
-	e := tagEcho(store, nil)
+	e := tagEcho(store, true)
 	// 引用一个不存在的助手 → 400（创建时校验归属）。
 	// 不可用助手出现在编辑场景：先创建含有效助手的标签，归档助手后列表应标记不可用。
 	agents, _ := store.ListCloudAgents(context.Background(), "testprj1")
@@ -325,7 +354,7 @@ func TestAgentTagsUnavailableAgents(t *testing.T) {
 
 func TestAgentThreadsTagFilter(t *testing.T) {
 	store := openAgentStore(t)
-	e := tagEcho(store, nil)
+	e := tagEcho(store, true)
 
 	// 建标签
 	rec := tagReq(e, http.MethodPost, "/agent-tags", map[string]any{"name": "发布"})
@@ -337,7 +366,7 @@ func TestAgentThreadsTagFilter(t *testing.T) {
 
 	// 建标签会话（合法）
 	rec = tagReq(e, http.MethodPost, "/agent-threads", map[string]any{
-		"tag_id": tag.ID, "dispatch_mode": "auto",
+		"tag_id": tag.ID, "dispatch_mode": "collaborative",
 	})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create tag thread: %d %s", rec.Code, rec.Body.String())
@@ -348,12 +377,11 @@ func TestAgentThreadsTagFilter(t *testing.T) {
 		DispatchMode string `json:"dispatch_mode"`
 	}
 	_ = json.Unmarshal(rec.Body.Bytes(), &th)
-	// v2 §5.1：存储里的 auto 在 DTO 读时统一映射为 collaborative（群会话）。
 	if th.TagID != tag.ID || th.DispatchMode != "collaborative" {
 		t.Fatalf("thread dto: %+v", th)
 	}
 
-	rec = tagReq(e, http.MethodPost, "/agent-threads", map[string]any{"tag_id": systemdb.AgentTagGeneral, "dispatch_mode": "auto"})
+	rec = tagReq(e, http.MethodPost, "/agent-threads", map[string]any{"tag_id": systemdb.AgentTagGeneral, "dispatch_mode": "collaborative"})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create general thread: %d %s", rec.Code, rec.Body.String())
 	}
@@ -371,9 +399,12 @@ func TestAgentThreadsTagFilter(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("tag without auto: %d", rec.Code)
 	}
-	rec = tagReq(e, http.MethodPost, "/agent-threads", map[string]any{"dispatch_mode": "manual"})
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("bad mode: %d", rec.Code)
+	for _, mode := range []string{"manual", "auto"} {
+		// 一轮一助手的 auto 调度已下线（planv6.8 §13.15 CB-BE-13）：群会话只有 collaborative。
+		rec = tagReq(e, http.MethodPost, "/agent-threads", map[string]any{"dispatch_mode": mode})
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("bad mode %q: %d", mode, rec.Code)
+		}
 	}
 	rec = tagReq(e, http.MethodPost, "/agent-threads", map[string]any{"source": "nope"})
 	if rec.Code != http.StatusBadRequest {
@@ -388,12 +419,12 @@ func TestAgentThreadsTagFilter(t *testing.T) {
 		}
 	}
 	if agentID != "" {
-		rec = tagReq(e, http.MethodPost, "/agent-threads", map[string]any{"dispatch_mode": "auto", "agent_id": agentID})
+		rec = tagReq(e, http.MethodPost, "/agent-threads", map[string]any{"dispatch_mode": "collaborative", "agent_id": agentID})
 		if rec.Code != http.StatusBadRequest {
-			t.Fatalf("auto+agent: %d", rec.Code)
+			t.Fatalf("collaborative+agent: %d", rec.Code)
 		}
 	}
-	rec = tagReq(e, http.MethodPost, "/agent-threads", map[string]any{"tag_id": "missing-tag", "dispatch_mode": "auto"})
+	rec = tagReq(e, http.MethodPost, "/agent-threads", map[string]any{"tag_id": "missing-tag", "dispatch_mode": "collaborative"})
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("missing tag: %d", rec.Code)
 	}
@@ -478,7 +509,7 @@ func TestAgentTagBuiltinDefaultsResolve(t *testing.T) {
 	if err := store.SeedDefaultCloudAgents(context.Background(), "testprj1"); err != nil {
 		t.Fatal(err)
 	}
-	e := tagEcho(store, nil)
+	e := tagEcho(store, true)
 	rec := tagReq(e, http.MethodGet, "/agent-tags", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatal(rec.Code)

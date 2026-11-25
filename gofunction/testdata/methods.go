@@ -1,3 +1,36 @@
+// 文件说明：methods.go — gofunction/testdata 中 Vertex2、MyFloat 等符号的实现
+//
+// 用法
+//
+//	type Vertex2 struct{…}
+//	type MyFloat float64
+//	type Abser interface{…}
+//	type I interface{…}
+//	type T struct{…}
+//
+// 调用架构
+//
+//	[上游] 仅测试引用：gofunction/internal/interp
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/testdata/methods.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] basic.go, basics.go, controlflow.go, flowcontrol.go, funclist.go 等 13 个
+//
+// 主要符号
+//
+//	type Vertex2 struct{…}
+//	(v Vertex2) Abs() float64
+//	(__testSet) Methods() interface{}
+//	abs(v Vertex2) float64
+//	(__testSet) MethodsFuncs() interface{}
+//	type MyFloat float64
+//	(f MyFloat) Abs() float64
+//	(__testSet) Methods2() interface{}
+//	... 另有 10 个顶层符号
+
 package testdata
 
 import (

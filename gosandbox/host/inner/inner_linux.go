@@ -1,5 +1,41 @@
 //go:build linux
 
+// 文件说明：inner_linux.go — gosandbox/host/inner 中 LoadSpec、LandlockRules 等符号的实现
+//
+// 用法
+//
+//	LoadSpec(path string) (spec.Spec, error)  // LoadSpec 读取父进程放入沙盒的策略文件
+//	LandlockRules(s spec.Spec) []landlock.Rule  // LandlockRules 返回文件系统规则：根只读，可写目录读写
+//	SeccompFilter() seccomp.Filter  // SeccompFilter 返回 host 模式的过滤器：默认允许 + 拒绝清单
+//	SeccompDefaultFilter() seccomp.Filter  // SeccompDefaultFilter 返回 Docker 默认 profile 形状的过滤器
+//	Apply(s spec.Spec) error  // Apply 加载 Landlock 与 seccomp
+//	Main(args []string, env []string) int  // Main 是 helper 的入口：args 形如 ["--policy", path, "--", argv...]
+//	同包调用：filterFor() → inner_linux_test.go；parseArgs() → inner_linux_test.go
+//
+// 调用架构
+//
+//	[上游] gosandbox/cmd
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/host/inner/inner_linux.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] inner_linux_test.go
+//	[关键引用] LandlockRules ← inner_linux_test.go；SeccompFilter ← inner_linux_test.go；SeccompDefaultFilter ← inner_linux_test.go
+//
+// 主要符号
+//
+//	var abiFn / restrictPathsFn / loadSeccompFn / execFn
+//	const MinABI
+//	kernelLandlockABI() int
+//	LoadSpec(path string) (spec.Spec, error)
+//	LandlockRules(s spec.Spec) []landlock.Rule
+//	SeccompFilter() seccomp.Filter
+//	var defaultDenied
+//	SeccompDefaultFilter() seccomp.Filter
+//	... 另有 7 个顶层符号
+
 package inner
 
 import (

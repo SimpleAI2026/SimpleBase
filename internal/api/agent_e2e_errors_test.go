@@ -1,3 +1,29 @@
+// 文件说明：agent_e2e_errors_test.go — internal/api 的单元测试（TestAgentE2EUpstream401MapsToErrorCode、TestAgentE2EToolErrorMarksIsError 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestAgentE2EUpstream401MapsToErrorCode|TestAgentE2EToolErrorMarksIsError|TestAgentE2EMidStreamAbortFailsRun|TestAgentE2EToolProgressHeartbeat'
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/agent_e2e_errors_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//
+// 主要符号
+//
+//	TestAgentE2EUpstream401MapsToErrorCode(t *testing.T)
+//	TestAgentE2EToolErrorMarksIsError(t *testing.T)
+//	TestAgentE2EMidStreamAbortFailsRun(t *testing.T)
+//	TestAgentE2EToolProgressHeartbeat(t *testing.T)
+//	TestAgentE2ECancelRun(t *testing.T)
+//	min(a, b int) int
+
 package api
 
 // agent_e2e_errors_test.go：错误注入与边界（planv4.1 §5.2 E06–E11）。

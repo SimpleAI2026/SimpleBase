@@ -1,3 +1,31 @@
+// 文件说明：local_catalog.go — godatabase/ducklake 中 EnsureLocalCatalog、IsLocalAhead 等符号的实现
+//
+// 用法
+//
+//	EnsureLocalCatalog(ctx context.Context, store blob.Store, remote RemoteStorage, cacheDir string, meta godataba...  // EnsureLocalCatalog 冷启动：把远端最新 catalog 拉到本地（multi-instance-consistency-plan §4.3）
+//	IsLocalAhead(err error) bool  // IsLocalAhead 判定 EnsureLocalCatalog 返回的错误是否为「本地领先」
+//	同包调用：verifySnapshotBody() → catalog_syncer_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app, internal/systemdb
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/ducklake/local_catalog.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] c4_syncer_lease_test.go, c4_syncer_ordering_test.go, catalog_syncer.go, catalog_syncer_test.go, coverage_test.go 等 35 个
+//	[关键引用] EnsureLocalCatalog ← catalog_syncer_test.go, coverage_test.go；verifySnapshotBody ← catalog_syncer_test.go；IsLocalAhead ← factory.go, manifest_test.go
+//
+// 主要符号
+//
+//	EnsureLocalCatalog(ctx context.Context, store blob.Store, remote RemoteStorage, cacheDir string, meta godataba...
+//	verifySnapshotBody(data []byte, m *Manifest) error
+//	type errLocalAhead struct{…}
+//	(e errLocalAhead) Error() string
+//	IsLocalAhead(err error) bool
+
 package ducklake
 
 import (
@@ -44,13 +72,8 @@ func EnsureLocalCatalog(ctx context.Context, store blob.Store, remote RemoteStor
 		}
 	}
 
-	// 远端最新水位：manifest 序列。
-	latest, err := ReadLatestManifest(ctx, store, remote, meta.ProjectID, meta.ID, anchor)
-	if err != nil && IsManifestChainBroken(err) && anchor > 0 {
-		// 锚点失效（远端被重置/回退）：退化到全链发现再判一次；
-		// 全链发现仍断链则 fail closed（§3.1：不得退回旧镜像）。
-		latest, err = ReadLatestManifest(ctx, store, remote, meta.ProjectID, meta.ID, 0)
-	}
+	// 远端最新水位：manifest 序列（锚点断链时退化全链发现再判）。
+	latest, err := readLatestManifestAnchored(ctx, store, remote, meta.ProjectID, meta.ID, anchor)
 	if err != nil {
 		return false, err
 	}

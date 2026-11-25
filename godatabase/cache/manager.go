@@ -1,3 +1,39 @@
+// 文件说明：manager.go — godatabase/cache 中 ActiveChecker、Closer 等符号的实现
+//
+// 用法
+//
+//	type ActiveChecker interface{…}  // ActiveChecker 抽象 registry 查询能力：判断某库是否可安全淘汰
+//	type Closer interface{…}  // Closer 抽象 registry.CloseDatabase：淘汰前先关闭 registry 句柄
+//	type Manager struct{…}  // Manager 管理本地缓存目录
+//	type Usage struct{…}  // Usage 描述当前缓存用量
+//	type Options struct{…}  // Options 配置 Manager
+//	NewManager(opts Options) (*Manager, error)  // NewManager 构造 Manager
+//	同包调用：lastUsedChecker → evict.go；removeAll() → coverage_test.go, evict.go
+//
+// 调用架构
+//
+//	[上游] internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/cache/manager.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] coverage_test.go, evict.go, evict_b13_test.go, manager_test.go, more_test.go
+//	[关键引用] lastUsedChecker ← evict.go；Manager ← evict.go；Options ← coverage_test.go, evict_b13_test.go
+//
+// 主要符号
+//
+//	type ActiveChecker interface{…}
+//	type lastUsedChecker interface{…}
+//	type Closer interface{…}
+//	type Manager struct{…}
+//	type Usage struct{…}
+//	type Options struct{…}
+//	var ErrCacheCapacityExceeded
+//	NewManager(opts Options) (*Manager, error)
+//	... 另有 6 个顶层符号
+
 package cache
 
 import (
@@ -131,6 +167,8 @@ func (m *Manager) Path(databaseID string) (string, error) {
 }
 
 // Usage 统计当前缓存用量。遍历 root 下的一级子目录并汇总大小。
+// projects/ 布局按内部项目子目录计数（B13：目录数口径与淘汰单位一致，
+// 一级目录计数会把整个 projects/ 算 1 个，虚低）。
 func (m *Manager) Usage(ctx context.Context) (Usage, error) {
 	entries, err := os.ReadDir(m.root)
 	if err != nil {
@@ -140,20 +178,46 @@ func (m *Manager) Usage(ctx context.Context) (Usage, error) {
 		return Usage{}, fmt.Errorf("cache: read root: %w", err)
 	}
 	var u Usage
+	countDir := func(name string) {
+		u.DatabaseDirs++
+		size, err := dirSize(filepath.Join(m.root, name))
+		if err != nil {
+			// 单个目录统计失败不应中断整体；记录后继续。
+			if m.logger != nil {
+				m.logger.Warn("cache: skip dir size", zap.String("dir", name), zap.String("err", err.Error()))
+			}
+			return
+		}
+		u.TotalBytes += size
+	}
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
 		}
-		u.DatabaseDirs++
-		size, err := dirSize(filepath.Join(m.root, e.Name()))
-		if err != nil {
-			// 单个目录统计失败不应中断整体；记录后继续。
-			if m.logger != nil {
-				m.logger.Warn("cache: skip dir size", zap.String("dir", e.Name()), zap.String("err", err.Error()))
+		if e.Name() == "projects" {
+			subs, serr := os.ReadDir(filepath.Join(m.root, e.Name()))
+			if serr != nil {
+				if m.logger != nil {
+					m.logger.Warn("cache: skip dir size", zap.String("dir", e.Name()), zap.String("err", serr.Error()))
+				}
+				continue
 			}
+			for _, sub := range subs {
+				if sub.IsDir() {
+					u.DatabaseDirs++
+				}
+			}
+			size, serr := dirSize(filepath.Join(m.root, e.Name()))
+			if serr != nil {
+				if m.logger != nil {
+					m.logger.Warn("cache: skip dir size", zap.String("dir", e.Name()), zap.String("err", serr.Error()))
+				}
+				continue
+			}
+			u.TotalBytes += size
 			continue
 		}
-		u.TotalBytes += size
+		countDir(e.Name())
 	}
 	if m.observer != nil {
 		m.observer.CacheBytes(u.TotalBytes)

@@ -1,3 +1,34 @@
+// 文件说明：registry_test.go — godatabase/registry 的单元测试（TestAcquire_ConcurrentOnlyOpensOnce、TestAcquire_OpenFailure_AllWaitersSameError 等）
+//
+// 用法
+//
+//	go test ./godatabase/registry -run 'TestAcquire_ConcurrentOnlyOpensOnce|TestAcquire_OpenFailure_AllWaitersSameError|TestAcquire_ReadWriteRejectedWhenNotWritable|TestAcquire_RejectsDeletingDatabase'
+//	同包调用：fakeFactory → coverage_test.go；readyDatabase() → coverage_test.go
+//
+// 调用架构
+//
+//	[上游] godatabase/cmd, godatabase/kv, internal/agentbridge, internal/api 等 7 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/registry/registry_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] coverage_test.go, evictor.go, handle.go, registry.go
+//	[关键引用] fakeFactory ← coverage_test.go；readyDatabase ← coverage_test.go
+//
+// 主要符号
+//
+//	type fakeFactory struct{…}
+//	(f *fakeFactory) Open(ctx context.Context, db godatabase.Spec, mode godatabase.AccessMode) (*sql.DB, error)
+//	readyDatabase(id string) godatabase.Spec
+//	TestAcquire_ConcurrentOnlyOpensOnce(t *testing.T)
+//	TestAcquire_OpenFailure_AllWaitersSameError(t *testing.T)
+//	TestAcquire_ReadWriteRejectedWhenNotWritable(t *testing.T)
+//	TestAcquire_RejectsDeletingDatabase(t *testing.T)
+//	TestLease_ReleaseIdempotent(t *testing.T)
+//	... 另有 18 个顶层符号
+
 package registry
 
 import (

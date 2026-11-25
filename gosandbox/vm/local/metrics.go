@@ -1,3 +1,29 @@
+// 文件说明：metrics.go — gosandbox/vm/local 的内部实现（CanFreeze、cgroupName 等）
+//
+// 用法
+//
+//	同包调用：cgroupName() → local.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/vm/local/metrics.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] exec.go, export_test.go, files.go, local.go, local_test.go 等 8 个
+//	[关键引用] cgroupName ← local.go
+//
+// 主要符号
+//
+//	(d *Driver) CanFreeze() bool
+//	cgroupName(name string) string
+//	(d *Driver) Metrics(_ context.Context, name string) (vm.Metrics, error)
+//	(d *Driver) Pause(_ context.Context, name string) error
+//	(d *Driver) Resume(_ context.Context, t vm.Target) error
+
 package local
 
 import (

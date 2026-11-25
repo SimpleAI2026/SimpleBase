@@ -88,9 +88,11 @@ func (s *Store) RecordMetric(sample MetricSample) {
 
 // FlushMetrics 将缓冲样本与预聚合桶写入 sys_metric_samples（批量单事务）。
 func (s *Store) FlushMetrics(ctx context.Context) error {
-	if s == nil || s.db == nil {
+	_, connErr := s.conn()
+	if connErr != nil {
 		return nil
 	}
+
 	batch := s.drainMetrics()
 	agg := s.drainMetricAggregates()
 	batch = append(batch, agg...)
@@ -104,9 +106,11 @@ func (s *Store) FlushMetrics(ctx context.Context) error {
 // 查询/扫描错误直接返回，不再吞掉后返回全 0。
 func (s *Store) MetricsSummary(ctx context.Context, projectID string) (MetricsSummary, error) {
 	out := MetricsSummary{LatencyOverflowMS: LatencyOverflowMS}
-	if s == nil || s.db == nil {
-		return out, ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return out, connErr
 	}
+
 	start := time.Now()
 	admin := IsAdminProject(projectID)
 	since := time.Now().UTC().Add(-24 * time.Hour)
@@ -124,16 +128,16 @@ func (s *Store) MetricsSummary(ctx context.Context, projectID string) (MetricsSu
 		query += " AND project_id = ?"
 		args = append(args, projectID)
 	}
-	if err := s.db.QueryRowContext(ctx, query, args...).Scan(&requests, &errors, &latencySum, &latencyCount, &latencyAvg); err != nil {
+	if err := sqlDB.QueryRowContext(ctx, query, args...).Scan(&requests, &errors, &latencySum, &latencyCount, &latencyAvg); err != nil {
 		return out, err
 	}
 	var active int64
 	var err error
 	if admin {
-		err = s.db.QueryRowContext(ctx,
+		err = sqlDB.QueryRowContext(ctx,
 			`SELECT COUNT(*) FROM sys_databases WHERE deleted_at IS NULL AND kind = 'user'`).Scan(&active)
 	} else {
-		err = s.db.QueryRowContext(ctx,
+		err = sqlDB.QueryRowContext(ctx,
 			`SELECT COUNT(*) FROM sys_databases WHERE project_id = ? AND deleted_at IS NULL AND kind = 'user'`,
 			projectID).Scan(&active)
 	}
@@ -220,9 +224,11 @@ func (s *Store) MetricsTrendCached(ctx context.Context, projectID string, days i
 
 // MetricsTrend 按天聚合最近 days 天的请求/错误。admin 项目聚合全系统。
 func (s *Store) MetricsTrend(ctx context.Context, projectID string, days int) ([]TrendPoint, error) {
-	if s == nil || s.db == nil {
-		return nil, ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return nil, connErr
 	}
+
 	if days <= 0 || days > 90 {
 		days = 7
 	}
@@ -236,9 +242,9 @@ func (s *Store) MetricsTrend(ctx context.Context, projectID string, days int) ([
 	var rows *sql.Rows
 	var err error
 	if IsAdminProject(projectID) {
-		rows, err = s.db.QueryContext(ctx, query, since)
+		rows, err = sqlDB.QueryContext(ctx, query, since)
 	} else {
-		rows, err = s.db.QueryContext(ctx,
+		rows, err = sqlDB.QueryContext(ctx,
 			`SELECT CAST(occurred_at AS DATE), name, COALESCE(SUM(value_double), 0)
 		 FROM sys_metric_samples
 		 WHERE project_id = ? AND occurred_at >= ? AND name IN ('http_requests', 'http_errors')

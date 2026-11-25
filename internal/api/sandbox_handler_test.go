@@ -1,3 +1,34 @@
+// 文件说明：sandbox_handler_test.go — internal/api 的单元测试（TestMapE2BError、TestE2BPathClassification 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestMapE2BError|TestE2BPathClassification|TestE2BPathResolution|TestEnvdFilesRoundTrip'
+//	同包调用：upload() → s3_content_handler_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/sandbox_handler_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] upload ← s3_content_handler_test.go
+//
+// 主要符号
+//
+//	TestMapE2BError(t *testing.T)
+//	TestE2BPathClassification(t *testing.T)
+//	TestE2BPathResolution(t *testing.T)
+//	upload(e interface { ServeHTTP(http.ResponseWriter, *http.Request) }, key, id, target, content string) *httpte...
+//	TestEnvdFilesRoundTrip(t *testing.T)
+//	TestEnvdFilesEnforceSizeLimit(t *testing.T)
+//	type truncatingSandbox struct{…}
+//	(truncatingSandbox) ReadFile(contextT, string, string, string) (sandbox.FileContent, error)
+//	... 另有 8 个顶层符号
+
 package api
 
 import (

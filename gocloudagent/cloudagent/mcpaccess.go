@@ -1,3 +1,35 @@
+// 文件说明：mcpaccess.go — gocloudagent/cloudagent 中 MCPConnector、MCPPolicy 等符号的实现
+//
+// 用法
+//
+//	type MCPConnector interface{…}  // MCPConnector establishes the sessions selected for one run. Credentials and netw...
+//	type MCPPolicy interface{…}  // MCPPolicy classifies a selected MCP tool. Unknown tools must fail closed.
+//	type MCPToolRef struct{…}  // MCPToolRef selects a whole MCP server or one of its tools.
+//	HasMCPTools(ids []string) bool  // HasMCPTools reports whether tool IDs contain an MCP reference.
+//	同包调用：mcpToolRefs() → mcptool.go, mcptool_test.go；mcpServerIDs() → mcptool.go, mcptool_test.go；mcpToolFilter() → mcptool.go
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/cloudagent/mcpaccess.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] callgate.go, callgate_test.go, confirmation.go, confirmation_test.go, errors.go 等 32 个
+//	[关键引用] MCPConnector ← mcptool.go, runtime.go；MCPPolicy ← mcptool.go, runtime.go；mcpToolRefs ← mcptool.go, mcptool_test.go
+//
+// 主要符号
+//
+//	type MCPConnector interface{…}
+//	type MCPPolicy interface{…}
+//	type MCPToolRef struct{…}
+//	mcpToolRefs(ids []string) []MCPToolRef
+//	mcpServerIDs(refs []MCPToolRef) []string
+//	HasMCPTools(ids []string) bool
+//	mcpToolFilter(refs []MCPToolRef, serverID string) (all bool, only map[string]bool)
+
 package cloudagent
 
 import (

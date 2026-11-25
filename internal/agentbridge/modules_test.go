@@ -1,3 +1,24 @@
+// 文件说明：modules_test.go — internal/agentbridge 的单元测试（TestModulesCatalogAndDefaults 等）
+//
+// 用法
+//
+//	go test ./internal/agentbridge -run 'TestModulesCatalogAndDefaults'
+//
+// 调用架构
+//
+//	[上游] internal/agentrun, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/agentbridge/modules_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] access_db.go, access_llm.go, access_object.go, access_test.go, bridge_test.go 等 33 个
+//
+// 主要符号
+//
+//	TestModulesCatalogAndDefaults(t *testing.T)
+
 package agentbridge
 
 import (

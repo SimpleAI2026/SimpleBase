@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'vue-sonner'
 import { i18n } from '@/locales'
 import SbRefreshButton from '@/components/SbRefreshButton.vue'
@@ -58,6 +58,11 @@ describe('downloadBlob', () => {
 })
 
 describe('copyText', () => {
+  beforeEach(() => {
+    // jsdom 没有 execCommand：默认让降级也失败，各用例再按需覆盖。
+    Object.defineProperty(document, 'execCommand', { value: vi.fn(() => false), configurable: true })
+  })
+
   it('成功时 toast 成功并返回 true；失败时 toast 失败并返回 false', async () => {
     const writeText = vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('denied'))
     Object.assign(navigator, { clipboard: { writeText } })
@@ -80,5 +85,24 @@ describe('copyText', () => {
     await expect(copyText('y', ok, fail)).resolves.toBe(false)
     expect(ok).toHaveBeenCalledTimes(1)
     expect(fail).toHaveBeenCalledTimes(1)
+  })
+
+  it('Clipboard API 被拒时降级 execCommand：降级成功算成功，降级也失败才提示失败', async () => {
+    Object.assign(navigator, { clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) } })
+    const exec = vi.fn().mockReturnValueOnce(true).mockReturnValueOnce(false)
+    Object.defineProperty(document, 'execCommand', { value: exec, configurable: true })
+    await expect(copyText('a', 'ok', 'fail')).resolves.toBe(true)
+    expect(toast.success).toHaveBeenCalledWith('ok')
+    expect(document.querySelector('textarea')).toBeNull()
+    await expect(copyText('b', 'ok2', (e) => `fail:${(e as Error).message}`)).resolves.toBe(false)
+    expect(toast.error).toHaveBeenCalledWith('fail:denied')
+    expect(toast.success).not.toHaveBeenCalledWith('ok2')
+  })
+
+  it('execCommand 抛错同样视为失败，并清理临时 textarea', async () => {
+    Object.assign(navigator, { clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) } })
+    Object.defineProperty(document, 'execCommand', { value: vi.fn(() => { throw new Error('boom') }), configurable: true })
+    await expect(copyText('a', 'ok', 'fail')).resolves.toBe(false)
+    expect(document.querySelector('textarea')).toBeNull()
   })
 })

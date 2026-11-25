@@ -1,3 +1,25 @@
+// 文件说明：recording_test.go — godatabase/internal/testutil 的单元测试（TestRecordingLogger、TestRecordingObserver 等）
+//
+// 用法
+//
+//	go test ./godatabase/internal/testutil -run 'TestRecordingLogger|TestRecordingObserver'
+//
+// 调用架构
+//
+//	[上游] 仅测试引用：godatabase/cache, godatabase/ducklake, godatabase/registry
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/internal/testutil/recording_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] recording.go
+//
+// 主要符号
+//
+//	TestRecordingLogger(t *testing.T)
+//	TestRecordingObserver(t *testing.T)
+
 package testutil
 
 import (

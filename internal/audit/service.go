@@ -34,6 +34,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/linkxzhou/SimpleBase/godatabase/limit"
+	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
 )
@@ -64,7 +65,7 @@ type Event struct {
 // Record 记录一条审计事件。不可变：插入后不修改。
 func (s *Service) Record(ctx context.Context, e Event) error {
 	if e.PrincipalID == "" {
-		e.PrincipalID = "system"
+		e.PrincipalID = auth.ActorSystem
 	}
 	if e.Kind == "" {
 		return fmt.Errorf("audit: kind required")

@@ -1,3 +1,32 @@
+// 文件说明：packages_test.go — gofunction/internal/interp 的单元测试（TestAtomic、TestBase64 等）
+//
+// 用法
+//
+//	go test ./gofunction/internal/interp -run 'TestAtomic|TestBase64|TestBytes|TestFmt'
+//
+// 调用架构
+//
+//	[上游] gofunction
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/internal/interp/packages_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] bench_test.go, cachetest_test.go, call.go, call_test.go, cheap_test.go 等 40 个
+//
+// 主要符号
+//
+//	TestAtomic(t *testing.T)
+//	TestBase64(t *testing.T)
+//	TestBytes(t *testing.T)
+//	TestFmt(t *testing.T)
+//	TestHttp(t *testing.T)
+//	TestHttpRequest(t *testing.T)
+//	TestHttpsRequest(t *testing.T)
+//	TestJson(t *testing.T)
+//	... 另有 4 个顶层符号
+
 package interp
 
 import (

@@ -1,3 +1,27 @@
+// 文件说明：sqlval_test.go — godatabase/sqlval 的单元测试（TestBoolInt、TestNullTime 等）
+//
+// 用法
+//
+//	go test ./godatabase/sqlval -run 'TestBoolInt|TestNullTime|TestNullTimeValue|TestNullString'
+//
+// 调用架构
+//
+//	[上游] internal/auth, internal/catalog, internal/collection, internal/systemdb
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/sqlval/sqlval_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] sqlval.go
+//
+// 主要符号
+//
+//	TestBoolInt(t *testing.T)
+//	TestNullTime(t *testing.T)
+//	TestNullTimeValue(t *testing.T)
+//	TestNullString(t *testing.T)
+
 package sqlval
 
 import (

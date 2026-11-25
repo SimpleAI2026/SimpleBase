@@ -1,3 +1,32 @@
+// 文件说明：mcp_test.go — internal/agentbridge 的单元测试（TestIsBlockedIP、TestMCPConnectorRejectsHTTPByDefault 等）
+//
+// 用法
+//
+//	go test ./internal/agentbridge -run 'TestIsBlockedIP|TestMCPConnectorRejectsHTTPByDefault|TestMCPConnectorRejectsBadURLs|TestMCPConnectorInjectsHeadersWithoutLeaking'
+//
+// 调用架构
+//
+//	[上游] internal/agentrun, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/agentbridge/mcp_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] access_db.go, access_llm.go, access_object.go, access_test.go, bridge_test.go 等 33 个
+//
+// 主要符号
+//
+//	newMCPTestStore(t *testing.T) *systemdb.Store
+//	mcpRequest(projectID string) cloudagent.RunRequest
+//	TestIsBlockedIP(t *testing.T)
+//	TestMCPConnectorRejectsHTTPByDefault(t *testing.T)
+//	TestMCPConnectorRejectsBadURLs(t *testing.T)
+//	TestMCPConnectorInjectsHeadersWithoutLeaking(t *testing.T)
+//	TestMCPConnectorEmptyStoreReturnsEmptySet(t *testing.T)
+//	TestMCPPolicyFailsClosedOnUnknownServer(t *testing.T)
+//	... 另有 1 个顶层符号
+
 package agentbridge
 
 import (
@@ -9,6 +38,8 @@ import (
 	_ "github.com/uglyer/go-sqlite3"
 
 	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
+	"github.com/linkxzhou/SimpleBase/gocloudagent/mcp"
+	"github.com/linkxzhou/SimpleBase/gocloudagent/tools"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
@@ -34,7 +65,8 @@ func mcpRequest(projectID string) cloudagent.RunRequest {
 	}
 }
 
-// SSRF 防护的核心：这些地址一律拒绝（planv6.2 §4.2-5）。
+// SSRF 防护的核心：这些地址一律拒绝（planv6.2 §4.2-5；
+// 判定已下沉 gocloudagent/tools.IsBlockedIP，此处为宿主接线的重复锁定）。
 func TestIsBlockedIP(t *testing.T) {
 	blocked := []string{
 		"127.0.0.1",       // 回环
@@ -53,7 +85,7 @@ func TestIsBlockedIP(t *testing.T) {
 		if ip == nil {
 			t.Fatalf("bad test ip %q", s)
 		}
-		if !isBlockedIP(ip) {
+		if !tools.IsBlockedIP(ip) {
 			t.Fatalf("%s should be blocked", s)
 		}
 	}
@@ -64,11 +96,11 @@ func TestIsBlockedIP(t *testing.T) {
 		if ip == nil {
 			t.Fatalf("bad test ip %q", s)
 		}
-		if isBlockedIP(ip) {
+		if tools.IsBlockedIP(ip) {
 			t.Fatalf("%s should be allowed", s)
 		}
 	}
-	if !isBlockedIP(nil) {
+	if !tools.IsBlockedIP(nil) {
 		t.Fatal("nil ip should be blocked")
 	}
 }
@@ -104,12 +136,15 @@ func TestMCPConnectorInjectsHeadersWithoutLeaking(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rt, ok := client.Transport.(*headerRoundTripper)
+	rt, ok := client.Transport.(*mcp.HeaderTransport)
 	if !ok {
 		t.Fatalf("transport=%T", client.Transport)
 	}
-	if rt.headers["Authorization"] != "Bearer secret" {
-		t.Fatalf("headers=%v", rt.headers)
+	if rt.Headers.Get("Authorization") != "Bearer secret" {
+		t.Fatalf("headers=%v", rt.Headers)
+	}
+	if rt.MaxResponseBytes != mcp.MaxEventBytes {
+		t.Fatalf("host MCP must cap responses at %d, got %d", mcp.MaxEventBytes, rt.MaxResponseBytes)
 	}
 	// 禁止跟随重定向：SSRF 的常见绕过手段。
 	if client.CheckRedirect == nil {

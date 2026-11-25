@@ -7,7 +7,7 @@ import {
   logLevelVariant,
   statusBadgeVariant,
   statusText,
-} from '@/lib/status'
+} from '@/utils/status'
 
 describe('status helpers', () => {
   it('maps known statuses and falls back to raw text', () => {

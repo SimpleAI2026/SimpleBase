@@ -1,3 +1,30 @@
+// 文件说明：s3filestore_test.go — internal/objectstore 的单元测试（TestS3FileStoreCRUDViaFakeHTTP、TestS3FileStorePutHeadFallback 等）
+//
+// 用法
+//
+//	go test ./internal/objectstore -run 'TestS3FileStoreCRUDViaFakeHTTP|TestS3FileStorePutHeadFallback|TestDownloadFileErrorAndMemoryPutRead|TestDuckLakeKeyErrors'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/api, internal/app, internal/backup 等 6 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/objectstore/s3filestore_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] blob.go, blob_test.go, branches_test.go, client.go, client_test.go 等 24 个
+//
+// 主要符号
+//
+//	type memS3 struct{…}
+//	(m *memS3) ServeHTTP(w http.ResponseWriter, r *http.Request)
+//	newTestS3FileStore(t *testing.T, backend *memS3) *s3FileStore
+//	TestS3FileStoreCRUDViaFakeHTTP(t *testing.T)
+//	TestS3FileStorePutHeadFallback(t *testing.T)
+//	TestDownloadFileErrorAndMemoryPutRead(t *testing.T)
+//	TestDuckLakeKeyErrors(t *testing.T)
+
 package objectstore
 
 import (

@@ -1,5 +1,37 @@
 //go:build linux
 
+// 文件说明：supervise_linux.go — gosandbox/box 中 SuperviseArgs、RunSupervisor 等符号的实现
+//
+// 用法
+//
+//	SuperviseArgs(args []string) (socket, policy string, argv []string, ok bool)  // SuperviseArgs 判断一组参数是否是 supervisor 模式，并拆出 socket、策略文件与子进程 argv
+//	RunSupervisor(socket, policy string, argv []string) int  // RunSupervisor 是 supervisor 的主体：托管一个子进程，并把它的 socketpair 通过 unix socket 暴露给服务进程
+//	同包调用：dialSupervisor() → launch_linux.go, supervise_test.go
+//
+// 调用架构
+//
+//	[上游] gosandbox/cmd, gosandbox/vm/box
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/box/supervise_linux.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] backpressure_test.go, copytree.go, deadline.go, egress_e2e_test.go, files.go 等 26 个
+//	[关键引用] SuperviseArgs ← supervise_test.go；dialSupervisor ← launch_linux.go, supervise_test.go
+//
+// 主要符号
+//
+//	const DialTimeout
+//	SuperviseArgs(args []string) (socket, policy string, argv []string, ok bool)
+//	RunSupervisor(socket, policy string, argv []string) int
+//	type supervisor struct{…}
+//	(s *supervisor) readAgent()
+//	(s *supervisor) markBroken()
+//	(s *supervisor) acceptLoop()
+//	(s *supervisor) pump(svc net.Conn)
+//	... 另有 2 个顶层符号
+
 package box
 
 import (

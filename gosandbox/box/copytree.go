@@ -1,5 +1,28 @@
 //go:build linux
 
+// 文件说明：copytree.go — gosandbox/box 的内部实现（copyTree、copyFileInto 等）
+//
+// 用法
+//
+//	同包调用：copyTree() → launch_linux.go
+//
+// 调用架构
+//
+//	[上游] gosandbox/cmd, gosandbox/vm/box
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/box/copytree.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] backpressure_test.go, deadline.go, egress_e2e_test.go, files.go, handle.go 等 26 个
+//	[关键引用] copyTree ← launch_linux.go
+//
+// 主要符号
+//
+//	copyTree(src, dst string) error
+//	copyFileInto(src, dst string, perm os.FileMode) error
+
 package box
 
 import (

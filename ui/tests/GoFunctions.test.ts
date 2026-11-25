@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'vue-sonner'
 import { ADMIN_PROJECT_ID } from '@/stores/project'
 import { api, resetApiMocks } from '@/test/api-mock'
-import { clickText, mountWithApp, sampleGoFn } from '@/test/helpers'
+import { clickAlertDialog, clickText, installJsdomPolyfills, mountWithApp, realAlertDialogStubs, sampleGoFn } from '@/test/helpers'
 
 vi.mock('@/services/api', async () => {
   const m = await import('@/test/api-mock')
@@ -13,6 +13,9 @@ vi.mock('@/services/api', async () => {
 import GoFunctions from '@/pages/GoFunctions.vue'
 
 const modalStub = {
+  ...realAlertDialogStubs,
+  // Button 用真实实现后，Badge 桩（as=button 的透传）不再渲染，这里一并用真实 Badge
+  Badge: false,
   GoFunctionModal: {
     props: ['open', 'mode', 'target'],
     emits: ['saved', 'update:open'],
@@ -21,10 +24,13 @@ const modalStub = {
   }
 }
 
+installJsdomPolyfills()
+
 describe('GoFunctions (云函数)', () => {
   beforeEach(() => {
     resetApiMocks()
-    Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } })
+    // jsdom 的 navigator.clipboard 是只读访问器，Object.assign 会静默失败；必须 defineProperty。
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn().mockResolvedValue(undefined) }, configurable: true })
     api.gofunctions.list.mockResolvedValue([sampleGoFn, { ...sampleGoFn, id: 'gf-2', name: 'empty', file: 'empty.go', exports: [] }])
   })
 
@@ -33,7 +39,8 @@ describe('GoFunctions (云函数)', () => {
     expect(wrapper.text()).toContain('hello.go')
     const pathCode = wrapper.get('code')
     expect(pathCode.classes()).toEqual(expect.arrayContaining(['sb-code-view', 'sb-mono', 'text-xs']))
-    const copyButton = wrapper.get('button.badge[aria-label="复制 hello.go 的 Hello 完整调用路径"]')
+    // 按 aria-label 定位复制按钮（不依赖 Badge 桩的 .badge class）
+    const copyButton = wrapper.get('button[aria-label="复制 hello.go 的 Hello 完整调用路径"]')
     expect(copyButton.attributes('type')).toBe('button')
     await copyButton.trigger('click')
     await flushPromises()
@@ -65,12 +72,16 @@ describe('GoFunctions (云函数)', () => {
     await flushPromises()
     expect(wrapper.findComponent({ name: 'GoFuncVersionsModal' }).props('open')).toBe(true)
 
+    // 真实 ConfirmAction：点「删除」先弹确认，点「确定」才真正删除
     await clickText(wrapper, '删除')
     await flushPromises()
+    expect(api.gofunctions.remove).not.toHaveBeenCalled()
+    await clickAlertDialog('确定')
     expect(api.gofunctions.remove).toHaveBeenCalled()
     api.gofunctions.remove.mockRejectedValueOnce(new Error('rm'))
     await clickText(wrapper, '删除')
     await flushPromises()
+    await clickAlertDialog('确定')
     expect(toast.error).toHaveBeenCalledWith('rm')
     await wrapper.get('.pager-next').trigger('click')
   })

@@ -1,5 +1,35 @@
 //go:build linux
 
+// 文件说明：exec_linux.go — gosandbox/vm/box 的内部实现（Exec、resolveArgv 等）
+//
+// 用法
+//
+//	同包调用：resolveArgv() → contracts_linux_test.go, driver_test.go；resolveCwd() → driver_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/vm/box/exec_linux.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] capabilities.go, contracts_linux_test.go, diskuse_linux.go, driver_linux.go, driver_other.go 等 15 个
+//	[关键引用] resolveArgv ← contracts_linux_test.go, driver_test.go；resolveCwd ← driver_test.go
+//
+// 主要符号
+//
+//	(d *Driver) Exec(ctx context.Context, t vm.Target, r vm.ExecSpec) (vm.ExecResult, error)
+//	resolveArgv(shell, cmd string, args []string) ([]string, bool)
+//	resolveCwd(workdir, cwd string) (string, error)
+//	(d *Driver) Start(ctx context.Context, t vm.Target, r vm.StartSpec) (vm.Proc, error)
+//	type procAdapter struct{…}
+//	(a *procAdapter) PID() int
+//	(a *procAdapter) Stdin() io.WriteCloser
+//	(a *procAdapter) Output() io.Reader
+//	... 另有 5 个顶层符号
+
 package box
 
 import (
@@ -85,11 +115,7 @@ func (d *Driver) Start(ctx context.Context, t vm.Target, r vm.StartSpec) (vm.Pro
 	}
 	argv, ok := resolveArgv(r.Shell, r.Cmd, r.Args)
 	if !ok {
-		if r.Shell == "" && r.Cmd == "" {
-			argv = []string{"/bin/sh", "-i"}
-		} else {
-			return nil, fmt.Errorf("%w: %s: command not found", vm.ErrBackend, r.Cmd)
-		}
+		argv = []string{"/bin/sh", "-i"}
 	}
 	cwd, cerr := resolveCwd(d.workdir(t), r.Cwd)
 	if cerr != nil {

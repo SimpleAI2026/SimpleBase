@@ -1,3 +1,33 @@
+// 文件说明：config_test.go — gocloudagent/cli 的单元测试（TestSaveConfigEnforcesSecureMode、TestLoadConfigRejectsLooseMode 等）
+//
+// 用法
+//
+//	go test ./gocloudagent/cli -run 'TestSaveConfigEnforcesSecureMode|TestLoadConfigRejectsLooseMode|TestLoadConfigMissingIsNotAnError|TestMergeEnvPrecedence'
+//	同包调用：testEnv() → command_test.go, compaction_test.go
+//
+// 调用架构
+//
+//	[上游] gocloudagent
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/cli/config_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] agent_loop.go, agent_loop_test.go, budget_test.go, client.go, client_conn_reuse_test.go 等 39 个
+//	[关键引用] testEnv ← command_test.go, compaction_test.go
+//
+// 主要符号
+//
+//	testEnv(t *testing.T) []string
+//	TestSaveConfigEnforcesSecureMode(t *testing.T)
+//	TestLoadConfigRejectsLooseMode(t *testing.T)
+//	TestLoadConfigMissingIsNotAnError(t *testing.T)
+//	TestMergeEnvPrecedence(t *testing.T)
+//	TestConfigValidate(t *testing.T)
+//	TestHomeDirRespectsOverride(t *testing.T)
+//	TestOverlayConfigKeepsFileValues(t *testing.T)
+
 package cli
 
 import (

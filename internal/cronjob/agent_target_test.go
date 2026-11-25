@@ -1,3 +1,32 @@
+// 文件说明：agent_target_test.go — internal/cronjob 的单元测试（TestScheduler_AgentTargetDispatch、TestScheduler_EmptyTargetKindStaysFunction 等）
+//
+// 用法
+//
+//	go test ./internal/cronjob -run 'TestScheduler_AgentTargetDispatch|TestScheduler_EmptyTargetKindStaysFunction|TestScheduler_AgentTargetWithoutRunnerFails|TestScheduler_AgentTargetFailureStatuses'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/cronjob/agent_target_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] scheduler.go, scheduler_lifecycle_test.go, scheduler_test.go, scheduler_tick_execute_test.go
+//
+// 主要符号
+//
+//	type fakeAgentRunner struct{…}
+//	(f *fakeAgentRunner) RunAgent(_ context.Context, j systemdb.CronJob, trigger string) (AgentResult, error)
+//	(f *fakeAgentRunner) callCount() int
+//	agentJob(id string) systemdb.CronJob
+//	TestScheduler_AgentTargetDispatch(t *testing.T)
+//	TestScheduler_EmptyTargetKindStaysFunction(t *testing.T)
+//	TestScheduler_AgentTargetWithoutRunnerFails(t *testing.T)
+//	TestScheduler_AgentTargetFailureStatuses(t *testing.T)
+//	... 另有 3 个顶层符号
+
 package cronjob
 
 import (

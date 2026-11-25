@@ -1,3 +1,38 @@
+// 文件说明：query.go — godatabase 中 Statement、QueryResult 等符号的实现
+//
+// 用法
+//
+//	type Statement struct{…}  // Statement 是一条参数化 SQL 语句
+//	type QueryResult struct{…}  // QueryResult 是 Query/Execute/Batch 的统一返回结构
+//	Query(ctx context.Context, db *sql.DB, stmt Statement, maxRows int) (QueryResult, error)  // Query 在给定 *sql.DB 上执行只读查询，最多扫描 maxRows 行
+//	Execute(ctx context.Context, db *sql.DB, stmt Statement) (QueryResult, error)  // Execute 在给定 *sql.DB 上执行单条写语句
+//	Batch(ctx context.Context, db *sql.DB, stmts []Statement, transactional bool) ([]QueryResult, error)  // Batch 依次执行多条语句
+//	同包调用：executeOn() → coverage_test.go
+//
+// 调用架构
+//
+//	[上游] godatabase/cache, godatabase/cmd, godatabase/ducklake, godatabase/filedb 等 16 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/query.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] coverage_test.go, dialect.go, errmatch.go, query_test.go, runtime.go 等 10 个
+//	[关键引用] Statement ← coverage_test.go, query_test.go；Query ← coverage_test.go, query_test.go；Execute ← coverage_test.go, query_test.go
+//
+// 主要符号
+//
+//	type Statement struct{…}
+//	type QueryResult struct{…}
+//	Query(ctx context.Context, db *sql.DB, stmt Statement, maxRows int) (QueryResult, error)
+//	Execute(ctx context.Context, db *sql.DB, stmt Statement) (QueryResult, error)
+//	type execer interface{…}
+//	executeOn(ctx context.Context, e execer, stmt Statement) (QueryResult, error)
+//	Batch(ctx context.Context, db *sql.DB, stmts []Statement, transactional bool) ([]QueryResult, error)
+//	batchTx(ctx context.Context, db *sql.DB, stmts []Statement) ([]QueryResult, error)
+//	... 另有 1 个顶层符号
+
 package godatabase
 
 import (

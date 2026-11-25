@@ -1,3 +1,28 @@
+// 文件说明：identity_test.go — internal/app 的单元测试（TestCheckStorageIdentityFirstStartWrites、TestCheckStorageIdentityRejectsChange 等）
+//
+// 用法
+//
+//	go test ./internal/app -run 'TestCheckStorageIdentityFirstStartWrites|TestCheckStorageIdentityRejectsChange|TestNormalizeMode'
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/api/perfbench
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/app/identity_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_shutdown_test.go, app.go, app_alerts.go, app_lease.go, app_test.go 等 41 个
+//
+// 主要符号
+//
+//	writeFileForTest(path string, data []byte) error
+//	baseStorageConfig(dir string) config.Config
+//	TestCheckStorageIdentityFirstStartWrites(t *testing.T)
+//	TestCheckStorageIdentityRejectsChange(t *testing.T)
+//	TestNormalizeMode(t *testing.T)
+
 package app
 
 import (

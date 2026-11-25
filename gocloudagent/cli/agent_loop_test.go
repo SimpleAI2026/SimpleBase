@@ -1,3 +1,34 @@
+// 文件说明：agent_loop_test.go — gocloudagent/cli 的单元测试（TestRunnerPlainReply、TestRunnerToolCallSequence 等）
+//
+// 用法
+//
+//	go test ./gocloudagent/cli -run 'TestRunnerPlainReply|TestRunnerToolCallSequence|TestRunnerUnknownToolDoesNotFailRun|TestRunnerRedactsSecrets'
+//	同包调用：scriptedClient → compaction_test.go, group_test.go；echoTool() → client_test.go, history_bugs_test.go；erroringClient → compaction_test.go
+//
+// 调用架构
+//
+//	[上游] gocloudagent
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/cli/agent_loop_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_loop.go, budget_test.go, client.go, client_conn_reuse_test.go, client_http_status_test.go 等 39 个
+//	[关键引用] scriptedClient ← compaction_test.go, group_test.go；echoTool ← client_test.go, history_bugs_test.go；erroringClient ← compaction_test.go
+//
+// 主要符号
+//
+//	type scriptedClient struct{…}
+//	(c *scriptedClient) Chat(_ context.Context, _ string, req agentcore.ChatRequest) (agentcore.ChatResponse, erro...
+//	(c *scriptedClient) Stream(ctx context.Context, projectID string, req agentcore.ChatRequest) (agentcore.TokenS...
+//	type scriptedDeltaStream struct{…}
+//	(s *scriptedDeltaStream) Next() (string, bool, error)
+//	(s *scriptedDeltaStream) NextDelta() (agentcore.StreamDelta, error)
+//	(s *scriptedDeltaStream) Close() error
+//	(c *scriptedClient) callCount() int
+//	... 另有 11 个顶层符号
+
 package cli
 
 import (

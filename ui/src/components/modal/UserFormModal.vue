@@ -64,8 +64,8 @@
         <FieldLabel>{{ t('common.status') }}</FieldLabel>
         <Input :model-value="user.status === 'active' ? t('common.enabledState') : t('common.disabledState')" disabled />
         <FieldDescription>
-          {{ t('components.userForm.createdAt', { time: fmtTime(user.createdAt) }) }}
-          <template v-if="user.lastLoginAt">{{ t('components.userForm.lastLogin', { time: fmtTime(user.lastLoginAt) }) }}</template>
+          {{ t('components.userForm.createdAt', { time: formatTime(user.createdAt, '—') }) }}
+          <template v-if="user.lastLoginAt">{{ t('components.userForm.lastLogin', { time: formatTime(user.lastLoginAt, '—') }) }}</template>
         </FieldDescription>
       </Field>
       <Alert v-if="error" variant="destructive">
@@ -84,11 +84,11 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import SbModal from './SbModal.vue'
-import { api } from '../../services/api'
-import type { UserItem, UserRole } from '../../services/types'
-import { BOOTSTRAP_USERNAME, useAuthStore } from '../../stores/auth'
-import { formatTime } from '../../utils/format'
+import SbModal from '@/components/modal/SbModal.vue'
+import { api } from '@/services/api'
+import type { UserItem, UserRole } from '@/services/types'
+import { BOOTSTRAP_USERNAME, useAuthStore } from '@/stores/auth'
+import { formatTime } from '@/utils/format'
 
 const auth = useAuthStore()
 const { t } = useI18n()
@@ -134,10 +134,6 @@ watch(
     role.value = (props.user?.role as UserRole) || ''
   }
 )
-
-function fmtTime(s?: string) {
-  return formatTime(s, '—')
-}
 
 async function submit() {
   if (!canSubmit.value || submitting.value) return

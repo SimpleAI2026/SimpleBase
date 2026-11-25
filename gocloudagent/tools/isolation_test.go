@@ -1,3 +1,32 @@
+// 文件说明：isolation_test.go — gocloudagent/tools 的单元测试（TestShellIsolationFailsClosed、TestShellYoloStillIsolated 等）
+//
+// 用法
+//
+//	go test ./gocloudagent/tools -run 'TestShellIsolationFailsClosed|TestShellYoloStillIsolated|TestShellBypassModesRunBare|TestDenyReadFileTools'
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/cloudagent, internal/agentbridge
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/tools/isolation_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] base.go, fsutil.go, http.go, mcp.go, netguard.go 等 15 个
+//
+// 主要符号
+//
+//	brokenPolicy() host.Policy
+//	TestShellIsolationFailsClosed(t *testing.T)
+//	TestShellYoloStillIsolated(t *testing.T)
+//	TestShellBypassModesRunBare(t *testing.T)
+//	denyWorkspace(t *testing.T) (*Workspace, string)
+//	TestDenyReadFileTools(t *testing.T)
+//	TestDenyReadGlobGrepSkip(t *testing.T)
+//	TestDenyReadIgnoredWhenDisabled(t *testing.T)
+//	... 另有 1 个顶层符号
+
 package tools
 
 import (
@@ -24,7 +53,7 @@ func TestShellIsolationFailsClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 	marker := filepath.Join(root, "ran")
-	out := invoke(t, findTool(t, tools, "shell"), `{"command":"touch ran"}`)
+	out := invoke(t, findTool(t, tools, "bash"), `{"command":"touch ran"}`)
 	if !strings.Contains(out, "isolation_unavailable") {
 		t.Fatalf("want isolation_unavailable, got: %s", out)
 	}
@@ -46,7 +75,7 @@ func TestShellYoloStillIsolated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out := invoke(t, findTool(t, tools, "shell"), `{"command":"rm -rf sentinel"}`)
+	out := invoke(t, findTool(t, tools, "bash"), `{"command":"rm -rf sentinel"}`)
 	if strings.Contains(out, "confirmation_denied") {
 		t.Fatalf("yolo must skip confirmation: %s", out)
 	}
@@ -72,7 +101,7 @@ func TestShellBypassModesRunBare(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			out := invoke(t, findTool(t, tools, "shell"), `{"command":"echo hello-bare"}`)
+			out := invoke(t, findTool(t, tools, "bash"), `{"command":"echo hello-bare"}`)
 			if !strings.Contains(out, "hello-bare") {
 				t.Fatalf("bare run expected: %s", out)
 			}
@@ -102,17 +131,17 @@ func TestDenyReadFileTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct{ tool, args string }{
-		{"read_file", `{"path":"token.txt"}`},
-		{"read_file", `{"path":"` + token + `"}`},
-		{"write_file", `{"path":"token.txt","content":"x"}`},
-		{"edit_file", `{"path":"token.txt","old_text":"a","new_text":"b"}`},
+		{"read", `{"path":"token.txt"}`},
+		{"read", `{"path":"` + token + `"}`},
+		{"write", `{"path":"token.txt","content":"x"}`},
+		{"edit", `{"path":"token.txt","old_text":"a","new_text":"b"}`},
 	} {
 		out := invoke(t, findTool(t, tools, tc.tool), tc.args)
 		if !strings.Contains(out, "path_not_allowed") || strings.Contains(out, "TOPSECRET") {
 			t.Fatalf("%s must be denied: %s", tc.tool, out)
 		}
 	}
-	if out := invoke(t, findTool(t, tools, "read_file"), `{"path":"open.txt"}`); !strings.Contains(out, "TOPSECRET-open") {
+	if out := invoke(t, findTool(t, tools, "read"), `{"path":"open.txt"}`); !strings.Contains(out, "TOPSECRET-open") {
 		t.Fatalf("non-denied file must stay readable: %s", out)
 	}
 }

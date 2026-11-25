@@ -1,5 +1,28 @@
 //go:build linux
 
+// 文件说明：pty_linux.go — gosandbox/host 的内部实现（openPTY、setWinsize 等）
+//
+// 用法
+//
+//	包内实现，无导出与跨文件调用
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/tools, gosandbox/box, gosandbox/vm/box 等 5 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/host/pty_linux.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] bwrap_args.go, bwrap_args_extra_test.go, cgroup.go, cgroup_linux.go, cgroup_linux_test.go 等 36 个
+//
+// 主要符号
+//
+//	openPTY(size PTYSize) (master, slave *os.File, err error)
+//	setWinsize(f *os.File, size PTYSize) error
+//	itoa(n int) string
+
 package host
 
 import (

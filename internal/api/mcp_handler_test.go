@@ -1,3 +1,31 @@
+// 文件说明：mcp_handler_test.go — internal/api 的单元测试（TestMCPServerHandlerCreateNeverEchoesCredentials、TestMCPServerHandlerRejectsInvalidNameAndOverLimit 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestMCPServerHandlerCreateNeverEchoesCredentials|TestMCPServerHandlerRejectsInvalidNameAndOverLimit|TestMCPServerHandlerUpdateKeepsHeadersWhenOmitted|TestMCPServerHandlerDeleteAndTest'
+//	同包调用：mcpServerEcho() → mcp_builtin_admin_test.go；doJSON() → mcp_builtin_admin_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/mcp_handler_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] mcpServerEcho ← mcp_builtin_admin_test.go；doJSON ← mcp_builtin_admin_test.go
+//
+// 主要符号
+//
+//	mcpServerEcho(store *systemdb.Store) *echo.Echo
+//	doJSON(t *testing.T, e *echo.Echo, method, path, body string) (*httptest.ResponseRecorder, map[string]any)
+//	TestMCPServerHandlerCreateNeverEchoesCredentials(t *testing.T)
+//	TestMCPServerHandlerRejectsInvalidNameAndOverLimit(t *testing.T)
+//	TestMCPServerHandlerUpdateKeepsHeadersWhenOmitted(t *testing.T)
+//	TestMCPServerHandlerDeleteAndTest(t *testing.T)
+
 package api
 
 import (

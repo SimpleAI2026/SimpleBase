@@ -1,3 +1,32 @@
+// 文件说明：jsonrun_test.go — gofunction/internal/interp 的单元测试（TestValidateHTTPFuncs_OK、TestValidateHTTPFuncs_MultiParam 等）
+//
+// 用法
+//
+//	go test ./gofunction/internal/interp -run 'TestValidateHTTPFuncs_OK|TestValidateHTTPFuncs_MultiParam|TestValidateHTTPFuncs_TwoResults|TestValidateHTTPFuncs_NoExport'
+//
+// 调用架构
+//
+//	[上游] gofunction
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/internal/interp/jsonrun_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] bench_test.go, cachetest_test.go, call.go, call_test.go, cheap_test.go 等 40 个
+//
+// 主要符号
+//
+//	const helloSrc
+//	TestValidateHTTPFuncs_OK(t *testing.T)
+//	TestValidateHTTPFuncs_MultiParam(t *testing.T)
+//	TestValidateHTTPFuncs_TwoResults(t *testing.T)
+//	TestValidateHTTPFuncs_NoExport(t *testing.T)
+//	TestValidateHTTPFuncs_CompileError(t *testing.T)
+//	TestValidateHTTPFuncs_UnregisteredPkg(t *testing.T)
+//	TestValidateHTTPFuncs_PartialBad(t *testing.T)
+//	... 另有 10 个顶层符号
+
 package interp
 
 import (

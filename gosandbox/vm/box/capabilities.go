@@ -1,5 +1,35 @@
 //go:build linux
 
+// 文件说明：capabilities.go — gosandbox/vm/box 的内部实现（Logs、toVMLogs 等）
+//
+// 用法
+//
+//	同包调用：newFileWatch() → watch_linux_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/vm/box/capabilities.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] contracts_linux_test.go, diskuse_linux.go, driver_linux.go, driver_other.go, driver_test.go 等 15 个
+//	[关键引用] newFileWatch ← watch_linux_test.go
+//
+// 主要符号
+//
+//	(d *Driver) Logs(ctx context.Context, name string, q vm.LogQuery) ([]vm.LogRecord, error)
+//	toVMLogs(recs []gosandboxbox.Record) []vm.LogRecord
+//	(d *Driver) Watch(ctx context.Context, t vm.Target, path string, opt vm.WatchOptions) (vm.FileWatch, error)
+//	(d *Driver) DialPort(ctx context.Context, name string, port uint16) (io.ReadWriteCloser, error)
+//	type watchSource interface{…}
+//	type fileWatch struct{…}
+//	newFileWatch(w watchSource) *fileWatch
+//	(f *fileWatch) forward()
+//	... 另有 3 个顶层符号
+
 package box
 
 import (
@@ -7,9 +37,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 
 	gosandboxbox "github.com/linkxzhou/SimpleBase/gosandbox/box"
-	"github.com/linkxzhou/SimpleBase/gosandbox/proto"
 	"github.com/linkxzhou/SimpleBase/gosandbox/vm"
 )
 
@@ -40,7 +70,7 @@ func (d *Driver) Logs(ctx context.Context, name string, q vm.LogQuery) ([]vm.Log
 	}
 	names, err := logNamesIn(dir)
 	if err != nil {
-		if errors.Is(err, errNotExist) {
+		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("%w: logs", vm.ErrBackend)
@@ -83,7 +113,7 @@ func (d *Driver) Watch(ctx context.Context, t vm.Target, path string, opt vm.Wat
 	if err != nil {
 		return nil, fmt.Errorf("%w: watch", vm.ErrBackend)
 	}
-	return &fileWatch{w: w}, nil
+	return newFileWatch(w), nil
 }
 
 // DialPort 实现 vm.PortDialer：连到沙盒内的 127.0.0.1:port。
@@ -92,40 +122,54 @@ func (d *Driver) DialPort(ctx context.Context, name string, port uint16) (io.Rea
 	if s == nil {
 		return nil, fmt.Errorf("%w: sandbox %q is not running", vm.ErrBackend, name)
 	}
-	conn, err := s.DialPort(port)
+	conn, err := s.DialPort(ctx, port)
 	if err != nil {
 		return nil, fmt.Errorf("%w: dial port %d", vm.ErrBackend, port)
-	}
-	// ctx 取消时关掉连接，避免调用方泄漏。
-	if ctx.Done() != nil {
-		go func() {
-			select {
-			case <-ctx.Done():
-				_ = conn.Close()
-			case <-s.Done():
-			}
-		}()
 	}
 	return conn, nil
 }
 
-// fileWatch 把 box.Watch 适配成 vm.FileWatch。
-type fileWatch struct {
-	w *gosandboxbox.Watch
+type watchSource interface {
+	Events() <-chan gosandboxbox.FileEvent
+	Done() <-chan struct{}
+	Overflowed() bool
+	Close() error
 }
 
-// Events 实现 vm.FileWatch。
-func (f *fileWatch) Events() <-chan vm.FileEvent {
-	out := make(chan vm.FileEvent, 64)
-	src := f.w.Events()
-	go func() {
-		defer close(out)
-		for ev := range src {
-			out <- vm.FileEvent{Path: ev.Path, Kind: fileKindName(ev.Kind)}
-		}
-	}()
-	return out
+// fileWatch 持有唯一转发者；停止时可以放弃尚未交付的事件。
+type fileWatch struct {
+	w    watchSource
+	out  chan vm.FileEvent
+	done chan struct{}
 }
+
+func newFileWatch(w watchSource) *fileWatch {
+	f := &fileWatch{w: w, out: make(chan vm.FileEvent, 64), done: make(chan struct{})}
+	go f.forward()
+	return f
+}
+
+func (f *fileWatch) forward() {
+	defer close(f.done)
+	defer close(f.out)
+	for {
+		select {
+		case <-f.w.Done():
+			return
+		case ev, ok := <-f.w.Events():
+			if !ok {
+				return
+			}
+			select {
+			case <-f.w.Done():
+				return
+			case f.out <- vm.FileEvent{Path: ev.Path, Kind: kindOf(ev.Kind)}:
+			}
+		}
+	}
+}
+
+func (f *fileWatch) Events() <-chan vm.FileEvent { return f.out }
 
 // Err 实现 vm.FileWatch：正常关闭返回 nil，丢事件时要求调用方重扫。
 func (f *fileWatch) Err() error {
@@ -137,19 +181,6 @@ func (f *fileWatch) Err() error {
 
 // Close 实现 vm.FileWatch。
 func (f *fileWatch) Close() error { return f.w.Close() }
-
-// fileKindName 把协议的 FileKind 转成 vm 的字符串。
-func fileKindName(k proto.FileKind) string {
-	switch k {
-	case proto.FileRegular:
-		return "file"
-	case proto.FileDir:
-		return "directory"
-	case proto.FileSymlink:
-		return "symlink"
-	}
-	return "other"
-}
 
 var (
 	_ vm.LogSource  = (*Driver)(nil)

@@ -1,5 +1,36 @@
 //go:build linux
 
+// 文件说明：session_test.go — gosandbox/box 的单元测试（TestSessionExec、TestSessionStdin 等）
+//
+// 用法
+//
+//	go test ./gosandbox/box -run 'TestSessionExec|TestSessionStdin|TestSessionBackgroundProcess|TestSessionSignal'
+//	同包调用：helperBin() → egress_e2e_test.go, log_watch_test.go；newTestSession() → log_watch_test.go, netx_e2e_test.go
+//
+// 调用架构
+//
+//	[上游] gosandbox/cmd, gosandbox/vm/box
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/box/session_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] backpressure_test.go, copytree.go, deadline.go, egress_e2e_test.go, files.go 等 26 个
+//	[关键引用] helperBin ← egress_e2e_test.go, log_watch_test.go；newTestSession ← log_watch_test.go, netx_e2e_test.go
+//
+// 主要符号
+//
+//	helperBin(t *testing.T) string
+//	newTestSession(t *testing.T) *Session
+//	TestSessionExec(t *testing.T)
+//	TestSessionStdin(t *testing.T)
+//	TestSessionBackgroundProcess(t *testing.T)
+//	TestSessionSignal(t *testing.T)
+//	TestSessionFiles(t *testing.T)
+//	TestSessionStats(t *testing.T)
+//	... 另有 3 个顶层符号
+
 package box
 
 // session_test.go：box 的端到端行为（Linux；不需要 bwrap）。

@@ -1,3 +1,37 @@
+// 文件说明：inspect.go — godatabase/ducklake 中 Snapshot、Setting 等符号的实现
+//
+// 用法
+//
+//	type Snapshot struct{…}  // Snapshot 是 lake.snapshots() 的一行
+//	type Setting struct{…}  // Setting 是 lake.settings() 的一行
+//	type TableFile struct{…}  // TableFile 是 ducklake_list_files 的一行
+//	CurrentSnapshot(ctx context.Context, db queryRower, alias string) (int64, error)  // CurrentSnapshot 返回 lake.current_snapshot() 的最新快照 id
+//	ListSnapshots(ctx context.Context, db *sql.DB, alias string) ([]Snapshot, error)  // ListSnapshots 返回全部快照（管理面 / 审计流水）
+//	ListSettings(ctx context.Context, db *sql.DB, alias string) ([]Setting, error)  // ListSettings 返回 lake.settings()
+//
+// 调用架构
+//
+//	[上游] internal/app, internal/systemdb
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/ducklake/inspect.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] c4_syncer_lease_test.go, c4_syncer_ordering_test.go, catalog_syncer.go, catalog_syncer_test.go, coverage_test.go 等 35 个
+//	[关键引用] CurrentSnapshot ← c4_syncer_lease_test.go, c4_syncer_ordering_test.go；ListSnapshots ← coverage_test.go, more_test.go；ListSettings ← coverage_test.go, factory.go
+//
+// 主要符号
+//
+//	type Snapshot struct{…}
+//	type Setting struct{…}
+//	type TableFile struct{…}
+//	type queryRower interface{…}
+//	CurrentSnapshot(ctx context.Context, db queryRower, alias string) (int64, error)
+//	ListSnapshots(ctx context.Context, db *sql.DB, alias string) ([]Snapshot, error)
+//	ListSettings(ctx context.Context, db *sql.DB, alias string) ([]Setting, error)
+//	ListTableFiles(ctx context.Context, db *sql.DB, alias, table string) ([]TableFile, error)
+
 package ducklake
 
 import (

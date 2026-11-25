@@ -1,3 +1,34 @@
+// 文件说明：tunnel_test.go — gosandbox/box 的单元测试（TestRelayHalfCloseKeepsReading、TestRelayFullDuplex 等）
+//
+// 用法
+//
+//	go test ./gosandbox/box -run 'TestRelayHalfCloseKeepsReading|TestRelayFullDuplex|TestRelayAbort|TestRelayClose'
+//	同包调用：newRelayForTest() → backpressure_test.go, lifecycle_test.go
+//
+// 调用架构
+//
+//	[上游] gosandbox/cmd, gosandbox/vm/box
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/box/tunnel_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] backpressure_test.go, copytree.go, deadline.go, egress_e2e_test.go, files.go 等 26 个
+//	[关键引用] newRelayForTest ← backpressure_test.go, lifecycle_test.go
+//
+// 主要符号
+//
+//	newRelayForTest(t *testing.T, id uint32) (*relay, *Session)
+//	sentFrames(t *testing.T, s *Session) []*proto.Msg
+//	TestRelayHalfCloseKeepsReading(t *testing.T)
+//	TestRelayFullDuplex(t *testing.T)
+//	TestRelayAbort(t *testing.T)
+//	TestRelayClose(t *testing.T)
+//	TestRelayDeliverEOFIsReadOnly(t *testing.T)
+//	TestTunnelKeepAliveShape(t *testing.T)
+//	... 另有 2 个顶层符号
+
 package box
 
 // tunnel_test.go：中继的隧道语义（半关闭、全双工、错误传播）。
@@ -47,7 +78,7 @@ func sentFrames(t *testing.T, s *Session) []*proto.Msg {
 		case f := <-s.out:
 			out = append(out, f.msg)
 		default:
-			return out
+			return append(out, s.takeCleanup()...)
 		}
 	}
 }

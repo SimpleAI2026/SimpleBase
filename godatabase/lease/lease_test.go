@@ -1,3 +1,32 @@
+// 文件说明：lease_test.go — godatabase/lease 的单元测试（TestAcquireFirstWriter、TestAcquireSecondInstanceBlockedWhileHeld 等）
+//
+// 用法
+//
+//	go test ./godatabase/lease -run 'TestAcquireFirstWriter|TestAcquireSecondInstanceBlockedWhileHeld|TestTakeoverAfterStopRenew|TestOnLostCalledWhenPreempted'
+//
+// 调用架构
+//
+//	[上游] internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/lease/lease_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] gate.go, gate_test.go, lease.go
+//
+// 主要符号
+//
+//	newTestManager(t *testing.T, cfg Config) (*Manager, blob.Store)
+//	type testLogger struct{…}
+//	(l *testLogger) Printf(format string, args ...any)
+//	(l *testLogger) Debug(msg string, _ ...zap.Field)
+//	(l *testLogger) Info(msg string, _ ...zap.Field)
+//	(l *testLogger) Warn(msg string, _ ...zap.Field)
+//	(l *testLogger) Error(msg string, _ ...zap.Field)
+//	(l *testLogger) all() []string
+//	... 另有 7 个顶层符号
+
 package lease
 
 import (

@@ -1,6 +1,36 @@
+// 文件说明：files.go — gosandbox/box 中 FileInfo 等符号的实现
+//
+// 用法
+//
+//	type FileInfo struct{…}  // FileInfo 是一个路径的元数据
+//
+// 调用架构
+//
+//	[上游] gosandbox/cmd, gosandbox/vm/box
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/box/files.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] backpressure_test.go, copytree.go, deadline.go, egress_e2e_test.go, handle.go 等 26 个
+//
+// 主要符号
+//
+//	const fileTimeout
+//	type FileInfo struct{…}
+//	(s *Session) fsRequest(m *proto.Msg) (proto.Msg, error)
+//	(s *Session) Stat(path string) (FileInfo, error)
+//	(s *Session) ListDir(path string) ([]proto.Entry, error)
+//	(s *Session) ReadFile(path string, maxBytes int) ([]byte, error)
+//	(s *Session) WriteFile(path string, data []byte, perm uint32) error
+//	(s *Session) Remove(path string) error
+//	... 另有 5 个顶层符号
+
 package box
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -148,32 +178,51 @@ func (s *Session) Listening() ([]uint16, error) {
 //
 // 这是 E2B getHost(port) 的实现方式：宿主不需要任何到沙盒的网络路径，
 // 也不需要沙盒有网络栈。
-func (s *Session) DialPort(port uint16) (net.Conn, error) {
+func (s *Session) DialPort(ctx context.Context, port uint16) (net.Conn, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	id := s.nextSeq()
 	rc := newRelay(s, id)
 	rc.port = port
 	s.mu.Lock()
 	s.relays[id] = rc
 	s.mu.Unlock()
-	if err := s.send(&proto.Msg{Kind: proto.KindRelay, ConnID: id, Port: port}); err != nil {
-		s.mu.Lock()
-		delete(s.relays, id)
-		s.mu.Unlock()
-		return nil, err
+	connected := false
+	defer func() {
+		if !connected {
+			_ = rc.Close()
+		}
+	}()
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	if s.closed.Load() {
+		return nil, io.ErrClosedPipe
 	}
-	// 等第一块数据或关闭：能立刻拿到任一即说明连上了。
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-s.done:
+		return nil, io.ErrClosedPipe
+	case <-timer.C:
+		return nil, errors.New("box: relay did not connect")
+	case s.out <- outFrame{msg: &proto.Msg{Kind: proto.KindRelay, ConnID: id, Port: port}}:
+	}
 	select {
 	case <-rc.ready:
-		// agent 可能刚报「连不上」：这时返回错误而不是一条空连接，
-		// 调用方才能区分「端口没人 listen」与「服务端没回内容」。
-		if rerr := rc.err(); rerr != nil {
-			_ = rc.Close()
-			return nil, rerr
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
+		if err := rc.err(); err != nil {
+			return nil, err
+		}
+		connected = true
+		go rc.watchContext(ctx)
 		return rc, nil
-	case <-time.After(5 * time.Second):
-		rc.Close()
+	case <-timer.C:
 		return nil, errors.New("box: relay did not connect")
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	case <-s.done:
 		return nil, io.ErrClosedPipe
 	}

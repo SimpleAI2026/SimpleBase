@@ -288,7 +288,7 @@ func perfStageMiddleware(recorder stageTimingRecorder, logger loggerLike) echo.M
 			}
 			if logger != nil {
 				logger.Debug("perf_stage",
-					zap.String("request_id", RequestIDFromContext(c.Request().Context())),
+					zap.String("request_id", requestID(c)),
 					zap.String("route", route),
 					zap.String("method", c.Request().Method),
 					zap.Duration("total", total),

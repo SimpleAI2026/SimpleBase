@@ -1,3 +1,32 @@
+// 文件说明：client_test.go — internal/objectstore 的单元测试（TestDescriptorPutGetRoundTrip、TestGetJSONNotFound 等）
+//
+// 用法
+//
+//	go test ./internal/objectstore -run 'TestDescriptorPutGetRoundTrip|TestGetJSONNotFound|TestHeadNotFound|TestDeletePrefix'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/api, internal/app, internal/backup 等 6 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/objectstore/client_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] blob.go, blob_test.go, branches_test.go, client.go, content.go 等 24 个
+//
+// 主要符号
+//
+//	type fakeClient struct{…}
+//	newFakeClient() *fakeClient
+//	(f *fakeClient) PutJSON(ctx context.Context, key string, value any, opts PutOptions) error
+//	(f *fakeClient) GetJSON(ctx context.Context, key string, dst any) error
+//	(f *fakeClient) Head(ctx context.Context, key string) (ObjectInfo, error)
+//	(f *fakeClient) DeletePrefix(ctx context.Context, prefix string) error
+//	TestDescriptorPutGetRoundTrip(t *testing.T)
+//	TestGetJSONNotFound(t *testing.T)
+//	... 另有 9 个顶层符号
+
 package objectstore
 
 import (

@@ -1,3 +1,39 @@
+// 文件说明：store.go — gosandbox/image 中 Layer、Image 等符号的实现
+//
+// 用法
+//
+//	type Layer struct{…}  // Layer 是一个层
+//	type Image struct{…}  // Image 是索引里的一条
+//	type Store struct{…}  // Store 是内容寻址的 blob store 与索引
+//	Open(root string) (*Store, error)  // Open 打开（或创建）一个 store
+//	type BlobWriter struct{…}  // BlobWriter 是一个待写入的 blob：先写 tmp，Commit 时校验摘要并 rename
+//	type InUse struct{…}  // InUse 是 GC 时需要保留的引用集合，由调用方提供（运行中的沙盒、快照）
+//	同包调用：digestHex() → store_test.go
+//
+// 调用架构
+//
+//	[上游] gosandbox/vm/box, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/image/store.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] arch.go, import.go, manifest.go, manifest_test.go, pull.go 等 16 个
+//	[关键引用] Layer ← import.go, pull.go；Image ← import.go, pull.go；Open ← store_test.go, unpack_test.go
+//
+// 主要符号
+//
+//	var ErrImageNotFound / ErrInUse
+//	type Layer struct{…}
+//	type Image struct{…}
+//	(i Image) SizeOf() int64
+//	type Store struct{…}
+//	Open(root string) (*Store, error)
+//	(s *Store) Root() string
+//	(s *Store) load() error
+//	... 另有 19 个顶层符号
+
 package image
 
 import (

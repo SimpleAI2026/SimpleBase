@@ -1,3 +1,31 @@
+// 文件说明：evictor.go — godatabase/registry 中 Evictor、CapacityEnsurer 等符号的实现
+//
+// 用法
+//
+//	type Evictor struct{…}  // Evictor 周期性调用 Registry.CloseIdle，回收空闲数据库连接
+//	type CapacityEnsurer interface{…}  // CapacityEnsurer 由 cache.Manager 实现：确保缓存有 needBytes 可用空间， 超限时按 LRU 淘汰（含 maxDataba...
+//	NewEvictor(registry *Registry, interval time.Duration, capacity CapacityEnsurer) *Evictor  // NewEvictor 构造一个后台淘汰器
+//
+// 调用架构
+//
+//	[上游] godatabase/cmd, godatabase/kv, internal/agentbridge, internal/api 等 7 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/registry/evictor.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] coverage_test.go, handle.go, registry.go, registry_test.go
+//	[关键引用] NewEvictor ← coverage_test.go, registry_test.go
+//
+// 主要符号
+//
+//	type Evictor struct{…}
+//	type CapacityEnsurer interface{…}
+//	NewEvictor(registry *Registry, interval time.Duration, capacity CapacityEnsurer) *Evictor
+//	(e *Evictor) Run(ctx context.Context)
+//	(e *Evictor) Stop()
+
 package registry
 
 import (

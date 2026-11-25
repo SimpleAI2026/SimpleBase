@@ -1,3 +1,29 @@
+// 文件说明：descriptor.go — internal/objectstore 中 DuckLakeStorage、Descriptor 等符号的实现
+//
+// 用法
+//
+//	type DuckLakeStorage struct{…}  // DuckLakeStorage 记录 DuckLake 在 S3 上的存储配置摘要（平面 B）
+//	type Descriptor struct{…}  // Descriptor 描述一个 SimpleBase logical database 的平台元数据
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/api, internal/app, internal/backup 等 6 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/objectstore/descriptor.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] blob.go, blob_test.go, branches_test.go, client.go, client_test.go 等 24 个
+//	[关键引用] DuckLakeStorage ← client_test.go；Descriptor ← client_test.go
+//
+// 主要符号
+//
+//	const DescriptorFormatVersion
+//	type DuckLakeStorage struct{…}
+//	type Descriptor struct{…}
+//	const StatusCreating / StatusOpening / StatusReady / StatusClosing / StatusClosed / StatusDegraded / StatusDeleting / StatusDeleted / StatusRecovering
+
 package objectstore
 
 import "time"

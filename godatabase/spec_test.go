@@ -1,3 +1,28 @@
+// 文件说明：spec_test.go — godatabase 的单元测试（TestSpecIsSystem、TestNormalizeEngine 等）
+//
+// 用法
+//
+//	go test ./godatabase -run 'TestSpecIsSystem|TestNormalizeEngine|TestPathForProjectAndEngineFromPath|TestValidatePathRejectsUnsafe'
+//
+// 调用架构
+//
+//	[上游] godatabase/cache, godatabase/cmd, godatabase/ducklake, godatabase/filedb 等 16 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/spec_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] coverage_test.go, dialect.go, errmatch.go, query.go, query_test.go 等 10 个
+//
+// 主要符号
+//
+//	TestSpecIsSystem(t *testing.T)
+//	TestNormalizeEngine(t *testing.T)
+//	TestPathForProjectAndEngineFromPath(t *testing.T)
+//	TestValidatePathRejectsUnsafe(t *testing.T)
+//	TestValidateProjectPath(t *testing.T)
+
 package godatabase
 
 import (

@@ -1,3 +1,32 @@
+// 文件说明：dev_test.go — internal/sbcli 的单元测试（TestDevFixtureValidation、TestDevPlanMatchesFixtureAndWritesNothing 等）
+//
+// 用法
+//
+//	go test ./internal/sbcli -run 'TestDevFixtureValidation|TestDevPlanMatchesFixtureAndWritesNothing|TestDevApplyIdempotentLocal|TestDevCollectionDatabaseMayRunMigrations'
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/agentbridge
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/sbcli/dev_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] cli_test.go, collection_transfer.go, collection_transfer_test.go, commands.go, commands_admin.go 等 27 个
+//
+// 主要符号
+//
+//	type fakeDB struct{…}
+//	type fakeFnVersion struct{…}
+//	type fakeFn struct{…}
+//	type fakeCloud struct{…}
+//	newFakeCloud(t *testing.T) *fakeCloud
+//	(f *fakeCloud) reply(w http.ResponseWriter, status int, v any)
+//	(f *fakeCloud) errorf(w http.ResponseWriter, status int, code string)
+//	(f *fakeCloud) db(id string) *fakeDB
+//	... 另有 40 个顶层符号
+
 package sbcli
 
 import (
@@ -1028,4 +1057,9 @@ func TestDevPlanMatchesApplyActions(t *testing.T) {
 			}
 		})
 	}
+}
+
+// loadDevWorkspace 以默认清单名读取工作区（仅测试使用）。
+func loadDevWorkspace(dir string) (*devWorkspace, error) {
+	return loadDevWorkspaceManifest(dir, "")
 }

@@ -1,5 +1,34 @@
 //go:build linux
 
+// 文件说明：supervise_test.go — gosandbox/box 的单元测试（TestSupervisorSurvivesDisconnect、TestSupervisorKeepsWorkspace 等）
+//
+// 用法
+//
+//	go test ./gosandbox/box -run 'TestSupervisorSurvivesDisconnect|TestSupervisorKeepsWorkspace|TestSuperviseArgs|TestSupervisorHandshake'
+//	同包调用：readLine() → tunnel_e2e_test.go
+//
+// 调用架构
+//
+//	[上游] gosandbox/cmd, gosandbox/vm/box
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/box/supervise_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] backpressure_test.go, copytree.go, deadline.go, egress_e2e_test.go, files.go 等 26 个
+//	[关键引用] readLine ← tunnel_e2e_test.go
+//
+// 主要符号
+//
+//	newSupervisedSession(t *testing.T) *Session
+//	TestSupervisorSurvivesDisconnect(t *testing.T)
+//	TestSupervisorKeepsWorkspace(t *testing.T)
+//	TestSuperviseArgs(t *testing.T)
+//	TestSupervisorHandshake(t *testing.T)
+//	readLine(r io.Reader) (string, error)
+//	(s *Session) sessPIDForTest() int
+
 package box
 
 // supervise_test.go：detach supervisor 的核心承诺——服务进程重启后沙盒还在。

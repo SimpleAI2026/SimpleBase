@@ -1,3 +1,27 @@
+// 文件说明：interp_path_test.go — gofunction/internal/interp 的单元测试（TestVisitInstrInterpreterPath、TestUnopUintFloatAndChan 等）
+//
+// 用法
+//
+//	go test ./gofunction/internal/interp -run 'TestVisitInstrInterpreterPath|TestUnopUintFloatAndChan|TestBinopStringAndNilCompare|TestCompilePhiManyPreds'
+//
+// 调用架构
+//
+//	[上游] gofunction
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/internal/interp/interp_path_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] bench_test.go, cachetest_test.go, call.go, call_test.go, cheap_test.go 等 40 个
+//
+// 主要符号
+//
+//	TestVisitInstrInterpreterPath(t *testing.T)
+//	TestUnopUintFloatAndChan(t *testing.T)
+//	TestBinopStringAndNilCompare(t *testing.T)
+//	TestCompilePhiManyPreds(t *testing.T)
+
 package interp
 
 import (

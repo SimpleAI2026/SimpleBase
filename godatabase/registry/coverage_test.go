@@ -1,3 +1,32 @@
+// 文件说明：coverage_test.go — godatabase/registry 的单元测试（TestHandleQueryExecuteBatchAndHooks、TestNewDefaultsAndNilLease 等）
+//
+// 用法
+//
+//	go test ./godatabase/registry -run 'TestHandleQueryExecuteBatchAndHooks|TestNewDefaultsAndNilLease|TestAcquireWaitCanceled|TestShutdownForceCloseActive'
+//
+// 调用架构
+//
+//	[上游] godatabase/cmd, godatabase/kv, internal/agentbridge, internal/api 等 7 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/registry/coverage_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] evictor.go, handle.go, registry.go, registry_test.go
+//
+// 主要符号
+//
+//	type hookFactory struct{…}
+//	(h *hookFactory) AfterWrite(ctx context.Context, db godatabase.Spec, sqlDB *sql.DB) error
+//	(h *hookFactory) BeforeClose(ctx context.Context, dbID string, sqlDB *sql.DB) error
+//	TestHandleQueryExecuteBatchAndHooks(t *testing.T)
+//	TestNewDefaultsAndNilLease(t *testing.T)
+//	TestAcquireWaitCanceled(t *testing.T)
+//	TestShutdownForceCloseActive(t *testing.T)
+//	TestCloseIdleSkipsNotReadyAndRecent(t *testing.T)
+//	... 另有 6 个顶层符号
+
 package registry
 
 import (

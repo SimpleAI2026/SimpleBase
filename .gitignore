@@ -99,3 +99,5 @@ skills/image-review-*/
 # 技能脚本运行产生的 Python 缓存（子模块内另有各自的 .gitignore）
 skills/**/__pycache__/
 skills/**/*.py[cod]
+# bench/agent 评测报告是生成物（planv6.8 N-D2）
+/bench/agent/reports/

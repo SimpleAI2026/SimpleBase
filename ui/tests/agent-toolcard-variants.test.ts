@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import AgentToolCard from '@/components/agent/AgentToolCard.vue'
 import ConversationView from '@/components/agent/ConversationView.vue'
-import ThreadSwitcher from '@/components/agent/ThreadSwitcher.vue'
 
 describe('AgentToolCard variants', () => {
   it('renders sandbox stdout/stderr with exit code after expanding', async () => {
@@ -91,25 +90,5 @@ describe('ConversationView extra branches', () => {
       slots: { empty: '<div class="custom-empty">空空如也</div>' }
     })
     expect(wrapper.text()).toContain('空空如也')
-  })
-})
-
-describe('ThreadSwitcher actions', () => {
-  it('only exposes the new-thread action (delete moved to the host menu)', () => {
-    const wrapper = mount(ThreadSwitcher, {
-      props: { threads: [{ id: 't1', title: 'A', created_at: 't', updated_at: 't' }], activeId: 't1' },
-      global: { stubs: { ConfirmAction: false } }
-    })
-    // planv6.0 §3.6 #7：删除会话收进宿主头部的「⋯」菜单。
-    expect(wrapper.findAll('button').find((b) => b.text() === '删除')).toBeUndefined()
-    expect(wrapper.get('button[aria-label="新会话"]')).toBeTruthy()
-  })
-
-  it('hides delete when no active thread', () => {
-    const wrapper = mount(ThreadSwitcher, {
-      props: { threads: [{ id: 't1', title: 'A', created_at: 't', updated_at: 't' }], activeId: 'other' }
-    })
-    const del = wrapper.findAll('button').find((b) => b.text() === '删除')
-    expect(del).toBeUndefined()
   })
 })

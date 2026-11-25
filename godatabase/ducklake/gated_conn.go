@@ -1,3 +1,33 @@
+// 文件说明：gated_conn.go — godatabase/ducklake 的内部实现（gatedConn、newGatedConn 等）
+//
+// 用法
+//
+//	同包调用：newGatedConn() → factory.go
+//
+// 调用架构
+//
+//	[上游] internal/app, internal/systemdb
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/ducklake/gated_conn.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] c4_syncer_lease_test.go, c4_syncer_ordering_test.go, catalog_syncer.go, catalog_syncer_test.go, coverage_test.go 等 35 个
+//	[关键引用] newGatedConn ← factory.go
+//
+// 主要符号
+//
+//	type gatedConn struct{…}
+//	newGatedConn(raw driver.Conn, gate *writeGate) driver.Conn
+//	(c *gatedConn) Prepare(query string) (driver.Stmt, error)
+//	(c *gatedConn) PrepareContext(ctx context.Context, query string) (driver.Stmt, error)
+//	(c *gatedConn) Close() error
+//	(c *gatedConn) Begin() (driver.Tx, error)
+//	(c *gatedConn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error)
+//	(c *gatedConn) CheckNamedValue(nv *driver.NamedValue) error
+//	... 另有 16 个顶层符号
+
 package ducklake
 
 import (

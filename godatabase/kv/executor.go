@@ -1,3 +1,37 @@
+// 文件说明：executor.go — godatabase/kv 中 Store、Option 等符号的实现
+//
+// 用法
+//
+//	type Store struct{…}  // Store 是绑定单个项目数据库连接（*sql.DB）的 KV 仓库入口
+//	type Option func(*Store)  // Option 配置 Store
+//	WithOnWrite(fn func(ctx context.Context)) Option  // WithOnWrite 注入写提交回调（handler 侧接 registry.Handle.NotifyWrite， 保证 catalog debounce ...
+//	New(db *sql.DB, opts ...Option) *Store  // New 构造 Store
+//	type Tx struct{…}  // Tx 是事务版仓库入口
+//
+// 调用架构
+//
+//	[上游] godatabase/cmd, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/kv/executor.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] bugfix_test.go, collections_test.go, conn_schema_test.go, core.go, export_test.go 等 20 个
+//	[关键引用] Store ← export_test.go, kv_test.go；Option ← export_test.go；WithOnWrite ← key_test.go, sweeper.go
+//
+// 主要符号
+//
+//	type Store struct{…}
+//	var dbMutexes
+//	dbWriteMu(db *sql.DB) *sync.Mutex
+//	type connSchemaState struct{…}
+//	var connSchemaStates
+//	var schemaProbeHook
+//	connKnown(db *sql.DB) *connSchemaState
+//	type Option func(*Store)
+//	... 另有 15 个顶层符号
+
 package kv
 
 import (
@@ -168,6 +202,14 @@ func (s *Store) Update(ctx context.Context, fn func(tx *Tx) error) error {
 		return fmt.Errorf("kv: begin tx: %w", err)
 	}
 	tx := &Tx{tx: sqlTx, now: s.now}
+	// B16：fn panic 时事务未回滚、连接不归还；这里补充收尾后重新抛出，
+	// 不吞 panic（传播语义不变）。
+	defer func() {
+		if p := recover(); p != nil {
+			_ = sqlTx.Rollback()
+			panic(p)
+		}
+	}()
 	execStart := time.Now()
 	ferr := fn(tx)
 	execCost = time.Since(execStart)

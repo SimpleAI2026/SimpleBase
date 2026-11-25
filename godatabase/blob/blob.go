@@ -1,10 +1,42 @@
+// 文件说明：blob.go — godatabase/blob 中 ObjectInfo、PutFiler 等符号的实现
+//
+// 用法
+//
+//	type ObjectInfo struct{…}  // ObjectInfo 描述对象元数据
+//	type PutFiler interface{…}  // PutFiler 是 Store 的可选流式上传扩展（P1）：支持直接从本地文件上传， 避免大快照整读进内存
+//	type Store interface{…}  // Store 读写二进制对象（catalog 快照、manifest、租约等）
+//	type Memory struct{…}  // Memory 是进程内 Store
+//	NewMemory() *Memory  // NewMemory 构造进程内 Store
+//
+// 调用架构
+//
+//	[上游] godatabase, godatabase/cmd, godatabase/ducklake, godatabase/filedb 等 6 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/blob/blob.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] blob_test.go, keys.go
+//	[关键引用] NewMemory ← blob_test.go
+//
+// 主要符号
+//
+//	var ErrNotFound
+//	var ErrPreconditionFailed
+//	type ObjectInfo struct{…}
+//	type PutFiler interface{…}
+//	type Store interface{…}
+//	type Memory struct{…}
+//	NewMemory() *Memory
+//	(m *Memory) PutBytes(_ context.Context, key string, data []byte, _ string) error
+//	... 另有 7 个顶层符号
+
 package blob
 
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -125,10 +157,7 @@ func (m *Memory) DownloadFile(ctx context.Context, key, destPath string) (Object
 	if err != nil {
 		return ObjectInfo{}, err
 	}
-	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
-		return ObjectInfo{}, err
-	}
-	if err := atomicfile.Write(destPath, data, 0o644); err != nil {
+	if err := atomicfile.WriteEnsureDir(destPath, data, 0o644); err != nil {
 		return ObjectInfo{}, err
 	}
 	return info, nil

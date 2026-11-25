@@ -1,3 +1,30 @@
+// 文件说明：coverage_test.go — gofunction/importer 的单元测试（TestRegistryLookups、TestImporterTypeOfKinds 等）
+//
+// 用法
+//
+//	go test ./gofunction/importer -run 'TestRegistryLookups|TestImporterTypeOfKinds|TestParseNameTypeCached|TestTypeOfUnexportedAndBuiltin'
+//
+// 调用架构
+//
+//	[上游] gofunction/cmd, gofunction/internal/interp, gofunction/packages, gofunction/value
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/importer/coverage_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] importer.go, importer_test.go, integration_test.go, parser_test.go, registry.go 等 8 个
+//
+// 主要符号
+//
+//	type withMethod struct{…}
+//	(w withMethod) ValueMeth() int
+//	(w *withMethod) PtrMeth() int
+//	TestRegistryLookups(t *testing.T)
+//	TestImporterTypeOfKinds(t *testing.T)
+//	TestParseNameTypeCached(t *testing.T)
+//	TestTypeOfUnexportedAndBuiltin(t *testing.T)
+
 package importer
 
 import (

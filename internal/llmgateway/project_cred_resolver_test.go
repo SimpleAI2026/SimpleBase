@@ -1,3 +1,30 @@
+// 文件说明：project_cred_resolver_test.go — internal/llmgateway 的单元测试（TestLitellmDriverMapsCompatiblePresets、TestProjectCredResolverUsesSettingsDefaultAndSkipsEmptyKeys 等）
+//
+// 用法
+//
+//	go test ./internal/llmgateway -run 'TestLitellmDriverMapsCompatiblePresets|TestProjectCredResolverUsesSettingsDefaultAndSkipsEmptyKeys|TestProjectCredResolverFillsModelFromSettings|TestSystemCredSourceReadsSettingsConnection'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app 等 5 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/llmgateway/project_cred_resolver_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_tools_test.go, catalog_resolver.go, client_chat_usage_test.go, fallback_resolver.go, fallback_resolver_test.go 等 14 个
+//
+// 主要符号
+//
+//	type staticCreds struct{…}
+//	(s staticCreds) LoadProjectCreds(context.Context, string) (ProjectCreds, error)
+//	TestLitellmDriverMapsCompatiblePresets(t *testing.T)
+//	TestProjectCredResolverUsesSettingsDefaultAndSkipsEmptyKeys(t *testing.T)
+//	TestProjectCredResolverFillsModelFromSettings(t *testing.T)
+//	TestSystemCredSourceReadsSettingsConnection(t *testing.T)
+//	TestFirstUsablePrefersProjectKeysThenCatalog(t *testing.T)
+
 package llmgateway
 
 import (

@@ -1,3 +1,25 @@
+// 文件说明：schema_test.go — internal/catalog 的测试辅助代码
+//
+// 用法
+//
+//	同包调用：applyTestSchema() → service_test.go, sql_repository_test.go
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app 等 10 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/catalog/schema_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] always_open_test.go, cache.go, cache_test.go, create_invalidate_test.go, data_model.go 等 20 个
+//	[关键引用] applyTestSchema ← service_test.go, sql_repository_test.go
+//
+// 主要符号
+//
+//	applyTestSchema(db *sql.DB) error
+
 package catalog
 
 import "database/sql"

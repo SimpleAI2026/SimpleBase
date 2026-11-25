@@ -1,3 +1,26 @@
+// 文件说明：path.go — godatabase/filedb 的内部实现（localDatabaseFile、sidecarFiles 等）
+//
+// 用法
+//
+//	同包调用：localDatabaseFile() → factory.go；sidecarFiles() → factory.go, remote.go
+//
+// 调用架构
+//
+//	[上游] godatabase/cmd, internal/app, internal/backup
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/filedb/path.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] dialect_bucket_test.go, factory.go, factory_test.go, remote.go, remote_test.go 等 9 个
+//	[关键引用] localDatabaseFile ← factory.go；sidecarFiles ← factory.go, remote.go
+//
+// 主要符号
+//
+//	localDatabaseFile(dataRoot, cacheDir, projectID, databasePath string, remote bool) (string, error)
+//	sidecarFiles(filePath, engine string) []string
+
 package filedb
 
 import (

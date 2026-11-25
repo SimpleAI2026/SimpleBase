@@ -1,3 +1,34 @@
+// 文件说明：writable_test.go — internal/agentbridge 的单元测试（TestExecSimplebase_ReadonlyAgentRejectsWrite、TestExecSimplebase_ReadonlyAgentAllowsRead 等）
+//
+// 用法
+//
+//	go test ./internal/agentbridge -run 'TestExecSimplebase_ReadonlyAgentRejectsWrite|TestExecSimplebase_ReadonlyAgentAllowsRead|TestExecSimplebase_WritableAgentAllowsWrite|TestStripWritePermissions'
+//	同包调用：makeAgentRequest() → failclosed_test.go, module_skills_test.go；newSkillRecorder() → failclosed_test.go
+//
+// 调用架构
+//
+//	[上游] internal/agentrun, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/agentbridge/writable_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] access_db.go, access_llm.go, access_object.go, access_test.go, bridge_test.go 等 33 个
+//	[关键引用] makeAgentRequest ← failclosed_test.go, module_skills_test.go；newSkillRecorder ← failclosed_test.go
+//
+// 主要符号
+//
+//	makeAgentRequest(writable bool) cloudagent.RunRequest
+//	TestExecSimplebase_ReadonlyAgentRejectsWrite(t *testing.T)
+//	TestExecSimplebase_ReadonlyAgentAllowsRead(t *testing.T)
+//	TestExecSimplebase_WritableAgentAllowsWrite(t *testing.T)
+//	TestStripWritePermissions(t *testing.T)
+//	TestAssembleInstructionCapabilityFollowsWritable(t *testing.T)
+//	TestPlatformPromptNoLongerAssertsReadonlyTools(t *testing.T)
+//	type skillRecorder struct{…}
+//	... 另有 2 个顶层符号
+
 package agentbridge
 
 import (
@@ -12,8 +43,8 @@ import (
 
 // planv6.0 v2 §3.8：不可写助手只能执行只读命令，且必须在确认之前拦截。
 
-func makeAgentRequest(writable bool) RunRequest {
-	return RunRequest{
+func makeAgentRequest(writable bool) cloudagent.RunRequest {
+	return cloudagent.RunRequest{
 		RunID: "r1", ThreadID: "t1",
 		Context: RunContext{ProjectID: "p1", Skills: []string{"database"}},
 		Agent:   cloudagent.Agent{ID: "a1", Name: "helper", Module: ModuleDatabase, Writable: writable},

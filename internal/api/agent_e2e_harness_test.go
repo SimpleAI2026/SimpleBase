@@ -1,3 +1,33 @@
+// 文件说明：agent_e2e_harness_test.go — internal/api 的测试辅助代码
+//
+// 用法
+//
+//	同包调用：agentHarness → agent_harness_sec04_test.go, collab_cron_test.go；openMemoryDB() → agent_skills_e2e_test.go, agent_skills_router_e2e_test.go；newAgentHarness() → agent_active_runs_test.go, agent_e2e_errors_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/agent_e2e_harness_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] agentHarness ← agent_harness_sec04_test.go, collab_cron_test.go；openMemoryDB ← agent_skills_e2e_test.go, agent_skills_router_e2e_test.go；newAgentHarness ← agent_active_runs_test.go, agent_e2e_errors_test.go
+//
+// 主要符号
+//
+//	type harnessDB struct{…}
+//	(f *harnessDB) ListDatabases(context.Context, auth.Principal, string) ([]agentbridge.DatabaseInfo, error)
+//	(f *harnessDB) ListCollections(context.Context, auth.Principal, string, string) ([]string, error)
+//	(f *harnessDB) ReadOnlyQuery(_ context.Context, _ auth.Principal, _, _, sqlText string, _ int) (agentbridge.SQ...
+//	type sqlguardError struct{…}
+//	(e *sqlguardError) Error() string
+//	type harnessLogs struct{…}
+//	(f *harnessLogs) SearchLogs(context.Context, string, string, string, int) ([]agentbridge.LogEvent, error)
+//	... 另有 14 个顶层符号
+
 package api
 
 // agent_e2e_harness_test.go：云 Agent 全链路测试基建（planv4.1 §5.1）。
@@ -21,6 +51,7 @@ import (
 
 	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
+	"github.com/linkxzhou/SimpleBase/internal/agentrun"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/llmgateway"
@@ -98,12 +129,12 @@ type agentHarness struct {
 	fake    *fakellm.Server
 	db      *harnessDB
 	logs    *harnessLogs
-	// handler 是挂载路由用的同一实例，便于用例注入 dispatcher。
+	// handler 是挂载路由用的同一实例，便于用例直接读取状态。
 	handler *cloudAgentHandler
 	// cron 是定时任务 handler（§11 群绑定用例需要真实写路径）。
 	cron *CronJobHandler
-	// collabRunner 是群定时执行器（§11 用例用）。
-	collabRunner *GroupCronRunner
+	// agentRun 是 Agent 协作应用服务（run / 轮次 / 群定时 / 生命周期；§11 群定时的用例直接调用）。
+	agentRun *agentrun.Service
 }
 
 var memoryDBSeq atomic.Uint64
@@ -154,20 +185,27 @@ func newAgentHarness(t *testing.T, scripts []fakellm.Script, def fakellm.Script)
 	hlogs := &harnessLogs{}
 	provider := &agentbridge.RuntimeProvider{DB: hdb, Logs: hlogs}
 	rt := &cloudagent.Runtime{
-		LLM: NewCloudAgentLLM(NewLLMService(gw)), Provider: provider,
+		LLM: agentbridge.NewCloudAgentLLM(gw), Provider: provider,
 		ToolProtocol: "native",
 		RunTimeout:   30 * time.Second,
 	}
 
 	e := echo.New()
 	e.HideBanner = true
-	h := &cloudAgentHandler{store: store, runtime: rt, llm: NewLLMService(gw), events: newRunEventHub(), confirms: newConfirmHub()}
+	agentRun := agentrun.NewServiceWithStore(agentrun.Config{}, store, rt, nil)
+	t.Cleanup(func() { _ = agentRun.Close(context.Background()) })
+	h := &cloudAgentHandler{store: store, svc: agentRun, llm: NewLLMService(gw), writable: true}
 	writable := true
 	// 群定时绑定需要 cron handler 的真实写路径（不启动调度器，避免后台并发）。
 	ch := NewCronJobHandler(store, writable, nil, nil)
-	enh := &agentHarness{store: store, echo: e, runtime: rt, fake: fake, db: hdb, logs: hlogs, handler: h, cron: ch}
+	enh := &agentHarness{store: store, echo: e, runtime: rt, agentRun: agentRun, fake: fake, db: hdb, logs: hlogs, handler: h, cron: ch}
 	registerAgentRoutesWithHarness(e, h, enh)
 	return enh
+}
+
+// testAgentRun 构造测试用应用服务：runtime 可为 nil（LLM 未启用），确认表自建。
+func testAgentRun(store *systemdb.Store, rt *cloudagent.Runtime) *agentrun.Service {
+	return agentrun.NewServiceWithStore(agentrun.Config{}, store, rt, nil)
 }
 
 // registerAgentRoutes 挂载与生产一致的 agent 路由（免认证，上下文由 hReq 注入）。
@@ -273,7 +311,7 @@ func (hs *agentHarness) createRun(t *testing.T, threadID, content string, extra 
 // runIDOf 从事件流提取 run_id。
 func runIDOf(events []sseEvent) string {
 	for _, ev := range events {
-		if ev.Type == "run" {
+		if ev.RunID != "" {
 			return ev.RunID
 		}
 	}

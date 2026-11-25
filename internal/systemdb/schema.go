@@ -307,33 +307,6 @@ var systemTables = []systemTable{
 			archived_at TIMESTAMP,
 			agent_id VARCHAR
 		)`},
-	// planv6.7：云助手计划模式。计划是服务端驱动的六阶段编排，
-	// 阶段状态与 run 分离：run 是执行记录，阶段是编排进度。
-	{name: "sys_agent_plans", ddl: `CREATE TABLE IF NOT EXISTS sys_agent_plans (
-			id VARCHAR NOT NULL,
-			project_id VARCHAR NOT NULL,
-			thread_id VARCHAR NOT NULL,
-			agent_id VARCHAR NOT NULL,
-			goal VARCHAR NOT NULL DEFAULT '',
-			status VARCHAR NOT NULL,
-			current_stage VARCHAR NOT NULL DEFAULT '',
-			version BIGINT NOT NULL DEFAULT 1,
-			idempotency_key VARCHAR NOT NULL DEFAULT '',
-			created_by VARCHAR NOT NULL DEFAULT '',
-			created_at TIMESTAMP NOT NULL,
-			updated_at TIMESTAMP NOT NULL
-		)`},
-	{name: "sys_agent_plan_stages", ddl: `CREATE TABLE IF NOT EXISTS sys_agent_plan_stages (
-			plan_id VARCHAR NOT NULL,
-			stage VARCHAR NOT NULL,
-			status VARCHAR NOT NULL,
-			attempt BIGINT NOT NULL DEFAULT 0,
-			run_id VARCHAR NOT NULL DEFAULT '',
-			goal VARCHAR NOT NULL DEFAULT '',
-			skip_reason VARCHAR NOT NULL DEFAULT '',
-			detail VARCHAR NOT NULL DEFAULT '',
-			updated_at TIMESTAMP NOT NULL
-		)`},
 	{name: "sys_agent_messages", ddl: `CREATE TABLE IF NOT EXISTS sys_agent_messages (
 			id VARCHAR NOT NULL,
 			thread_id VARCHAR NOT NULL,
@@ -408,17 +381,6 @@ var systemTables = []systemTable{
 			tag_id VARCHAR NOT NULL DEFAULT '',
 			dispatch_mode VARCHAR NOT NULL DEFAULT '',
 			source VARCHAR NOT NULL DEFAULT '',
-			created_at TIMESTAMP NOT NULL
-		)`},
-	// planv6.7 AGC-ROUTE：每个 run 的路由结论（auto/mention/fallback/retry），供刷新后恢复回答原因。
-	// 唯一性由应用层保证：(project_id, run_id) 至多一行（先查后插）。
-	{name: "sys_agent_run_routes", ddl: `CREATE TABLE IF NOT EXISTS sys_agent_run_routes (
-			project_id VARCHAR NOT NULL,
-			run_id VARCHAR NOT NULL,
-			thread_id VARCHAR NOT NULL,
-			agent_id VARCHAR NOT NULL,
-			route_kind VARCHAR NOT NULL,
-			router_ms BIGINT NOT NULL DEFAULT 0,
 			created_at TIMESTAMP NOT NULL
 		)`},
 	// sys_mcp_servers 是项目级外部 MCP Server 配置（planv6.2 §6-1）。

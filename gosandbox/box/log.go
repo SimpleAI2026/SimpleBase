@@ -1,3 +1,33 @@
+// 文件说明：log.go — gosandbox/box 的内部实现（logSink、newLogSink 等）
+//
+// 用法
+//
+//	同包调用：logSink → session.go；newLogSink() → logfile_test.go, session.go
+//
+// 调用架构
+//
+//	[上游] gosandbox/cmd, gosandbox/vm/box
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/box/log.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] backpressure_test.go, copytree.go, deadline.go, egress_e2e_test.go, files.go 等 26 个
+//	[关键引用] logSink ← session.go；newLogSink ← logfile_test.go, session.go
+//
+// 主要符号
+//
+//	type logSink struct{…}
+//	newLogSink(dir string, opt Options, warn func(string, ...any)) *logSink
+//	(s *logSink) open(name string) *Log
+//	(s *logSink) write(l *Log, stream Stream, data []byte)
+//	(s *logSink) close(name string)
+//	(s *logSink) closeAll()
+//	(s *Session) Logs(procs []string, opt TailOptions) ([]Record, error)
+//	(s *Session) logNames() ([]string, error)
+//	... 另有 1 个顶层符号
+
 package box
 
 import (

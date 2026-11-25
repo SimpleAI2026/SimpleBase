@@ -1,3 +1,31 @@
+// 文件说明：sqlval.go — godatabase/sqlval 中 BoolInt、NullTime 等符号的实现
+//
+// 用法
+//
+//	BoolInt(b bool) int64  // BoolInt 把布尔映射为 1/0（SQLite/DuckDB 的整数布尔列）
+//	NullTime(t *time.Time) any  // NullTime 把可空时间映射为参数：nil → NULL，否则统一按 UTC 落库
+//	NullTimeValue(t time.Time) any  // NullTimeValue 把 time.Time 映射为参数：零值 → NULL，否则统一按 UTC 落库
+//	NullString(s string) any  // NullString 把空串映射为 NULL（可空文本列）
+//
+// 调用架构
+//
+//	[上游] internal/auth, internal/catalog, internal/collection, internal/systemdb
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/sqlval/sqlval.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] sqlval_test.go
+//	[关键引用] BoolInt ← sqlval_test.go；NullTime ← sqlval_test.go；NullTimeValue ← sqlval_test.go
+//
+// 主要符号
+//
+//	BoolInt(b bool) int64
+//	NullTime(t *time.Time) any
+//	NullTimeValue(t time.Time) any
+//	NullString(s string) any
+
 package sqlval
 
 import "time"

@@ -1,5 +1,33 @@
 //go:build linux
 
+// 文件说明：cgroup_linux_test.go — gosandbox/host 的单元测试（TestCgroupApplyWritesLimits、TestCgroupApplySkipsUnsetLimits 等）
+//
+// 用法
+//
+//	go test ./gosandbox/host -run 'TestCgroupApplyWritesLimits|TestCgroupApplySkipsUnsetLimits|TestCgroupFreeze|TestCgroupUsageReadsFiles'
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/tools, gosandbox/box, gosandbox/vm/box 等 5 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/host/cgroup_linux_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] bwrap_args.go, bwrap_args_extra_test.go, cgroup.go, cgroup_linux.go, glob.go 等 36 个
+//
+// 主要符号
+//
+//	newTestCgroup(t *testing.T, name string) (*cgroupGroup, string)
+//	TestCgroupApplyWritesLimits(t *testing.T)
+//	TestCgroupApplySkipsUnsetLimits(t *testing.T)
+//	TestCgroupFreeze(t *testing.T)
+//	TestCgroupUsageReadsFiles(t *testing.T)
+//	TestCgroupUsageMissingFiles(t *testing.T)
+//	TestCgroupKeepSurvivesRemove(t *testing.T)
+//	TestCgroupPathForRejectsForeignNames(t *testing.T)
+
 package host
 
 import (

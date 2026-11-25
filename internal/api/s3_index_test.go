@@ -1,3 +1,26 @@
+// 文件说明：s3_index_test.go — internal/api 的单元测试（TestS3_IndexAndRefresh、TestS3_UploadMissingFileAndDeleteInvalid 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestS3_IndexAndRefresh|TestS3_UploadMissingFileAndDeleteInvalid'
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/s3_index_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//
+// 主要符号
+//
+//	setupS3IndexRouter(t *testing.T) (*echo.Echo, *systemdb.Store)
+//	TestS3_IndexAndRefresh(t *testing.T)
+//	TestS3_UploadMissingFileAndDeleteInvalid(t *testing.T)
+
 package api
 
 import (
@@ -32,7 +55,7 @@ func setupS3IndexRouter(t *testing.T) (*echo.Echo, *systemdb.Store) {
 	store := systemdb.NewStoreForTest(db)
 	e := echo.New()
 	e.HideBanner = true
-	h := &S3Handler{store: objectstore.NewMemoryFileStore(), index: store}
+	h := &S3Handler{store: objectstore.NewMemoryFileStore(), index: store, writable: true}
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			ctx := WithPrincipal(c.Request().Context(), auth.Principal{APIKeyID: "k"})
@@ -94,7 +117,7 @@ func TestS3_IndexAndRefresh(t *testing.T) {
 	// index list error (closed db)
 	_ = store
 	bad := echo.New()
-	h := &S3Handler{store: objectstore.NewMemoryFileStore(), index: systemdb.NewStoreForTest(nil)}
+	h := &S3Handler{store: objectstore.NewMemoryFileStore(), index: systemdb.NewStoreForTest(nil), writable: true}
 	bad.GET("/s3/objects", h.ListObjects)
 	req = httptest.NewRequest(http.MethodGet, "/s3/objects", nil)
 	req = req.WithContext(WithProject(req.Context(), ProjectContext{ID: "p"}))

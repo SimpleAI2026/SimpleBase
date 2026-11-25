@@ -41,10 +41,8 @@ const zhCN: MessageTree = {
     disabledState: '禁用',
     start: '启动',
     stop: '停止',
-    reset: '重置',
     notStarted: '未启动',
     unknown: '未知',
-    noDescription: '无描述',
     optional: '可选',
     irreversible: '此操作不可撤销。',
     projectRequired: '请先在右上角选择或创建一个项目',
@@ -55,8 +53,6 @@ const zhCN: MessageTree = {
     emptyDescription: '没有可展示的内容',
     totalCount: '共 {n} 条',
     itemCount: '{n} 条',
-    pagePrev: '上一页',
-    pageNext: '下一页',
     name: '名称',
     status: '状态',
     actions: '操作',
@@ -69,11 +65,7 @@ const zhCN: MessageTree = {
     hint: '说明',
     readonly: '只读',
     seconds: '秒',
-    external: '外部',
     inner: '内部',
-    hide: '隐藏',
-    show: '显示',
-    noMatch: '无匹配',
     noMatchFilter: '没有符合当前筛选条件的结果',
     clearFilter: '清除筛选',
     query: '查询'
@@ -129,7 +121,6 @@ const zhCN: MessageTree = {
   },
 
   error: {
-    generic: '操作失败',
     loadFailed: '加载失败',
     runFailed: '运行失败',
     requestFailed: '请求失败',
@@ -137,7 +128,6 @@ const zhCN: MessageTree = {
     networkFailed: '网络请求失败',
     htmlResponse: '接口不存在或返回了 HTML 页面',
     streamFailed: '流式请求失败',
-    emptyMessage: '消息不能为空',
     codes: {
       llm_not_configured: '模型服务未配置，请先在设置中配置 LLM 供应商',
       llm_auth_failed: '模型服务鉴权失败，请检查 API Key',
@@ -149,22 +139,30 @@ const zhCN: MessageTree = {
       quota_exceeded: '模型调用配额已用完',
       invalid_retry: '无法重试该会话（仅最近一次失败的运行可重试）',
       writer_unavailable: '当前实例为只读模式，无法创建助手会话（需要写权限）',
+      turn_busy: '当前会话已有一轮正在进行，请等它结束或先停止',
+      turn_conflict: '这一轮刚被别人改动，请刷新后重试',
+      routing_failed: "无法为这条消息制定分工，请换个说法或直接 {'@'} 助手",
+      invalid_dispatch_graph: '这份计划的任务关系不合法，请调整后再试',
+      agent_not_in_tag: '被点名的助手不在当前群成员里',
+      mention_not_planned: '计划遗漏了被点名的助手，请重试',
+      human_assignee_required: '这一步需要人工处理，但当前没有可指派的人（请用登录账号发送）',
+      human_policy_disabled: "这个群已关闭人工任务，请改为 {'@'} 助手",
+      human_task_forbidden: '只有待办接收人或项目管理员才能处理这条待办',
+      task_not_retryable: '这个任务当前状态不能重试',
+      group_archived: '这个群已归档，不再接受新消息',
+      group_member_unavailable: '目标助手已归档或不在群成员中',
+      workspace_upgrade_required: '协作表尚未就绪，请先完成系统库初始化',
+      collaboration_budget_exceeded: '本轮协作次数已用完，请开启新会话',
       bad_request: '请求参数有误',
       unauthorized: '登录状态已过期，请重新登录',
       forbidden: '没有执行该操作的权限',
       not_found: '资源不存在',
-      agent_prompt_required: '助手任务必须填写提示词',
-      agent_prompt_too_long: '提示词超过 16 KiB 上限',
-      agent_not_found: '所选助手不存在',
-      invalid_target_kind: '任务类型无效',
-      agent_schedules_merged: '助手定时任务已合并到「定时任务」页，请在那里创建或修改',
       internal_error: '服务内部错误，请稍后重试'
     }
   },
 
   agentPhase: {
     thinking: '思考中 · {s}s',
-    routing: '正在选择助手…',
     awaitingConfirm: '等待确认',
     tool: '执行工具 {name}…',
     streaming: '回复中 · {s}s',
@@ -193,12 +191,6 @@ const zhCN: MessageTree = {
     backToHome: '返回首页',
     backToConsole: '返回控制台',
     console: '控制台',
-    accountMenu: '账号菜单',
-    changePassword: '修改密码',
-    logout: '退出登录',
-    roleSuper: '超管',
-    roleAdmin: '管理员',
-    roleUser: '普通用户'
   },
 
   pages: {
@@ -213,7 +205,6 @@ const zhCN: MessageTree = {
       title: '模型调用 Trace',
       subtitle: '模型调用观测：耗时、Token 与错误一览',
       status: '状态',
-      provider: '供应商',
       model: '模型',
       duration: '耗时',
       inputTokens: '输入 Token',
@@ -225,7 +216,6 @@ const zhCN: MessageTree = {
       statusOk: '成功',
       statusError: '失败',
       streamYes: '流式',
-      streamNo: '非流式',
       filterModel: '按模型筛选',
       filterCaller: '来源',
       caller: '来源',
@@ -270,10 +260,8 @@ const zhCN: MessageTree = {
       confirmDescription: '即将执行 {method} {path}，可能修改项目数据。',
       parameterRequired: '请填写路径参数 {name}',
       invalidJSON: '请求体必须是合法 JSON',
-      paramPick: '从列表选择，或直接输入',
       paramDependsOn: '请先选择 {params}',
       paramOptionsFailed: '候选项加载失败，可直接输入',
-      paramCurrentProject: '当前项目'
     },
     dataBrowser: {
       subtitle: '用图表查看集合数据，也可以让数据助手帮你生成',
@@ -295,7 +283,6 @@ const zhCN: MessageTree = {
       empty: '当前条件下没有数据',
       noDatabase: '当前项目暂无可用数据库',
       noCollections: '当前数据库暂无集合',
-      noCollectionSelected: '请先选择一个集合',
       loadFailed: '数据加载失败',
       databaseLoadFailed: '数据库加载失败',
       collectionLoadFailed: '集合加载失败',
@@ -327,7 +314,6 @@ const zhCN: MessageTree = {
       deleteConfirm: '删除此触发器？',
       loadFailed: '触发器加载失败',
       saved: '触发器已保存',
-      saveFailed: '触发器保存失败',
       deleted: '触发器已删除',
       invoked: '触发器已进入队列',
       enabledToast: '触发器已启用',
@@ -543,8 +529,6 @@ const zhCN: MessageTree = {
       deleteFailed: '删除失败',
       linkFailed: '生成链接失败',
       download: '下载',
-      privateLink: '复制私链',
-      downloadFailed: '下载失败',
       linkCopied: '私有链接已复制',
       loadFailed: '加载失败',
       colPublic: '外部访问',
@@ -556,7 +540,6 @@ const zhCN: MessageTree = {
       publicOff: '已关闭外部访问',
       publicFailed: '设置外部访问失败',
       copyUrl: '复制 URL',
-      openUrl: '新窗口打开',
       urlCopied: '访问 URL 已复制',
       site: {
         modeSubdomain: '站点地址：{url}',
@@ -630,8 +613,6 @@ const zhCN: MessageTree = {
       enabledToast: '已启用 {name}',
       pausedToast: '已暂停 {name}',
       toggleFailed: '切换失败',
-      triggeredToast: '已触发 {name}',
-      triggerFailed: '触发失败',
       deletedToast: '已删除 {name}',
       deleteFailed: '删除失败',
       loadFailed: '加载定时任务列表失败'
@@ -657,7 +638,6 @@ const zhCN: MessageTree = {
       colSource: '来源',
       colLastActive: '最近活跃',
       colExpires: '到期',
-      colActions: '操作',
       emptyTitle: '暂无云沙盒',
       emptyDesc: '新建后即可在终端、文件与 E2B SDK 中使用；到期后会自动回收',
       sourceApi: 'API',
@@ -729,7 +709,6 @@ const zhCN: MessageTree = {
       retentionUpdatedAt: '更新于 {time}',
       retentionSaved: '已保存保留策略',
       saveFailed: '保存失败',
-      trendTitle: '日志趋势（按小时）',
       export: '导出 CSV',
       exportFailed: '导出失败',
       loadFailed: '加载日志失败'
@@ -784,30 +763,16 @@ const zhCN: MessageTree = {
         cron: '定时任务助手', s3: '对象存储助手', logs: '日志助手', sandbox: '沙盒助手'
       },
       create: '新建',
-      searchPlaceholder: '搜索助手',
+      workspaceUpgradeRequired: '当前服务为旧版协作协议，请升级到 protocol v3；历史内容保持只读。',
       searchClear: '清除搜索',
       searchNoMatch: '没有匹配的助手',
       emptyListDesc: '暂无 Agent',
-      emptyListAction: '创建',
       dialogLabel: '对话',
       viewInSandbox: '在云沙盒页查看',
       moreActions: '更多操作',
       renameThreadTitle: '重命名会话',
       renameThreadLabel: '会话名称',
       renameThreadPlaceholder: '输入新的会话名称',
-      createTitle: '新建 Agent',
-      editTitle: '编辑 Agent',
-      formName: '名称',
-      formModule: '模块',
-      moduleUnconfigured: '（未配置云沙盒）',
-      formModel: '模型',
-      modelPlaceholder: '使用项目默认模型',
-      modelPlaceholderDefault: '使用项目默认（{model}）',
-      modelNoSuggestion: '无匹配建议，将直接使用输入的模型名',
-      formDescription: '描述',
-      formPromptPlaceholder: '可选；叠在模块模板之上',
-      formTools: '工具',
-      toolLabel: '工具：{label}',
       composerWithAgent: "给 {name} 发消息，{'@'} 点名助手",
       composerIdle: "输入 {'@'} 点名 Agent",
       mentionHint: "点名 {'@'}{name} 后发送",
@@ -816,10 +781,6 @@ const zhCN: MessageTree = {
       mentionHintWritable: '{who}；工具可读写，写操作仍需权限和确认',
       cliSkillsUnavailable: '需启用 CLI 技能后才能使用该助手',
       sandboxUnavailable: '云沙盒不可用，请启用云沙盒后重试',
-      every15Min: '每 15 分钟',
-      everyHour: '每小时',
-      daily8: '每天 08:00 (UTC)',
-      weeklyMon8: '每周一 08:00 (UTC)',
       loadAgentsFailed: '加载 Agent 失败',
       loadModelsFailed: '加载模型候选失败',
       confirmFailed: '提交执行确认失败',
@@ -828,17 +789,12 @@ const zhCN: MessageTree = {
       loadModulesFailed: '加载模块失败',
       renameFailed: '重命名失败',
       deleteThreadFailed: '删除会话失败',
-      nameRequired: '请填写名称',
-      sandboxUnconfigured: '云沙盒未配置，无法创建 Sandbox Agent',
       saveFailed: '保存失败',
       deleteFailed: '删除失败',
       createThreadFailed: '新建会话失败',
       selectAgentFirst: "请先选择或 {'@'} 一个 Agent",
       multipleAgentsNotSupported: '每次只能点名一个助手，请删除多余的助手点名后重试',
-      switchAgentHint: '当前会话属于其他助手，请切换到 {name} 后发送',
-      switchAgentAction: '切换到 {name}',
       runFailed: '运行失败',
-      defaultThreadTitle: '云助手',
 
       /**
        * 空会话的提示词（planv6.0 §3.5）。key 与 constants/agent-prompts.ts 一致；
@@ -1020,7 +976,6 @@ const zhCN: MessageTree = {
         resetConfirm: '恢复默认看板会丢弃你调整过的图表，确定吗？',
         retry: '重试',
         droppedFields: '有 {n} 个图表引用的字段已不存在，已从看板移除',
-        schemaMissing: '未登记 Schema',
         limitReached: '看板最多 {n} 张图表，请先删除不用的图表'
       },
       editor: {
@@ -1031,7 +986,6 @@ const zhCN: MessageTree = {
         metrics: '度量',
         addMetric: '添加度量',
         removeMetric: '移除度量',
-        metricKind: '聚合方式',
         metricField: '字段',
         groupBy: '分组维度',
         timeBucket: '时间粒度',
@@ -1121,19 +1075,10 @@ const zhCN: MessageTree = {
     },
 
     agentCard: {
-      selectAria: '选择 Agent {name}',
       running: '正在回复',
       builtin: '内置',
-      noDescription: '无描述',
       edit: '编辑',
-      schedule: '定时',
       delete: '删除',
-      deleteConfirm: '确认删除 Agent「{name}」？',
-      moduleGeneral: '通用',
-      moduleDatabase: '数据库',
-      moduleS3: '对象',
-      moduleLogs: '日志',
-      moduleSandbox: '沙盒'
     },
 
     agentToolCard: {
@@ -1148,15 +1093,11 @@ const zhCN: MessageTree = {
     },
 
     conversation: {
-      emptyDesc: '开始一段对话吧',
       thinking: '思考过程',
       retry: '重试',
       canceled: '已停止',
-      routing: '正在选择助手…',
-      routeMention: '指定',
-      routeFallback: '通用兜底',
-      routeRetry: '重试',
-      unknownAgent: '已移除的助手'
+      unknownAgent: '已移除的助手',
+      fromPlan: '来自 Plan'
     },
 
     /** planv6.7 AGC-NAV：左栏工作台（搜索、#通用 与标签会话树）。 */
@@ -1171,7 +1112,6 @@ const zhCN: MessageTree = {
       createAgentAndJoin: '新建助手并加入',
       emptyGroup: '这个群还没有会话',
       pendingHuman: '{n} 项待你处理',
-      newGroupThread: '新建会话',
       threadKind: {
         chat: '普通',
         alert: '告警',
@@ -1182,10 +1122,14 @@ const zhCN: MessageTree = {
       loadMore: '加载更多',
       openNav: '会话与标签',
       archiveTagConfirm: '归档标签「{name}」？归档后不能再新建会话或发送消息。',
-      fixedAgent: '固定：{name}',
-      newAutoThread: '新建自动路由会话',
-      autoRoute: '自动选择助手',
-      mentionThisTurn: '本轮：{name}',
+      planDecides: "分工由 Plan 决定；{'@'} 助手会作为硬约束",
+      planMentioned: '本轮 {names}（Plan 会为每人生成独立指令）',
+      planDeciding: 'Plan 决策中…',
+      groupMembers: '{n} 位成员',
+      planComplex: '复杂任务',
+      planProgress: '计划进度',
+      planProgressCount: '已完成 {done}/{total} 个任务',
+      planFindings: '发现',
       noAvailableAgent: '当前标签没有可用助手，请编辑标签或回到 #通用',
       agentNotInTag: '该助手不在当前标签中',
       retryAgentUnavailable: '原助手已不可用，请重新发送',
@@ -1198,14 +1142,11 @@ const zhCN: MessageTree = {
       groupArchived: '这个群已归档，请到其他群继续',
       turnBusy: '这个会话正在处理上一轮，请稍候',
       humanRequired: '这一步需要你本人确认，请用登录态操作',
-      dispatchTitle: '路由分工',
-      dispatchStep: '{index}. {name}：{instruction}',
-      dispatchWaiting: '等待上游',
+      dispatchTitle: '执行计划',
       humanTaskTitle: '需要你处理',
       humanReplyPlaceholder: '补充信息或说明（可留空）',
       humanContinue: '回复并继续',
       humanUnable: '无法处理',
-      humanUnavailable: '这一轮暂时不需要你处理',
       taskStatus: {
         pending: '排队',
         running: '执行中',
@@ -1216,6 +1157,16 @@ const zhCN: MessageTree = {
         canceled: '已停止',
         interrupted: '已中断'
       },
+      planConfirmTitle: '确认执行计划',
+      planConfirmDescription: '检查目标与任务分工；编辑只会修改本轮计划，不会直接执行工具。',
+      planGoal: '目标',
+      planSteps: '步骤',
+      planTasks: '任务与依赖',
+      planEditMessage: '编辑任务 {ref}',
+      planDrop: '删除任务',
+      planRestore: '恢复任务',
+      planApprove: '批准并执行',
+      planReject: '拒绝整轮',
       retryTask: '重试这一步',
       mentionMe: '我（当前人）',
     },
@@ -1263,7 +1214,6 @@ const zhCN: MessageTree = {
       removePrompt: '删除提示词',
       moveUp: '上移',
       moveDown: '下移',
-      removeAgent: '移除'
     },
 
     agentWelcome: {
@@ -1278,11 +1228,7 @@ const zhCN: MessageTree = {
     },
 
     threadSwitcher: {
-      switchAria: '切换会话',
-      newThread: '新会话',
       deleteConfirm: '确认删除当前会话？',
-      deleteAria: '删除会话 {title}',
-      loadingThreads: '正在加载会话',
       selectThread: '选择会话',
       running: '正在回复'
     },
@@ -1290,14 +1236,9 @@ const zhCN: MessageTree = {
     agentSchedule: {
       enabled: '已启用',
       disabled: '已停用',
-      preset15Min: '每 15 分钟',
-      presetHourly: '每小时',
-      presetDaily8: '每天 08:00 (UTC)',
-      presetWeeklyMon8: '每周一 08:00 (UTC)'
     },
 
     aiComposer: {
-      noAgentMatch: '无匹配 Agent',
       noMentionMatch: '无匹配助手',
       agentGroup: '助手',
       selectMention: '同名或含空格的助手无法凭手输确定，请选择候选后再发送',
@@ -1333,7 +1274,6 @@ const zhCN: MessageTree = {
     },
     collectionPanel: {
       colName: '集合名称',
-      colActions: '操作',
       emptyReadonly: '暂无数据表',
       empty: '暂无集合',
       create: '新建集合',
@@ -1384,7 +1324,6 @@ const zhCN: MessageTree = {
       readonlyHint: '系统库只读，不能新建表或修改字段',
       colTable: '表名',
       colColumns: '字段',
-      colActions: '操作',
       emptyDesc: '暂无表',
       viewData: '查看数据',
       createTable: '新建表',
@@ -1410,7 +1349,6 @@ const zhCN: MessageTree = {
 
     schemaRows: {
       fallbackTitle: '表数据',
-      readonlyDesc: '只读',
       emptyDesc: '这张表没有行',
       hidden: '已隐藏',
       columnFallback: '列',
@@ -1764,7 +1702,6 @@ const zhCN: MessageTree = {
       usernameImmutable: '用户名不可修改',
       usernameDesc: '登录名，大小写不敏感',
       displayName: '显示名',
-      displayNamePlaceholder: '可选',
       role: '角色',
       rolePlaceholder: '选择角色',
       roleAdmin: '管理员（只读）',
@@ -1794,7 +1731,6 @@ const zhCN: MessageTree = {
       noCreatePermission: '当前账号没有新建项目的权限',
       createFailed: '创建项目失败',
       sessionFailed: '创建搭建会话失败',
-      progressAria: '搭建进度'
     },
 
     createProject: {
@@ -1912,7 +1848,6 @@ const zhCN: MessageTree = {
       runAtHint: '到点执行一次后自动停用；时间按 UTC 解释',
       funcFile: '云函数文件',
       selectFile: '选择文件',
-      loadFailed: '加载失败',
       noFunctions: '项目内暂无云函数，',
       noFunctionsLink: '先去创建',
       noPublished: '没有已发布的云函数（需有生效版本），',
@@ -2097,7 +2032,6 @@ const zhCN: MessageTree = {
       title: '新建云沙盒',
       description: '沙盒创建后立即运行，超时后自动回收。',
       nameLabel: '名称（留空自动生成）',
-      namePlaceholder: 'etl-check',
       nameAria: '沙盒名称',
       nameInvalid: '仅限小写字母、数字与连字符，最长 63 位',
       templateLabel: '模板',

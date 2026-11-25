@@ -1,7 +1,40 @@
+// 文件说明：registry.go — godatabase/registry 中 Registry、Options 等符号的实现
+//
+// 用法
+//
+//	type Registry struct{…}  // Registry 保证进程内每个 databaseID 只有一个 *sql.DB / writer
+//	type Options struct{…}  // Options 配置 Registry 行为
+//	New(factory godatabase.Factory, resolver godatabase.PathResolver, opts Options, logger godatabase.Logger, obse...  // New 构造 Registry
+//
+// 调用架构
+//
+//	[上游] godatabase/cmd, godatabase/kv, internal/agentbridge, internal/api 等 7 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/registry/registry.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] coverage_test.go, evictor.go, handle.go, registry_test.go
+//	[关键引用] Registry ← evictor.go；Options ← coverage_test.go, registry_test.go；New ← coverage_test.go, registry_test.go
+//
+// 主要符号
+//
+//	type entry struct{…}
+//	type Registry struct{…}
+//	type Options struct{…}
+//	New(factory godatabase.Factory, resolver godatabase.PathResolver, opts Options, logger godatabase.Logger, obse...
+//	(r *Registry) Acquire(ctx context.Context, db godatabase.Spec, mode godatabase.AccessMode) (*Lease, error)
+//	(r *Registry) AcquireBackground(ctx context.Context, db godatabase.Spec, mode godatabase.AccessMode) (*Lease, ...
+//	(r *Registry) acquire(ctx context.Context, db godatabase.Spec, mode godatabase.AccessMode, background bool) (*...
+//	(r *Registry) openAndAcquire(ctx context.Context, db godatabase.Spec, mode godatabase.AccessMode, e *entry, ba...
+//	... 另有 15 个顶层符号
+
 package registry
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -181,6 +214,20 @@ func (r *Registry) openAndAcquire(ctx context.Context, db godatabase.Spec, mode 
 		return nil, fmt.Errorf("registry: open database %s: %w", db.ID, err)
 	}
 
+	// B2：Shutdown 可能发生在 factory.Open 阻塞期间（它只收集并清空当时已
+	// 存在的 entries，不包含本 opening entry）。发布前复查 closed：已关停
+	// 则直接关闭刚打开的连接并失败返回，避免句柄脱离注册表关闭管理。
+	if r.closed {
+		close(e.opening)
+		e.opening = nil
+		r.mu.Unlock()
+		_ = conn.Close()
+		if r.logger != nil {
+			r.logger.Warn("registry: open completed after shutdown; closing connection",
+				zap.String("database_id", db.ID))
+		}
+		return nil, errors.New("registry: shutdown during open")
+	}
 	handle := newHandle(db, conn)
 	if hook, ok := r.factory.(godatabase.WriteHookFactory); ok {
 		hookFactory := hook
@@ -191,6 +238,7 @@ func (r *Registry) openAndAcquire(ctx context.Context, db godatabase.Spec, mode 
 			return hookFactory.BeforeClose(ctx, registryKey(h.Database), h.conn)
 		}
 	}
+	// （此处已持 r.mu，见函数开头）
 	handle.active.Add(1)
 	e.handle = handle
 	close(e.opening)
@@ -220,7 +268,7 @@ func (r *Registry) newLease(h *Handle, background bool) *Lease {
 		release: func() {
 			if h.active.Add(-1) == 0 {
 				// P6：归零即发布空闲通知，唤醒 Remove/Shutdown 等待方。
-				h.notifyIdleLocked()
+				h.notifyIdle()
 			}
 			if !background {
 				h.touch()

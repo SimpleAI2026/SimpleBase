@@ -13,12 +13,7 @@
           :readonly="readonly"
           :has-more="hasMore"
           :loading-more="loadingMore"
-          :pending="pending"
-          :show-skeleton="showSkeleton"
-          :show-empty="showEmpty"
-          :show-error="showError"
-          :refreshing="refreshing"
-          :error="error"
+          :state="loadState"
           :ttl-text="ttlText"
           @reload="reload"
           @create="openCreate"
@@ -103,11 +98,12 @@ const hasMore = ref(false)
 const pattern = ref('')
 const typeFilter = ref('all')
 const loadingMore = ref(false)
-const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
+const loadState = useLoadState({
   fallback: 'components.kvPanel.loadFailed',
   // 系统项目没有 KV catalog、只读实例无法补建：属于「空」，不是加载失败。
   emptyOn: isEmptyResourceError
 })
+const { pending, run } = loadState
 watch(pending, (value) => emit('loading', value), { immediate: true })
 
 const createOpen = ref(false)

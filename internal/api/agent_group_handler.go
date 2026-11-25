@@ -20,6 +20,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
+	"github.com/linkxzhou/SimpleBase/internal/agentrun"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 	"github.com/linkxzhou/SimpleBase/internal/utils/strutil"
 )
@@ -63,9 +64,9 @@ func (h *cloudAgentHandler) AddGroupMembers(c echo.Context) error {
 	if err := h.denyReadonly(c); err != nil {
 		return err
 	}
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	ctx := c.Request().Context()
 	tagID := strings.TrimSpace(c.Param("tagID"))
@@ -96,7 +97,7 @@ func (h *cloudAgentHandler) AddGroupMembers(c echo.Context) error {
 	var createdAgentID string
 	if body.NewAgent != nil {
 		principal, _ := PrincipalFromContext(ctx)
-		created, err := h.normalizeAgent(pc.ID, upsertAgentBody{
+		created, err := h.validateAgentCapabilities(pc.ID, upsertAgentBody{
 			Name: body.NewAgent.Name, Module: body.NewAgent.Module,
 			Description: body.NewAgent.Description, SystemPrompt: body.NewAgent.SystemPrompt,
 			ToolIDs: body.NewAgent.ToolIDs, ModelOverride: body.NewAgent.ModelOverride,
@@ -153,9 +154,9 @@ func (h *cloudAgentHandler) RemoveGroupMember(c echo.Context) error {
 	if err := h.denyReadonly(c); err != nil {
 		return err
 	}
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	ctx := c.Request().Context()
 	tagID := strings.TrimSpace(c.Param("tagID"))
@@ -224,9 +225,9 @@ func (h *cloudAgentHandler) GroupEvent(c echo.Context) error {
 	if err := h.denyReadonly(c); err != nil {
 		return err
 	}
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	ctx := c.Request().Context()
 	tagID := strings.TrimSpace(c.Param("tagID"))
@@ -246,9 +247,9 @@ func (h *cloudAgentHandler) GroupEvent(c echo.Context) error {
 		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "prompt is too long (max 8000 characters)"))
 	}
 	if err := h.store.CollabSchemaReady(ctx); err != nil {
-		return WriteError(c, ErrWorkspaceUpgradeRequired)
+		return WriteError(c, agentrun.ErrWorkspaceUpgradeRequired)
 	}
-	if h.runtime == nil || h.runtime.LLM == nil {
+	if !h.caps().LLMConfigured {
 		return WriteError(c, &cloudagent.RunError{Code: "llm_not_configured", Message: "模型服务未配置"})
 	}
 	kind := strings.TrimSpace(body.ThreadKind)
@@ -269,7 +270,7 @@ func (h *cloudAgentHandler) GroupEvent(c echo.Context) error {
 	// 每事件一条独立会话：告警/统计需要可追溯的独立上下文。
 	principal, _ := PrincipalFromContext(ctx)
 	th, err := h.store.CreateAgentThreadWithWorkspace(ctx, systemdb.AgentThread{
-		ProjectID: pc.ID, Title: title, CreatedBy: principalIdentity(principal),
+		ProjectID: pc.ID, Title: title, CreatedBy: principal.Actor(),
 	}, systemdb.AgentThreadWorkspace{
 		TagID: tag.ID, DispatchMode: systemdb.DispatchCollaborative, Source: systemdb.ThreadSourceWorkspace,
 	})
@@ -286,22 +287,32 @@ func (h *cloudAgentHandler) GroupEvent(c echo.Context) error {
 	if err != nil {
 		return WriteError(c, err)
 	}
-	tc := turnContext{
-		pc: pc, principal: principal, thread: thread, collab: systemdb.AgentThreadCollab{
-			ProjectID: pc.ID, ThreadID: th.ID, TagID: tag.ID, ThreadKind: kind,
-		},
-		ws: systemdb.AgentThreadWorkspace{
-			TagID: tag.ID, DispatchMode: systemdb.DispatchCollaborative, Source: systemdb.ThreadSourceWorkspace,
-		},
-		tag: tag,
-		// 机器入口没有「当前人」：禁止产生人工任务。
-		humanID: "",
-	}
 	idempotency := strings.TrimSpace(body.ExternalID)
 	if idempotency != "" {
 		idempotency = "event:" + tag.ID + ":" + idempotency
 	}
-	return h.runTurn(c, tc, createTurnBody{
-		Content: prompt, IdempotencyKey: idempotency,
-	}, prompt)
+	turnID, err := h.svc.RunHeadlessTurn(ctx, agentrun.HeadlessTurnInput{
+		ProjectID: pc.ID, Thread: thread, Principal: principal,
+		Workspace: systemdb.AgentThreadWorkspace{
+			TagID: tag.ID, DispatchMode: systemdb.DispatchCollaborative, Source: systemdb.ThreadSourceWorkspace,
+		},
+		Collab: systemdb.AgentThreadCollab{
+			ProjectID: pc.ID, ThreadID: th.ID, TagID: tag.ID, ThreadKind: kind,
+		},
+		Tag:            tag,
+		Content:        prompt,
+		IdempotencyKey: idempotency,
+	})
+	if err != nil {
+		return WriteError(c, err)
+	}
+	turn, err := h.store.GetAgentTurn(ctx, pc.ID, turnID)
+	if err != nil {
+		return WriteError(c, err)
+	}
+	dto, err := h.buildTurnDTO(ctx, pc.ID, turn)
+	if err != nil {
+		return WriteError(c, err)
+	}
+	return c.JSON(http.StatusAccepted, dto)
 }

@@ -1,3 +1,37 @@
+// 文件说明：policy.go — gosandbox/host 中 Mode、Policy 等符号的实现
+//
+// 用法
+//
+//	type Mode string  // Mode 是文件系统与网络权限档位
+//	type Policy struct{…}  // Policy 描述一次隔离执行的约束
+//	Validate(p Policy) error  // Validate 校验策略自身，不检查本机能力（见 Probe）
+//	DeniesRead(p Policy, absPath string) bool  // DeniesRead 报告 absPath 是否落在 DenyRead 之内
+//	同包调用：resolveSub() → mandatory.go
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/tools, gosandbox/box, gosandbox/vm/box 等 5 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/host/policy.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] bwrap_args.go, bwrap_args_extra_test.go, cgroup.go, cgroup_linux.go, cgroup_linux_test.go 等 36 个
+//	[关键引用] Mode ← run_darwin_test.go, run_linux_test.go；Policy ← bwrap_args.go, cgroup.go；Validate ← bwrap_args.go, policy_test.go
+//
+// 主要符号
+//
+//	type Mode string
+//	const ModeReadOnly / ModeWorkspaceWrite / ModeDangerFullAccess
+//	var ErrNotIsolated / ErrIsolationUnavailable / ErrNotPTY / ErrUnsupportedSignal / ErrPTYUnsupported
+//	type Policy struct{…}
+//	(p Policy) Isolates() bool
+//	(p Policy) EffectiveMode() Mode
+//	Validate(p Policy) error
+//	validateCPUMax(s string) error
+//	... 另有 2 个顶层符号
+
 package host
 
 import (

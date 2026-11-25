@@ -1,3 +1,27 @@
+// 文件说明：filestore_assembly_test.go — internal/app 的单元测试（TestB4_LocalFileStoreSelected、TestB4_ReadOnlyAssemblesFileStore 等）
+//
+// 用法
+//
+//	go test ./internal/app -run 'TestB4_LocalFileStoreSelected|TestB4_ReadOnlyAssemblesFileStore|TestB4_S3FilesWithoutBucketRejected'
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/api/perfbench
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/app/filestore_assembly_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_shutdown_test.go, app.go, app_alerts.go, app_lease.go, app_test.go 等 41 个
+//
+// 主要符号
+//
+//	fileStoreTestConfig(t *testing.T, writable bool, files string) config.Config
+//	TestB4_LocalFileStoreSelected(t *testing.T)
+//	TestB4_ReadOnlyAssemblesFileStore(t *testing.T)
+//	TestB4_S3FilesWithoutBucketRejected(t *testing.T)
+
 package app
 
 // b4_filestore_test.go：planv6.0 B4「文件存储选择」块表征测试。

@@ -183,35 +183,21 @@ func yamlStorageKeysFrom(root *yaml.Node) map[string]bool {
 	return out
 }
 
-// PutStorage 修改 storage.* 并写回 config.yaml（仅 superadminl1）。
-//
-// 保留原有注释与键顺序：用 yaml.Node 原地改值，不重新序列化整个文档。
-func (h *settingsStorageHandler) PutStorage(c echo.Context) error {
-	principal, ok := PrincipalFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, auth.ErrMissingCredentials)
-	}
-	if principal.Role != auth.RoleSuperAdmin {
-		return WriteError(c, NewAPIError(http.StatusForbidden, "forbidden",
-			"only superadminl1 can change storage settings", RequestIDFromContext(c.Request().Context())))
-	}
+// putStorageBody 是 PUT /settings/storage 的请求体；指针字段区分「未提供」与「空串」。
+type putStorageBody struct {
+	Database     *string `json:"database"`
+	Files        *string `json:"files"`
+	DataDir      *string `json:"data_dir"`
+	ConfirmReset bool    `json:"confirm_reset"`
+}
 
-	var body struct {
-		Database     *string `json:"database"`
-		Files        *string `json:"files"`
-		DataDir      *string `json:"data_dir"`
-		ConfirmReset bool    `json:"confirm_reset"`
-	}
-	if err := c.Bind(&body); err != nil {
-		return WriteError(c, err)
-	}
+// validateStorageBody 校验请求体并返回待写入的 storage.* 键值（已归一化）。
+func validateStorageBody(c echo.Context, body putStorageBody) (map[string]string, error) {
 	if !body.ConfirmReset {
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request",
-			"confirm_reset must be true: changing storage mode requires ./build.sh reset and wipes all data",
-			RequestIDFromContext(c.Request().Context())))
-	}
+		return nil, badRequest(c,
+			"confirm_reset must be true: changing storage mode requires ./build.sh reset and wipes all data")
 
-	// 校验目标值本身合法。
+	}
 	want := map[string]string{}
 	if body.Database != nil {
 		want["database"] = strutil.Normalize(*body.Database)
@@ -223,50 +209,80 @@ func (h *settingsStorageHandler) PutStorage(c echo.Context) error {
 		want["data_dir"] = strings.TrimSpace(*body.DataDir)
 	}
 	if len(want) == 0 {
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request",
-			"nothing to update", RequestIDFromContext(c.Request().Context())))
+		return nil, badRequest(c,
+			"nothing to update")
+
 	}
 	for _, key := range []string{"database", "files"} {
 		if v, ok := want[key]; ok && v != config.StorageModeLocal && v != config.StorageModeS3 {
-			return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request",
-				key+" must be local or s3", RequestIDFromContext(c.Request().Context())))
+			return nil, badRequest(c,
+				key+" must be local or s3")
+
 		}
 	}
 	if v, ok := want["data_dir"]; ok && v == "" {
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request",
-			"data_dir must not be empty", RequestIDFromContext(c.Request().Context())))
-	}
+		return nil, badRequest(c,
+			"data_dir must not be empty")
 
-	// 被环境变量接管的字段不允许通过文件修改（改了也不生效）。
+	}
+	return want, nil
+}
+
+// dropEnvControlled 处理被环境变量接管的字段：已经是同一值的从 want 中删除，
+// 值不同则返回 409（改文件不会生效）。
+func (h *settingsStorageHandler) dropEnvControlled(c echo.Context, want map[string]string) error {
 	yamlKeys, err := h.yamlStorageKeys()
 	if err != nil {
-		return WriteError(c, err)
+		return err
 	}
 	envKeys := map[string]string{
 		"database": "SIMPLEBASE_STORAGE_DATABASE",
 		"files":    "SIMPLEBASE_STORAGE_FILES",
 		"data_dir": "SIMPLEBASE_DATA_DIR",
 	}
+	effective := map[string]string{
+		"database": h.cfg.EffectiveDBMode(),
+		"files":    h.cfg.EffectiveFilesMode(),
+		"data_dir": h.cfg.Storage.DataDir,
+	}
 	for key, val := range want {
 		if storageSource(envKeys[key], yamlKeys[key]) != "env" {
 			continue
 		}
-		// 已经由环境变量覆盖为同一值时不算冲突。
-		if key == "database" && h.cfg.EffectiveDBMode() == val {
+		if effective[key] == val {
 			delete(want, key)
 			continue
 		}
-		if key == "files" && h.cfg.EffectiveFilesMode() == val {
-			delete(want, key)
-			continue
-		}
-		if key == "data_dir" && h.cfg.Storage.DataDir == val {
-			delete(want, key)
-			continue
-		}
-		return WriteError(c, NewAPIError(http.StatusConflict, "conflict",
+		return NewAPIError(http.StatusConflict, "conflict",
 			key+" is controlled by "+envKeys[key]+"; change it in .env instead",
-			RequestIDFromContext(c.Request().Context())))
+			requestID(c))
+	}
+	return nil
+}
+
+// PutStorage 修改 storage.* 并写回 config.yaml（仅 superadminl1）。
+//
+// 保留原有注释与键顺序：用 yaml.Node 原地改值，不重新序列化整个文档。
+func (h *settingsStorageHandler) PutStorage(c echo.Context) error {
+	principal, ok := PrincipalFromContext(c.Request().Context())
+	if !ok {
+		return WriteError(c, auth.ErrMissingCredentials)
+	}
+	if principal.Role != auth.RoleSuperAdmin {
+		return WriteError(c, NewAPIError(http.StatusForbidden, "forbidden",
+			"only superadminl1 can change storage settings", requestID(c)))
+	}
+
+	var body putStorageBody
+	if err := c.Bind(&body); err != nil {
+		return WriteError(c, err)
+	}
+	want, err := validateStorageBody(c, body)
+	if err != nil {
+		return WriteError(c, err)
+	}
+	if err := h.dropEnvControlled(c, want); err != nil {
+		return WriteError(c, err)
 	}
 	if len(want) == 0 {
 		dto, err := h.snapshot()
@@ -280,7 +296,7 @@ func (h *settingsStorageHandler) PutStorage(c echo.Context) error {
 		if errors.Is(err, errConfigNotWritable) {
 			return WriteError(c, NewAPIError(http.StatusConflict, "conflict",
 				"config file is not writable; set the values via environment variables instead",
-				RequestIDFromContext(c.Request().Context())))
+				requestID(c)))
 		}
 		return WriteError(c, err)
 	}

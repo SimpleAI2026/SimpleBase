@@ -135,9 +135,9 @@ func (h *S3Handler) decoratePublic(c echo.Context, projectID string, state siteS
 
 // GetSite 返回站点状态（planv6.7 §1.1 补 mode 字段）。
 func (h *S3Handler) GetSite(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	_, info := h.loadSite(c, pc.ID)
 	return c.JSON(http.StatusOK, info)
@@ -145,9 +145,9 @@ func (h *S3Handler) GetSite(c echo.Context) error {
 
 // ListPublic 列出公开路径。
 func (h *S3Handler) ListPublic(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	state, info := h.loadSite(c, pc.ID)
 	out := make([]publicPathDTO, 0, len(state.Paths))
@@ -160,12 +160,12 @@ func (h *S3Handler) ListPublic(c echo.Context) error {
 
 // PutPublic 设置单条路径的外部访问开关。
 func (h *S3Handler) PutPublic(c echo.Context) error {
-	if h.writable != nil && !*h.writable {
+	if !h.writable {
 		return WriteError(c, godatabase.ErrWriterUnavailable)
 	}
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	if reason := h.siteReason(pc.ID); reason != "" {
 		return WriteError(c, ErrSiteNotPublishable)
@@ -178,9 +178,9 @@ func (h *S3Handler) PutPublic(c echo.Context) error {
 	if err := decodeJSONBody(c, &body, false); err != nil {
 		return WriteError(c, err)
 	}
-	rid := RequestIDFromContext(c.Request().Context())
+	rid := requestID(c)
 	if body.Public == nil {
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "public is required", rid))
+		return WriteError(c, badRequest(c, "public is required"))
 	}
 	// 委托主体（云助手）只能开启 web/ 文件夹：禁止公开对象根或其它目录，
 	// 即使模型绕过 CLI 的前缀检查，服务端也在这里兜底。
@@ -206,7 +206,7 @@ func (h *S3Handler) PutPublic(c echo.Context) error {
 	switch body.Kind {
 	case systemdb.PublicPathFile:
 		if strings.HasSuffix(body.Key, "/") {
-			return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "file key must not end with /", rid))
+			return WriteError(c, badRequest(c, "file key must not end with /"))
 		}
 		if err := objectstore.ValidateFileKey(body.Key); err != nil {
 			return WriteError(c, err)
@@ -214,16 +214,16 @@ func (h *S3Handler) PutPublic(c echo.Context) error {
 	case systemdb.PublicPathFolder:
 		if body.Key != "" {
 			if !strings.HasSuffix(body.Key, "/") {
-				return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "folder key must end with /", rid))
+				return WriteError(c, badRequest(c, "folder key must end with /"))
 			}
 			if err := objectstore.ValidateFileKey(strings.TrimSuffix(body.Key, "/")); err != nil {
 				return WriteError(c, err)
 			}
 		}
 	default:
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "kind must be file or folder", rid))
+		return WriteError(c, badRequest(c, "kind must be file or folder"))
 	}
-	actor := principalActor(c)
+	actor := principalOf(c).Actor()
 	if err := h.sites.SetPublicPath(c.Request().Context(), pc.ID, body.Key, body.Kind, *body.Public, actor); err != nil {
 		return WriteError(c, err)
 	}
@@ -245,19 +245,4 @@ func (h *S3Handler) recordSiteAudit(actor, projectID, kind, detail string) {
 		return
 	}
 	h.index.RecordAudit(systemdb.AuditEvent{Actor: actor, ProjectID: projectID, Kind: kind, Detail: detail})
-}
-
-// principalActor 返回审计 actor（user:<id> | key:<id>）。
-func principalActor(c echo.Context) string {
-	p, ok := PrincipalFromContext(c.Request().Context())
-	if !ok {
-		return ""
-	}
-	if p.UserID != "" {
-		return "user:" + p.UserID
-	}
-	if p.APIKeyID != "" {
-		return "key:" + string(p.APIKeyID)
-	}
-	return ""
 }

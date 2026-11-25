@@ -32,10 +32,8 @@ const enUS: MessageTree = {
     disabledState: 'Disable',
     start: 'Start',
     stop: 'Stop',
-    reset: 'Reset',
     notStarted: 'Not started',
     unknown: 'Unknown',
-    noDescription: 'No description',
     optional: 'Optional',
     irreversible: 'This action cannot be undone.',
     projectRequired: 'Select or create a project from the top right first',
@@ -46,8 +44,6 @@ const enUS: MessageTree = {
     emptyDescription: 'Nothing to display',
     totalCount: '{n} total',
     itemCount: '{n}',
-    pagePrev: 'Previous',
-    pageNext: 'Next',
     name: 'Name',
     status: 'Status',
     actions: 'Actions',
@@ -60,11 +56,7 @@ const enUS: MessageTree = {
     hint: 'Notes',
     readonly: 'Read-only',
     seconds: 'seconds',
-    external: 'External',
     inner: 'Internal',
-    hide: 'Hide',
-    show: 'Show',
-    noMatch: 'No match',
     noMatchFilter: 'Nothing matches the current filters',
     clearFilter: 'Clear filters',
     query: 'Search'
@@ -120,7 +112,6 @@ const enUS: MessageTree = {
   },
 
   error: {
-    generic: 'Operation failed',
     loadFailed: 'Failed to load',
     runFailed: 'Run failed',
     requestFailed: 'Request failed',
@@ -128,7 +119,6 @@ const enUS: MessageTree = {
     networkFailed: 'Network request failed',
     htmlResponse: 'Endpoint not found or returned an HTML page',
     streamFailed: 'Streaming request failed',
-    emptyMessage: 'Message cannot be empty',
     codes: {
       llm_not_configured: 'Model service is not configured — set up an LLM provider in Settings first',
       llm_auth_failed: 'Model service authentication failed — check your API key',
@@ -140,22 +130,30 @@ const enUS: MessageTree = {
       quota_exceeded: 'Model call quota exhausted',
       invalid_retry: 'This conversation cannot be retried (only the most recent failed run can)',
       writer_unavailable: 'This instance is read-only, so an assistant session cannot be created (write access required)',
+      turn_busy: 'This conversation already has an active turn — wait for it to finish or stop it first',
+      turn_conflict: 'This turn was just modified by someone else — reload and retry',
+      routing_failed: "No plan could be produced for this message — rephrase or {'@'} an assistant directly",
+      invalid_dispatch_graph: 'The task graph of this plan is invalid — adjust it and retry',
+      agent_not_in_tag: 'The mentioned assistant is not a member of this group',
+      mention_not_planned: 'The plan omitted a mentioned assistant — retry',
+      human_assignee_required: 'This step needs a human, but nobody can be assigned (send from a signed-in account)',
+      human_policy_disabled: "Human tasks are disabled for this group — {'@'} an assistant instead",
+      human_task_forbidden: 'Only the assignee or a project admin can resolve this task',
+      task_not_retryable: 'This task cannot be retried in its current state',
+      group_archived: 'This group has been archived and no longer accepts messages',
+      group_member_unavailable: 'The target agent is archived or not a member of this group',
+      workspace_upgrade_required: 'Collaboration tables are not ready — finish the system database bootstrap first',
+      collaboration_budget_exceeded: 'The collaboration budget for this turn is exhausted — start a new conversation',
       bad_request: 'Invalid request parameters',
       unauthorized: 'Session expired — please sign in again',
       forbidden: 'You do not have permission for this operation',
       not_found: 'Resource not found',
-      agent_prompt_required: 'A prompt is required for assistant jobs',
-      agent_prompt_too_long: 'Prompt exceeds the 16 KiB limit',
-      agent_not_found: 'The selected assistant does not exist',
-      invalid_target_kind: 'Invalid job type',
-      agent_schedules_merged: 'Assistant schedules have moved to the Cron jobs page — create or edit them there',
       internal_error: 'Internal service error — try again later'
     }
   },
 
   agentPhase: {
     thinking: 'Thinking · {s}s',
-    routing: 'Choosing an agent…',
     awaitingConfirm: 'Awaiting confirmation',
     tool: 'Running tool {name}…',
     streaming: 'Replying · {s}s',
@@ -184,12 +182,6 @@ const enUS: MessageTree = {
     backToHome: 'Back to home',
     backToConsole: 'Back to console',
     console: 'Console',
-    accountMenu: 'Account menu',
-    changePassword: 'Change password',
-    logout: 'Sign out',
-    roleSuper: 'Super admin',
-    roleAdmin: 'Admin',
-    roleUser: 'User'
   },
 
   pages: {
@@ -204,7 +196,6 @@ const enUS: MessageTree = {
       title: 'Model call traces',
       subtitle: 'Model call observability: latency, tokens and errors',
       status: 'Status',
-      provider: 'Provider',
       model: 'Model',
       duration: 'Duration',
       inputTokens: 'Input tokens',
@@ -216,7 +207,6 @@ const enUS: MessageTree = {
       statusOk: 'Success',
       statusError: 'Failed',
       streamYes: 'Stream',
-      streamNo: 'Non-stream',
       filterModel: 'Filter by model',
       filterCaller: 'Source',
       caller: 'Source',
@@ -261,10 +251,8 @@ const enUS: MessageTree = {
       confirmDescription: 'This will run {method} {path} and may change project data.',
       parameterRequired: 'Enter path parameter {name}',
       invalidJSON: 'The request body must be valid JSON',
-      paramPick: 'Pick from the list or type a value',
       paramDependsOn: 'Select {params} first',
       paramOptionsFailed: 'Could not load options. You can type a value instead',
-      paramCurrentProject: 'Current project'
     },
     dataBrowser: {
       subtitle: 'Explore collection data as charts, or let the data assistant build them for you',
@@ -286,7 +274,6 @@ const enUS: MessageTree = {
       empty: 'No data matches the current filters',
       noDatabase: 'No ready database is available in this project',
       noCollections: 'This database has no collections',
-      noCollectionSelected: 'Select a collection first',
       loadFailed: 'Failed to load data',
       databaseLoadFailed: 'Failed to load databases',
       collectionLoadFailed: 'Failed to load collections',
@@ -318,7 +305,6 @@ const enUS: MessageTree = {
       deleteConfirm: 'Delete this trigger?',
       loadFailed: 'Failed to load triggers',
       saved: 'Trigger saved',
-      saveFailed: 'Failed to save trigger',
       deleted: 'Trigger deleted',
       invoked: 'Trigger queued',
       enabledToast: 'Trigger enabled',
@@ -534,8 +520,6 @@ const enUS: MessageTree = {
       deleteFailed: 'Deletion failed',
       linkFailed: 'Failed to generate link',
       download: 'Download',
-      privateLink: 'Copy private link',
-      downloadFailed: 'Download failed',
       linkCopied: 'Private link copied',
       loadFailed: 'Failed to load',
       colPublic: 'Public access',
@@ -547,7 +531,6 @@ const enUS: MessageTree = {
       publicOff: 'Public access disabled',
       publicFailed: 'Failed to update public access',
       copyUrl: 'Copy URL',
-      openUrl: 'Open in new tab',
       urlCopied: 'Public URL copied',
       site: {
         modeSubdomain: 'Site URL: {url}',
@@ -621,8 +604,6 @@ const enUS: MessageTree = {
       enabledToast: 'Enabled {name}',
       pausedToast: 'Paused {name}',
       toggleFailed: 'Failed to toggle',
-      triggeredToast: 'Triggered {name}',
-      triggerFailed: 'Trigger failed',
       deletedToast: 'Deleted {name}',
       deleteFailed: 'Deletion failed',
       loadFailed: 'Failed to load the cron job list'
@@ -648,7 +629,6 @@ const enUS: MessageTree = {
       colSource: 'Source',
       colLastActive: 'Last active',
       colExpires: 'Expires',
-      colActions: 'Actions',
       emptyTitle: 'No sandboxes',
       emptyDesc: 'Once created, use it from the terminal, the file browser or the E2B SDK; it is reclaimed when it times out',
       sourceApi: 'API',
@@ -720,7 +700,6 @@ const enUS: MessageTree = {
       retentionUpdatedAt: 'Updated {time}',
       retentionSaved: 'Retention policy saved',
       saveFailed: 'Save failed',
-      trendTitle: 'Log trend (hourly)',
       export: 'Export CSV',
       exportFailed: 'Export failed',
       loadFailed: 'Failed to load logs'
@@ -775,30 +754,16 @@ const enUS: MessageTree = {
         cron: 'Scheduled Task Assistant', s3: 'Object Storage Assistant', logs: 'Logs Assistant', sandbox: 'Sandbox Assistant'
       },
       create: 'New',
-      searchPlaceholder: 'Search agents',
+      workspaceUpgradeRequired: 'This server uses an older collaboration protocol. Upgrade to protocol v3; history remains read-only.',
       searchClear: 'Clear search',
       searchNoMatch: 'No matching agent',
       emptyListDesc: 'No agents',
-      emptyListAction: 'Create',
       dialogLabel: 'Chat',
       viewInSandbox: 'View on the Sandboxes page',
       moreActions: 'More actions',
       renameThreadTitle: 'Rename conversation',
       renameThreadLabel: 'Conversation name',
       renameThreadPlaceholder: 'Enter a new conversation name',
-      createTitle: 'New agent',
-      editTitle: 'Edit agent',
-      formName: 'Name',
-      formModule: 'Module',
-      moduleUnconfigured: ' (sandboxes not configured)',
-      formModel: 'Model',
-      modelPlaceholder: 'Use the project default model',
-      modelPlaceholderDefault: 'Use project default ({model})',
-      modelNoSuggestion: 'No matching suggestion; the typed model name is used as is',
-      formDescription: 'Description',
-      formPromptPlaceholder: 'Optional; layered on top of the module template',
-      formTools: 'Tools',
-      toolLabel: 'Tool: {label}',
       composerWithAgent: "Message {name}; type {'@'} to mention an agent",
       composerIdle: "Type {'@'} to mention an agent",
       mentionHint: "Mention {'@'}{name} to send",
@@ -807,10 +772,6 @@ const enUS: MessageTree = {
       mentionHintWritable: '{who}; tools support reads and writes. Writes still require permissions and confirmation.',
       cliSkillsUnavailable: 'Enable CLI skills before using this agent.',
       sandboxUnavailable: 'The sandbox is unavailable. Enable it and try again.',
-      every15Min: 'Every 15 minutes',
-      everyHour: 'Hourly',
-      daily8: 'Daily 08:00 (UTC)',
-      weeklyMon8: 'Mondays 08:00 (UTC)',
       loadAgentsFailed: 'Failed to load agents',
       loadModelsFailed: 'Failed to load model suggestions',
       confirmFailed: 'Failed to submit execution confirmation',
@@ -819,17 +780,12 @@ const enUS: MessageTree = {
       loadModulesFailed: 'Failed to load modules',
       renameFailed: 'Rename failed',
       deleteThreadFailed: 'Failed to delete the conversation',
-      nameRequired: 'Enter a name',
-      sandboxUnconfigured: 'Sandboxes are not configured, so a Sandbox agent cannot be created',
       saveFailed: 'Save failed',
       deleteFailed: 'Deletion failed',
       createThreadFailed: 'Failed to create the conversation',
       selectAgentFirst: "Select or {'@'}-mention an agent first",
       multipleAgentsNotSupported: 'Mention only one agent at a time; remove the extra mentions and try again.',
-      switchAgentHint: 'This conversation belongs to another agent. Switch to {name} before sending.',
-      switchAgentAction: 'Switch to {name}',
       runFailed: 'Run failed',
-      defaultThreadTitle: 'Cloud Assistant',
 
       prompts: {
         general: {
@@ -1008,7 +964,6 @@ const enUS: MessageTree = {
         retry: 'Retry',
         droppedFields: '{n} charts referenced fields that no longer exist and were removed',
         limitReached: 'A dashboard holds at most {n} charts; remove one first',
-        schemaMissing: 'Schema not registered'
       },
       editor: {
         titleNew: 'Add chart',
@@ -1018,7 +973,6 @@ const enUS: MessageTree = {
         metrics: 'Metrics',
         addMetric: 'Add metric',
         removeMetric: 'Remove metric',
-        metricKind: 'Aggregation',
         metricField: 'Field',
         groupBy: 'Group by',
         timeBucket: 'Time bucket',
@@ -1108,19 +1062,10 @@ const enUS: MessageTree = {
     },
 
     agentCard: {
-      selectAria: 'Select agent {name}',
       running: 'Replying',
       builtin: 'Built-in',
-      noDescription: 'No description',
       edit: 'Edit',
-      schedule: 'Schedule',
       delete: 'Delete',
-      deleteConfirm: 'Delete agent “{name}”?',
-      moduleGeneral: 'General',
-      moduleDatabase: 'Database',
-      moduleS3: 'Objects',
-      moduleLogs: 'Logs',
-      moduleSandbox: 'Sandbox'
     },
 
     agentToolCard: {
@@ -1135,15 +1080,11 @@ const enUS: MessageTree = {
     },
 
     conversation: {
-      emptyDesc: 'Start a conversation',
       thinking: 'Reasoning',
       retry: 'Retry',
       canceled: 'Stopped',
-      routing: 'Choosing an agent…',
-      routeMention: 'Mentioned',
-      routeFallback: 'General fallback',
-      routeRetry: 'Retried',
-      unknownAgent: 'Removed agent'
+      unknownAgent: 'Removed agent',
+      fromPlan: 'from Plan'
     },
 
     /** planv6.7 AGC-NAV: workspace sidebar (search, chat tree, tags). */
@@ -1158,7 +1099,6 @@ const enUS: MessageTree = {
       createAgentAndJoin: 'Create agent and join',
       emptyGroup: 'No threads in this group yet',
       pendingHuman: '{n} waiting for you',
-      newGroupThread: 'New thread',
       threadKind: {
         chat: 'General',
         alert: 'Alert',
@@ -1169,10 +1109,14 @@ const enUS: MessageTree = {
       loadMore: 'Load more',
       openNav: 'Threads & tags',
       archiveTagConfirm: 'Archive tag "{name}"? New threads and messages will no longer be accepted.',
-      fixedAgent: 'Fixed: {name}',
-      newAutoThread: 'New auto-routed thread',
-      autoRoute: 'Auto-select agent',
-      mentionThisTurn: 'This turn: {name}',
+      planDecides: "The plan decides who does what; {'@'}-mentioning an agent is a hard constraint",
+      planMentioned: 'This turn {names} (the plan writes a separate instruction for each)',
+      planDeciding: 'Planning…',
+      groupMembers: '{n} members',
+      planComplex: 'Complex',
+      planProgress: 'Plan progress',
+      planProgressCount: '{done}/{total} tasks done',
+      planFindings: 'Findings',
       noAvailableAgent: 'No available agent in this tag. Edit the tag or go back to #General',
       agentNotInTag: 'That agent is not in this tag',
       retryAgentUnavailable: 'The original agent is no longer available. Send again',
@@ -1185,14 +1129,11 @@ const enUS: MessageTree = {
       groupArchived: 'This group is archived. Continue in another group.',
       turnBusy: 'This thread is still processing the previous turn',
       humanRequired: 'This step needs you to confirm while signed in',
-      dispatchTitle: 'Routing plan',
-      dispatchStep: '{index}. {name}: {instruction}',
-      dispatchWaiting: 'Waiting for upstream',
+      dispatchTitle: 'Execution plan',
       humanTaskTitle: 'Waiting for you',
       humanReplyPlaceholder: 'Add context or a note (optional)',
       humanContinue: 'Reply and continue',
       humanUnable: 'Cannot handle',
-      humanUnavailable: 'Nothing needs you in this turn',
       taskStatus: {
         pending: 'Queued',
         running: 'Running',
@@ -1203,6 +1144,16 @@ const enUS: MessageTree = {
         canceled: 'Stopped',
         interrupted: 'Interrupted'
       },
+      planConfirmTitle: 'Confirm execution plan',
+      planConfirmDescription: 'Review the goal and task graph. Edits change this plan only; no tool runs before approval.',
+      planGoal: 'Goal',
+      planSteps: 'Steps',
+      planTasks: 'Tasks and dependencies',
+      planEditMessage: 'Edit task {ref}',
+      planDrop: 'Remove task',
+      planRestore: 'Restore task',
+      planApprove: 'Approve and run',
+      planReject: 'Reject turn',
       retryTask: 'Retry this step',
       mentionMe: 'Me',
     },
@@ -1250,7 +1201,6 @@ const enUS: MessageTree = {
       removePrompt: 'Delete prompt',
       moveUp: 'Move up',
       moveDown: 'Move down',
-      removeAgent: 'Remove'
     },
 
     agentWelcome: {
@@ -1265,11 +1215,7 @@ const enUS: MessageTree = {
     },
 
     threadSwitcher: {
-      switchAria: 'Switch conversation',
-      newThread: 'New conversation',
       deleteConfirm: 'Delete the current conversation?',
-      deleteAria: 'Delete conversation {title}',
-      loadingThreads: 'Loading conversations',
       selectThread: 'Select a conversation',
       running: 'Replying'
     },
@@ -1277,14 +1223,9 @@ const enUS: MessageTree = {
     agentSchedule: {
       enabled: 'Enabled',
       disabled: 'Disabled',
-      preset15Min: 'Every 15 minutes',
-      presetHourly: 'Hourly',
-      presetDaily8: 'Daily 08:00 (UTC)',
-      presetWeeklyMon8: 'Mondays 08:00 (UTC)'
     },
 
     aiComposer: {
-      noAgentMatch: 'No matching agent',
       noMentionMatch: 'No matching agent',
       agentGroup: 'Agents',
       selectMention: 'Select an agent suggestion to resolve duplicate or spaced names before sending.',
@@ -1320,7 +1261,6 @@ const enUS: MessageTree = {
     },
     collectionPanel: {
       colName: 'Collection',
-      colActions: 'Actions',
       emptyReadonly: 'No tables',
       empty: 'No collections',
       create: 'New collection',
@@ -1371,7 +1311,6 @@ const enUS: MessageTree = {
       readonlyHint: 'The system database is read-only: tables and columns cannot be changed',
       colTable: 'Table',
       colColumns: 'Columns',
-      colActions: 'Actions',
       emptyDesc: 'No tables',
       viewData: 'View data',
       createTable: 'New table',
@@ -1397,7 +1336,6 @@ const enUS: MessageTree = {
 
     schemaRows: {
       fallbackTitle: 'Table data',
-      readonlyDesc: 'Read-only',
       emptyDesc: 'This table has no rows',
       hidden: 'Hidden',
       columnFallback: 'Column',
@@ -1751,7 +1689,6 @@ const enUS: MessageTree = {
       usernameImmutable: 'The username cannot be changed',
       usernameDesc: 'Login name, case-insensitive',
       displayName: 'Display name',
-      displayNamePlaceholder: 'Optional',
       role: 'Role',
       rolePlaceholder: 'Choose a role',
       roleAdmin: 'Admin (read-only)',
@@ -1781,7 +1718,6 @@ const enUS: MessageTree = {
       noCreatePermission: 'This account is not allowed to create projects',
       createFailed: 'Failed to create the project',
       sessionFailed: 'Failed to create the build session',
-      progressAria: 'Build progress'
     },
 
     createProject: {
@@ -1899,7 +1835,6 @@ const enUS: MessageTree = {
       runAtHint: 'Runs once at that time and then disables itself; interpreted as UTC',
       funcFile: 'Function file',
       selectFile: 'Select a file',
-      loadFailed: 'Failed to load',
       noFunctions: 'This project has no functions — ',
       noFunctionsLink: 'create one first',
       noPublished: 'No published functions (an active version is required) — ',
@@ -2084,7 +2019,6 @@ const enUS: MessageTree = {
       title: 'New sandbox',
       description: 'A sandbox runs as soon as it is created and is reclaimed when it times out.',
       nameLabel: 'Name (auto-generated if empty)',
-      namePlaceholder: 'etl-check',
       nameAria: 'Sandbox name',
       nameInvalid: 'Lowercase letters, digits and hyphens only, up to 63 characters',
       templateLabel: 'Template',

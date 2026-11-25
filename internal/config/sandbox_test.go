@@ -1,3 +1,32 @@
+// 文件说明：sandbox_test.go — internal/config 的单元测试（TestSandboxDefaults、TestSandboxValidateLocalNeedsNoKey 等）
+//
+// 用法
+//
+//	go test ./internal/config -run 'TestSandboxDefaults|TestSandboxValidateLocalNeedsNoKey|TestSandboxValidateDisabledSkipsChecks|TestSandboxValidateLocalPaths'
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/api, internal/api/perfbench, internal/app 等 6 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/config/sandbox_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] agent_config_test.go, backup.go, config.go, config_agent_types.go, config_example_test.go 等 24 个
+//
+// 主要符号
+//
+//	validTestConfig(t *testing.T) Config
+//	writeTempConfig(t *testing.T, content string) string
+//	TestSandboxDefaults(t *testing.T)
+//	TestSandboxValidateLocalNeedsNoKey(t *testing.T)
+//	TestSandboxValidateDisabledSkipsChecks(t *testing.T)
+//	TestSandboxValidateLocalPaths(t *testing.T)
+//	TestSandboxValidateNetwork(t *testing.T)
+//	TestSandboxValidateRejectsPublicNetwork(t *testing.T)
+//	... 另有 10 个顶层符号
+
 package config
 
 import (

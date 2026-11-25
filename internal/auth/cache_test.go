@@ -1,3 +1,30 @@
+// 文件说明：cache_test.go — internal/auth 的单元测试（TestAPIKeyCacheHitsAndInvalidation、TestAPIKeyCacheTTExpiry 等）
+//
+// 用法
+//
+//	go test ./internal/auth -run 'TestAPIKeyCacheHitsAndInvalidation|TestAPIKeyCacheTTExpiry'
+//	同包调用：countingRepo → observer_test.go
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/api/perfbench 等 9 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/auth/cache_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] api_key_repository.go, authenticate_middleware_test.go, cache.go, cached_user_test.go, delegation.go 等 31 个
+//	[关键引用] countingRepo ← observer_test.go
+//
+// 主要符号
+//
+//	type countingRepo struct{…}
+//	(r *countingRepo) FindByHash(ctx context.Context, keyHash string) (APIKeyRecord, error)
+//	TestAPIKeyCacheHitsAndInvalidation(t *testing.T)
+//	TestAPIKeyCacheTTExpiry(t *testing.T)
+//	var fakeNow
+
 package auth
 
 import (

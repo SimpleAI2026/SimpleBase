@@ -1,3 +1,24 @@
+// 文件说明：reserved_prefix_test.go — godatabase/sqlguard 的单元测试（TestValidateRejectsReservedIdentifiers 等）
+//
+// 用法
+//
+//	go test ./godatabase/sqlguard -run 'TestValidateRejectsReservedIdentifiers'
+//
+// 调用架构
+//
+//	[上游] godatabase/cmd, godatabase/ducklake, internal/agentbridge, internal/api
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/sqlguard/reserved_prefix_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] classifier.go, classifier_test.go, split_test.go, validator.go
+//
+// 主要符号
+//
+//	TestValidateRejectsReservedIdentifiers(t *testing.T)
+
 package sqlguard
 
 import "testing"

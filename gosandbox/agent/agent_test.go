@@ -1,3 +1,32 @@
+// 文件说明：agent_test.go — gosandbox/agent 的单元测试（TestAgentRunCommand、TestAgentExitCode 等）
+//
+// 用法
+//
+//	go test ./gosandbox/agent -run 'TestAgentRunCommand|TestAgentExitCode|TestAgentStdin|TestAgentSignal'
+//
+// 调用架构
+//
+//	[上游] gosandbox/cmd
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/agent/agent_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent.go, fs.go, loopback_linux.go, loopback_other.go, netfilter_linux.go 等 16 个
+//
+// 主要符号
+//
+//	type harness struct{…}
+//	newHarness(t *testing.T) *harness
+//	(h *harness) send(m *proto.Msg)
+//	(h *harness) next() proto.Msg
+//	(h *harness) until(kind proto.Kind) proto.Msg
+//	(h *harness) collect(id string) (string, proto.Msg)
+//	TestAgentRunCommand(t *testing.T)
+//	TestAgentExitCode(t *testing.T)
+//	... 另有 12 个顶层符号
+
 package agent
 
 // agent_test.go：agent 的端到端行为（不需要 bwrap、不需要 root）。

@@ -1,3 +1,31 @@
+// 文件说明：types.go — gosandbox/vm/box 中 Options、ImageSource 等符号的实现
+//
+// 用法
+//
+//	type Options struct{…}  // Options 是常驻 agent 驱动的显式配置
+//	type ImageSource interface{…}  // ImageSource 把镜像引用解析为只读文件系统根
+//	type Lower struct{…}  // Lower 标识一个已解包的只读根
+//	type Policy struct{…}  // Policy 是沙盒内 Landlock 的附加规则
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/vm/box/types.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] capabilities.go, contracts_linux_test.go, diskuse_linux.go, driver_linux.go, driver_other.go 等 15 个
+//	[关键引用] Options ← contracts_linux_test.go, driver_linux.go；Lower ← driver_linux.go, driver_test.go；Policy ← driver_linux.go, metrics_linux.go
+//
+// 主要符号
+//
+//	type Options struct{…}
+//	type ImageSource interface{…}
+//	type Lower struct{…}
+//	type Policy struct{…}
+
 package box
 
 import (

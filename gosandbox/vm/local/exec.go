@@ -1,3 +1,37 @@
+// 文件说明：exec.go — gosandbox/vm/local 中 Driver.Exec、Driver.Start 等符号的实现
+//
+// 用法
+//
+//	(d *Driver) Exec(ctx context.Context, t vm.Target, r vm.ExecSpec) (vm.ExecResult, error)  // Exec 在隔离中执行一条命令
+//	(d *Driver) Start(ctx context.Context, t vm.Target, r vm.StartSpec) (vm.Proc, error)  // Start 在隔离中启动一个保持句柄的进程（终端、后台进程）
+//	(a procAdapter) PID() int
+//	(a procAdapter) Stdin() io.WriteCloser
+//	(a procAdapter) Output() io.Reader
+//	(a procAdapter) Done() <-chan struct{}
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/vm/local/exec.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] export_test.go, files.go, local.go, local_test.go, metrics.go 等 8 个
+//
+// 主要符号
+//
+//	resolveCommandArgv(shell, cmd string, args []string) ([]string, bool)
+//	(d *Driver) Exec(ctx context.Context, t vm.Target, r vm.ExecSpec) (vm.ExecResult, error)
+//	(d *Driver) resolveCwd(ws, workdir, cwd string) (string, *vm.ExecResult)
+//	(d *Driver) Start(ctx context.Context, t vm.Target, r vm.StartSpec) (vm.Proc, error)
+//	type procAdapter struct{…}
+//	(a procAdapter) PID() int
+//	(a procAdapter) Stdin() io.WriteCloser
+//	(a procAdapter) Output() io.Reader
+//	... 另有 5 个顶层符号
+
 package local
 
 import (

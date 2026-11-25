@@ -1,3 +1,28 @@
+// 文件说明：trace_test.go — gocloudagent/cloudagent 的单元测试（TestTracerPayloadOffByDefault、TestTracerPayloadRedactsAndTruncates 等）
+//
+// 用法
+//
+//	go test ./gocloudagent/cloudagent -run 'TestTracerPayloadOffByDefault|TestTracerPayloadRedactsAndTruncates|TestTracerRedactsJSONSecretShape|TestHashSummaryShape'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/cloudagent/trace_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] callgate.go, callgate_test.go, confirmation.go, confirmation_test.go, errors.go 等 32 个
+//
+// 主要符号
+//
+//	newTestTracer(t *testing.T, trace bool) (*bytes.Buffer, Tracer)
+//	TestTracerPayloadOffByDefault(t *testing.T)
+//	TestTracerPayloadRedactsAndTruncates(t *testing.T)
+//	TestTracerRedactsJSONSecretShape(t *testing.T)
+//	TestHashSummaryShape(t *testing.T)
+
 package cloudagent
 
 import (
@@ -12,12 +37,12 @@ import (
 // planv6.0 v2 §5.6：内容层日志是 internal/AGENTS.md 脱敏约定的显式例外，
 // 必须验证「默认关闭不落正文」与「打开后正文全部脱敏 + 截断」两侧。
 
-func newTestTracer(t *testing.T, trace bool) (*bytes.Buffer, tracer) {
+func newTestTracer(t *testing.T, trace bool) (*bytes.Buffer, Tracer) {
 	t.Helper()
 	buf := &bytes.Buffer{}
 	enc := zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig())
 	core := zapcore.NewCore(enc, zapcore.AddSync(buf), zap.DebugLevel)
-	return buf, tracer{logger: zap.New(core), payload: trace}
+	return buf, Tracer{logger: zap.New(core), payload: trace}
 }
 
 func TestTracerPayloadOffByDefault(t *testing.T) {
@@ -64,10 +89,10 @@ func TestTracerRedactsJSONSecretShape(t *testing.T) {
 }
 
 func TestHashSummaryShape(t *testing.T) {
-	if got := hashSummary(""); got != "0:-" {
+	if got := HashSummary(""); got != "0:-" {
 		t.Fatalf("empty summary=%q", got)
 	}
-	got := hashSummary("hello")
+	got := HashSummary("hello")
 	if !strings.HasPrefix(got, "5:") || len(got) != len("5:")+16 {
 		t.Fatalf("summary=%q", got)
 	}

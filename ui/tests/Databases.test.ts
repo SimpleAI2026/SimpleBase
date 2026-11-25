@@ -4,7 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { toast } from 'vue-sonner'
 import { ADMIN_PROJECT_ID, useProjectStore } from '@/stores/project'
 import { api, resetApiMocks } from '@/test/api-mock'
-import { clickText, creatingDb, degradedDb, mountWithApp, readyDb, uiStubs } from '@/test/helpers'
+import { clickText, creatingDb, degradedDb, mountWithApp, readyDb, uiStubs, cancelModal, closeDialog, dialogEl, installJsdomPolyfills, modalOkDisabled, mountDialog, okModal, realDialogStubs, inDialog, confirmAction, realAlertDialogStubs } from '@/test/helpers'
 
 vi.mock('@/services/api', async () => {
   const m = await import('@/test/api-mock')
@@ -14,6 +14,8 @@ vi.mock('@/services/api', async () => {
 import Databases from '@/pages/Databases.vue'
 
 const interactionCollectionStub = {
+  ...realDialogStubs,
+  ...realAlertDialogStubs,
   CollectionPanel: {
     props: ['database', 'readonly'],
     emits: ['view-data', 'add-document', 'create-collection'],
@@ -61,6 +63,8 @@ const deletingDb = {
 }
 
 const dbStubs = {
+  ...realDialogStubs,
+  ...realAlertDialogStubs,
   CollectionPanel: {
     props: ['database', 'readonly', 'reloadToken'],
     emits: ['view-data', 'add-document', 'create-collection'],
@@ -106,6 +110,8 @@ function expandButtons(wrapper: Awaited<ReturnType<typeof mountWithApp>>['wrappe
   return wrapper.findAll('button').filter((b) => b.attributes('data-row-expand') !== undefined)
 }
 
+installJsdomPolyfills()
+
 describe('Databases (数据管理)', () => {
   beforeEach(() => {
     resetApiMocks()
@@ -139,22 +145,23 @@ describe('Databases (数据管理)', () => {
   it('creates a database after validating the name', async () => {
     const { wrapper } = await mountWithApp(Databases, { stubs: dbStubs })
     await clickText(wrapper, '新建数据库')
-    expect(wrapper.find('.sb-modal').exists()).toBe(true)
+    expect(dialogEl()).not.toBeNull()
 
-    await wrapper.get('.sb-ok').trigger('click')
+    // 名称为空时「确定」仍可点（空名称走 toast 提示）；名称非法时「确定」被禁用，用户点不了。
+    await okModal()
     expect(toast.warning).toHaveBeenCalledWith('请输入数据库名称')
 
-    await wrapper.get('#db-name').setValue('bad/name')
-    await wrapper.get('.sb-ok').trigger('click')
-    expect(toast.warning).toHaveBeenCalledWith('名称不能包含 / \\ 或控制字符')
+    await inDialog().get('#db-name').setValue('bad/name')
+    expect(modalOkDisabled()).toBe(true)
+    expect((wrapper.vm as unknown as { nameError: string }).nameError).toBe('名称不能包含 / \\ 或控制字符')
 
-    await wrapper.get('#db-name').setValue('x'.repeat(64))
-    expect(wrapper.text()).toContain('名称不能超过 63 字节')
-    await wrapper.get('.sb-ok').trigger('click')
-    expect(toast.warning).toHaveBeenCalledWith('名称不能超过 63 字节')
+    await inDialog().get('#db-name').setValue('x'.repeat(64))
+    expect(inDialog().text()).toContain('名称不能超过 63 字节')
+    expect(modalOkDisabled()).toBe(true)
 
-    await wrapper.get('#db-name').setValue('okdb')
-    await wrapper.get('.sb-ok').trigger('click')
+    await inDialog().get('#db-name').setValue('okdb')
+    expect(modalOkDisabled()).toBe(false)
+    await okModal()
     await flushPromises()
     expect(api.databases.create).toHaveBeenCalledWith(expect.any(String), {
       name: 'okdb',
@@ -162,7 +169,7 @@ describe('Databases (数据管理)', () => {
       initSql: undefined
     })
     expect(toast.success).toHaveBeenCalledWith(expect.stringContaining('就绪'))
-    expect(wrapper.find('.sb-modal').exists()).toBe(false)
+    expect(dialogEl()).toBeNull()
   })
 
   it('creates a SQL database with init SQL and manages schema instead of collections', async () => {
@@ -181,21 +188,21 @@ describe('Databases (数据管理)', () => {
     expect(wrapper.html()).not.toContain('text-right')
 
     await clickText(wrapper, '新建数据库')
-    const group = wrapper.get('[data-slot="field-group"]')
+    const group = inDialog().get('[data-slot="field-group"]')
     expect(group.classes()).toContain('gap-5')
     expect(group.text()).toContain('名称')
     expect(group.text()).toContain('数据类型')
-    expect(wrapper.find('#db-init-sql').exists()).toBe(false)
-    await clickText(wrapper, 'SQL 数据')
-    expect(wrapper.find('#db-init-sql').exists()).toBe(true)
+    expect(inDialog().find('#db-init-sql').exists()).toBe(false)
+    await clickText(inDialog(), 'SQL 数据')
+    expect(inDialog().find('#db-init-sql').exists()).toBe(true)
     expect(group.text()).toContain('初始化 SQL')
-    expect(wrapper.get('[data-slot="field-group"]').classes()).toContain('gap-5')
-    await clickText(wrapper, '集合文档')
-    expect(wrapper.find('#db-init-sql').exists()).toBe(false)
-    await clickText(wrapper, 'SQL 数据')
-    await wrapper.get('#db-init-sql').setValue('  CREATE TABLE t (id INTEGER);  ')
-    await wrapper.get('#db-name').setValue('orders')
-    await wrapper.get('.sb-ok').trigger('click')
+    expect(inDialog().get('[data-slot="field-group"]').classes()).toContain('gap-5')
+    await clickText(inDialog(), '集合文档')
+    expect(inDialog().find('#db-init-sql').exists()).toBe(false)
+    await clickText(inDialog(), 'SQL 数据')
+    await inDialog().get('#db-init-sql').setValue('  CREATE TABLE t (id INTEGER);  ')
+    await inDialog().get('#db-name').setValue('orders')
+    await okModal()
     await flushPromises()
     expect(api.databases.create).toHaveBeenCalledWith(expect.any(String), {
       name: 'orders',
@@ -225,21 +232,21 @@ describe('Databases (数据管理)', () => {
     const { wrapper } = await mountWithApp(Databases, { stubs: { ...dbStubs, FieldError: false } })
 
     await clickText(wrapper, '新建数据库')
-    await clickText(wrapper, 'SQL 数据')
-    await wrapper.get('#db-name').setValue('testv1')
-    await wrapper.get('#db-init-sql').setValue('SET NAMES utf8mb4;')
-    await wrapper.get('.sb-ok').trigger('click')
+    await clickText(inDialog(), 'SQL 数据')
+    await inDialog().get('#db-name').setValue('testv1')
+    await inDialog().get('#db-init-sql').setValue('SET NAMES utf8mb4;')
+    await okModal()
     await flushPromises()
-    expect(wrapper.get('.sb-modal [role="alert"]').text()).toBe('sql statement not allowed')
-    expect(wrapper.get('.sb-modal').text()).toContain('仅 CREATE、ALTER、INSERT')
+    expect(inDialog().get('[role="alert"]').text()).toBe('sql statement not allowed')
+    expect(inDialog().text()).toContain('仅 CREATE、ALTER、INSERT')
 
-    await wrapper.get('.sb-ok').trigger('click')
+    await okModal()
     await flushPromises()
-    expect(wrapper.get('.sb-modal [role="alert"]').text()).toBe('second failure')
+    expect(inDialog().get('[role="alert"]').text()).toBe('second failure')
 
-    await wrapper.get('.sb-modal-close').trigger('click')
+    await closeDialog()
     await clickText(wrapper, '新建数据库')
-    expect(wrapper.get('.sb-modal').text()).not.toContain('second failure')
+    expect(inDialog().text()).not.toContain('second failure')
   })
 
   it('surfaces create and delete errors', async () => {
@@ -248,13 +255,12 @@ describe('Databases (数据管理)', () => {
     const { wrapper } = await mountWithApp(Databases, { stubs: dbStubs })
 
     await clickText(wrapper, '新建数据库')
-    await wrapper.get('#db-name').setValue('okdb')
-    await wrapper.get('.sb-ok').trigger('click')
+    await inDialog().get('#db-name').setValue('okdb')
+    await okModal()
     await flushPromises()
     expect(toast.error).toHaveBeenCalledWith('create-fail')
 
-    await clickText(wrapper, '删除')
-    await flushPromises()
+    await confirmAction(wrapper, '删除')
     expect(toast.error).toHaveBeenCalledWith('rm-fail')
   })
 
@@ -268,8 +274,7 @@ describe('Databases (数据管理)', () => {
     expect(wrapper.find('.cc-m').exists()).toBe(true)
     await wrapper.get('.cc-created').trigger('click')
 
-    await clickText(wrapper, '删除')
-    await flushPromises()
+    await confirmAction(wrapper, '删除')
     expect(api.databases.remove).toHaveBeenCalledWith(expect.any(String), 'db-1')
 
     await wrapper.get('.pager-next').trigger('click')
@@ -367,7 +372,7 @@ describe('Databases (数据管理)', () => {
     const { wrapper, pinia } = await mountWithApp(Databases, { stubs: dbStubs })
     expect(wrapper.text()).toContain('暂无数据库')
     await wrapper.get('.empty-action').trigger('click')
-    expect(wrapper.find('.sb-modal').exists()).toBe(true)
+    expect(dialogEl()).not.toBeNull()
 
     const { useProjectStore } = await import('@/stores/project')
     useProjectStore(pinia).setProject('other-proj')
@@ -401,8 +406,7 @@ describe('Databases desktop table actions', () => {
     await wrapper.get('.sql-close').trigger('click')
     await desktop.findAll('button').find((b) => b.text() === '新建集合')!.trigger('click')
     expect(wrapper.find('.cc-m').exists()).toBe(true)
-    await desktop.findAll('.confirm-action')[0].trigger('click')
-    await flushPromises()
+    await confirmAction(desktop, '删除')
     expect(api.databases.remove).toHaveBeenCalledWith(expect.any(String), 'db-1')
 
     await expandButtons(wrapper)[0].trigger('click')
@@ -421,19 +425,19 @@ describe('Databases desktop table actions', () => {
     api.databases.list.mockResolvedValueOnce([])
     const { wrapper } = await mountWithApp(Databases, { stubs: dbStubs })
     await wrapper.get('.md\\:block').get('.empty-action').trigger('click')
-    expect(wrapper.find('.sb-modal').exists()).toBe(true)
-    await wrapper.get('.sb-cancel').trigger('click')
-    expect(wrapper.find('.sb-modal').exists()).toBe(false)
+    expect(dialogEl()).not.toBeNull()
+    await cancelModal()
+    expect(dialogEl()).toBeNull()
   })
   it('Databases clicks expand, sql, collection, docs, delete, pager and project watch', async () => {
     const { wrapper, pinia } = await mountWithApp(Databases, { stubs: interactionCollectionStub })
     await clickText(wrapper, '刷新')
     await clickText(wrapper, '新建数据库')
-    expect(wrapper.find('.sb-modal').exists()).toBe(true)
-    await wrapper.get('#db-name').setValue('okdb')
-    await wrapper.get('.sb-ok').trigger('click')
+    expect(dialogEl()).not.toBeNull()
+    await inDialog().get('#db-name').setValue('okdb')
+    await okModal()
     await flushPromises()
-    if (wrapper.find('.sb-cancel').exists()) await wrapper.get('.sb-cancel').trigger('click')
+    if (dialogEl()) await cancelModal()
 
     const expand = wrapper.findAll('button').find((b) => b.attributes('data-row-expand') !== undefined)
     if (expand) await expand.trigger('click')
@@ -452,7 +456,7 @@ describe('Databases desktop table actions', () => {
     await clickText(wrapper, 'SQL')
     if (wrapper.find('.sql-close').exists()) await wrapper.get('.sql-close').trigger('click')
     await clickText(wrapper, '新建集合')
-    await clickText(wrapper, '删除')
+    await confirmAction(wrapper, '删除')
     await wrapper.get('.pager-next').trigger('click')
     useProjectStore(pinia).setProject('other-proj')
     await flushPromises()
@@ -463,7 +467,7 @@ describe('Databases desktop table actions', () => {
     api.databases.list.mockResolvedValueOnce([])
     const { wrapper } = await mountWithApp(Databases, { stubs: interactionCollectionStub })
     await wrapper.get('.empty-action').trigger('click')
-    expect(wrapper.find('.sb-modal').exists()).toBe(true)
+    expect(dialogEl()).not.toBeNull()
     wrapper.unmount()
 
     api.databases.list.mockResolvedValue([readyDb])
@@ -481,19 +485,59 @@ describe('Databases desktop table actions', () => {
     const pinia = createPinia()
     setActivePinia(pinia)
     useProjectStore().setProject('dev-shop')
-    const w = mount(Databases, {
+    const w = await mountDialog(Databases, {
       global: { plugins: [pinia], stubs: { ...uiStubs, ...interactionCollectionStub } }
     })
     await flushPromises()
     const vm = w.vm as any
     vm.activeDb = readyDb
     vm.activeCollection = 'users'
-    vm.docListOpen = false
+    vm.dialog = ''
     vm.onDocumentCreated()
-    expect(vm.docListOpen).toBe(true)
+    expect(vm.dialog).toBe('docList')
     vm.onAddDocumentFromList()
     expect(vm.kvOpen).toBe(true)
     w.unmount()
+  })
+
+  it('SQL / 新建集合 / 文档列表三个弹窗互斥；「新增文档」叠开在文档列表之上', async () => {
+    const { wrapper } = await mountWithApp(Databases, { stubs: interactionCollectionStub })
+    const vm = wrapper.vm as any
+    vm.openSql(readyDb)
+    expect(vm.dialog).toBe('sql')
+    expect(vm.activeDb.id).toBe(readyDb.id)
+    vm.openCreateCollection(readyDb)
+    expect(vm.dialog).toBe('createCollection')
+    vm.openDocList(readyDb, 'users')
+    expect(vm.dialog).toBe('docList')
+    expect(vm.activeCollection).toBe('users')
+    // 叠开：列表保持打开，新增文档弹窗在其上。
+    vm.openKv(readyDb, 'users')
+    expect(vm.dialog).toBe('docList')
+    expect(vm.kvOpen).toBe(true)
+    // 打开 SQL 时不改动已记录的集合名。
+    vm.openSql(readyDb)
+    expect(vm.activeCollection).toBe('users')
+    wrapper.unmount()
+  })
+
+  it('展开集合：只能展开 ready 的库，重复点击收起，库列表刷新后丢弃已不 ready 的展开项', async () => {
+    api.databases.list.mockResolvedValue([readyDb])
+    const { wrapper } = await mountWithApp(Databases, { stubs: interactionCollectionStub })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.toggleExpand({ ...creatingDb })
+    expect(vm.expanded.size).toBe(0)
+    vm.toggleExpand(readyDb)
+    expect(vm.expanded.has(readyDb.id)).toBe(true)
+    vm.toggleExpand(readyDb)
+    expect(vm.expanded.size).toBe(0)
+    vm.toggleExpand(readyDb)
+    api.databases.list.mockResolvedValue([{ ...readyDb, status: 'degraded' }])
+    await vm.doLoad()
+    await flushPromises()
+    expect(vm.expanded.size).toBe(0)
+    wrapper.unmount()
   })
   it('Databases methods cover not-ready, missing active db, and non-Error catches', async () => {
     const { wrapper } = await mountWithApp(Databases)
@@ -512,7 +556,7 @@ describe('Databases desktop table actions', () => {
     api.databases.remove.mockRejectedValueOnce('rm-fail')
     await vm.removeDb(readyDb)
     vm.createVisible = true
-    if (wrapper.find('.sb-cancel').exists()) await wrapper.get('.sb-cancel').trigger('click')
+    if (dialogEl()) await cancelModal()
     wrapper.unmount()
   })
 

@@ -1,3 +1,34 @@
+// 文件说明：key.go — godatabase/kv 中 KeyRepo 等符号的实现
+//
+// 用法
+//
+//	type KeyRepo struct{…}  // KeyRepo 是 key 元数据仓库（事务版，由 Tx.Key() 返回）
+//	同包调用：scanParams() → hash.go；parseInt64() → hash.go, string.go；addInt64() → hash.go, string.go
+//
+// 调用架构
+//
+//	[上游] godatabase/cmd, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/kv/key.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] bugfix_test.go, collections_test.go, conn_schema_test.go, core.go, executor.go 等 20 个
+//	[关键引用] KeyRepo ← executor.go, export_test.go；scanParams ← hash.go；parseInt64 ← hash.go, string.go
+//
+// 主要符号
+//
+//	type KeyRepo struct{…}
+//	scanKeyMeta(row *sql.Row) (KeyMeta, error)
+//	(r *KeyRepo) getMeta(ctx context.Context, key string) (KeyMeta, error)
+//	(r *KeyRepo) getMetaAny(ctx context.Context, key string) (KeyMeta, error)
+//	(r *KeyRepo) guardWrite(ctx context.Context, key string, want TypeID) (bool, KeyMeta, error)
+//	(r *KeyRepo) getMetaOf(ctx context.Context, key string, want TypeID) (KeyMeta, error)
+//	(r *KeyRepo) insertKey(ctx context.Context, key string, typ TypeID, etime *int64, initialLen *int64) error
+//	(r *KeyRepo) touchAfterWrite(ctx context.Context, key string, lenDelta int64) error
+//	... 另有 18 个顶层符号
+
 package kv
 
 import (
@@ -5,6 +36,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
+	"strconv"
+	"strings"
 )
 
 // KeyRepo 是 key 元数据仓库（事务版，由 Tx.Key() 返回）。
@@ -138,6 +172,74 @@ func (r *KeyRepo) deleteIfEmpty(ctx context.Context, key string) (bool, error) {
 		return false, fmt.Errorf("kv: delete empty key: %w", err)
 	}
 	return true, nil
+}
+
+// afterCollectionDelete 是集合成员删除已发生后的元数据收尾：len 减 delta、
+// version/mtime 推进，并在删空后移除 key（Redis 语义）。调用方须已确认
+// 实际删除发生（RowsAffected > 0），零删除不得调用。
+func (r *KeyRepo) afterCollectionDelete(ctx context.Context, key string, delta int64) error {
+	if err := r.touchAfterWrite(ctx, key, delta); err != nil {
+		return err
+	}
+	_, err := r.deleteIfEmpty(ctx, key)
+	return err
+}
+
+// deleteCollectionMembers 执行 hash/set/zset 成员的批量 DELETE 并完成收尾：
+// 元数据缺失/过期返回 0；实际删除大于零时推进 version/mtime 并在删空后
+// 移除 key。table/col 由各仓库以固定表名与列名传入，opName 仅用于错误前缀。
+func (r *KeyRepo) deleteCollectionMembers(ctx context.Context, key string, typ TypeID, table, col, opName string, members []any) (int, error) {
+	if _, err := r.getMetaOf(ctx, key, typ); errors.Is(err, ErrNotFound) {
+		return 0, nil
+	} else if err != nil {
+		return 0, err
+	}
+	args := make([]any, 0, len(members)+1)
+	args = append(args, key)
+	args = append(args, members...)
+	res, err := r.t.tx.ExecContext(ctx,
+		fmt.Sprintf(`DELETE FROM %s WHERE "key" = ? AND %s IN (%s)`, table, col, placeholders(len(members))),
+		args...)
+	if err != nil {
+		return 0, fmt.Errorf("kv: %s: %w", opName, err)
+	}
+	aff, _ := res.RowsAffected()
+	if aff > 0 {
+		if err := r.afterCollectionDelete(ctx, key, -aff); err != nil {
+			return 0, err
+		}
+	}
+	return int(aff), nil
+}
+
+// scanParams 是 Scan 参数归一化的唯一实现（K2）：空 pattern 视为 "*"，
+// 非正 count 取默认 100；查询 count+1 以探测后续页，结果截到 count。
+func scanParams(pattern string, count int) (string, int) {
+	if pattern == "" {
+		pattern = "*"
+	}
+	if count <= 0 {
+		count = 100
+	}
+	return pattern, count
+}
+
+// parseInt64 把原始值按十进制解析为 int64，失败返回 ErrValueType
+// （对齐 Redis INCR/HINCRBY 语义）。
+func parseInt64(raw []byte) (int64, error) {
+	v, err := strconv.ParseInt(strings.TrimSpace(string(raw)), 10, 64)
+	if err != nil {
+		return 0, ErrValueType
+	}
+	return v, nil
+}
+
+// addInt64 返回 cur+delta，溢出返回 ErrValueType。
+func addInt64(cur, delta int64) (int64, error) {
+	if (delta > 0 && cur > math.MaxInt64-delta) || (delta < 0 && cur < math.MinInt64-delta) {
+		return 0, ErrValueType
+	}
+	return cur + delta, nil
 }
 
 // —— 对外方法 ——
@@ -365,12 +467,7 @@ func (r *KeyRepo) rename(ctx context.Context, oldKey, newKey string, notExists b
 // pattern 为 glob 模式（空串 = "*"）；typeFilter 传 TypeAll 表示不过滤。
 // 返回一页元数据与下一游标（空串表示扫完）。count<=0 时取默认 100。
 func (r *KeyRepo) Scan(ctx context.Context, cursor, pattern string, typeFilter TypeID, count int) ([]KeyMeta, string, error) {
-	if pattern == "" {
-		pattern = "*"
-	}
-	if count <= 0 {
-		count = 100
-	}
+	pattern, count = scanParams(pattern, count)
 	rows, err := r.t.tx.QueryContext(ctx,
 		`SELECT "key", "type", version, etime, mtime, len FROM __sb_kv_keys
 		 WHERE "key" > ? AND "key" GLOB ?

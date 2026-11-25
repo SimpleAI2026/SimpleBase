@@ -1,3 +1,34 @@
+// 文件说明：manager_test.go — godatabase/cache 的单元测试（TestManagerPathRejectsNonUUID、TestManagerPathRejectsTraversal 等）
+//
+// 用法
+//
+//	go test ./godatabase/cache -run 'TestManagerPathRejectsNonUUID|TestManagerPathRejectsTraversal|TestManagerUsageAndRemove|TestManagerRemoveRejectsActive'
+//	同包调用：fakeRegistry → coverage_test.go, evict_b13_test.go
+//
+// 调用架构
+//
+//	[上游] internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/cache/manager_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] coverage_test.go, evict.go, evict_b13_test.go, manager.go, more_test.go
+//	[关键引用] fakeRegistry ← coverage_test.go, evict_b13_test.go
+//
+// 主要符号
+//
+//	type fakeRegistry struct{…}
+//	(f *fakeRegistry) IsActive(id string) bool
+//	(f *fakeRegistry) CloseDatabase(ctx context.Context, id string) error
+//	TestManagerPathRejectsNonUUID(t *testing.T)
+//	TestManagerPathRejectsTraversal(t *testing.T)
+//	TestManagerUsageAndRemove(t *testing.T)
+//	TestManagerRemoveRejectsActive(t *testing.T)
+//	TestEvictFreesSpace(t *testing.T)
+//	... 另有 12 个顶层符号
+
 package cache
 
 import (

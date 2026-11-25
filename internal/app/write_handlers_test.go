@@ -1,3 +1,27 @@
+// 文件说明：write_handlers_test.go — internal/app 的单元测试（TestR2_WritableAssemblesWriteHandlers、TestR2_ReadOnlySkipsWriteHandlers 等）
+//
+// 用法
+//
+//	go test ./internal/app -run 'TestR2_WritableAssemblesWriteHandlers|TestR2_ReadOnlySkipsWriteHandlers'
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/api/perfbench
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/app/write_handlers_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_shutdown_test.go, app.go, app_alerts.go, app_lease.go, app_test.go 等 41 个
+//
+// 主要符号
+//
+//	writeHandlerRoutes(t *testing.T, writable bool) map[string]bool
+//	var r2WriteRoutes
+//	TestR2_WritableAssemblesWriteHandlers(t *testing.T)
+//	TestR2_ReadOnlySkipsWriteHandlers(t *testing.T)
+
 package app
 
 // r2_write_handlers_test.go：planv6.0 R2-B2 表征测试（提取前先行）。

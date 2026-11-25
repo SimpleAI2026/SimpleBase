@@ -1,3 +1,32 @@
+// 文件说明：coverage_test.go — godatabase/ducklake 的单元测试（TestOptionsNormalizedAndDefault、TestRemoteValidateAndEndpoint 等）
+//
+// 用法
+//
+//	go test ./godatabase/ducklake -run 'TestOptionsNormalizedAndDefault|TestRemoteValidateAndEndpoint|TestSecretAndSQLQuote|TestExtensionHelpers'
+//
+// 调用架构
+//
+//	[上游] internal/app, internal/systemdb
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/ducklake/coverage_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] c4_syncer_lease_test.go, c4_syncer_ordering_test.go, catalog_syncer.go, catalog_syncer_test.go, edge_test.go 等 35 个
+//
+// 主要符号
+//
+//	TestOptionsNormalizedAndDefault(t *testing.T)
+//	TestRemoteValidateAndEndpoint(t *testing.T)
+//	TestSecretAndSQLQuote(t *testing.T)
+//	TestExtensionHelpers(t *testing.T)
+//	TestSummarizeSQLAndBootSQL(t *testing.T)
+//	TestLocalSyncerNilAndCancel(t *testing.T)
+//	TestFactoryHelpersWithoutOpen(t *testing.T)
+//	TestCatalogSyncerControlPaths(t *testing.T)
+//	... 另有 9 个顶层符号
+
 package ducklake
 
 import (

@@ -1,8 +1,10 @@
 import { flushPromises } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { mountWithApp } from '@/test/helpers'
-import { resetApiMocks } from '@/test/api-mock'
+import { closeDialog, installJsdomPolyfills, mountWithApp, openPopover, realDialogStubs, realPopoverStubs, uiStubs, inDialog, waitDialog } from '@/test/helpers'
+import { resetApiMocks, api } from '@/test/api-mock'
 import { clearTokens, setTokens } from '@/services/http'
+import UserFormModal from '@/components/modal/UserFormModal.vue'
+import LoginModal from '@/components/modal/LoginModal.vue'
 
 vi.mock('@/services/api', async () => {
   const m = await import('@/test/api-mock')
@@ -12,7 +14,10 @@ vi.mock('@/services/api', async () => {
 })
 
 const mockApi = await import('@/test/api-mock')
+
 const reload = vi.fn()
+
+installJsdomPolyfills()
 
 describe('LoginModal / UserMenu / UserFormModal', () => {
   beforeEach(() => {
@@ -42,12 +47,12 @@ describe('LoginModal / UserMenu / UserFormModal', () => {
         mustChangePassword: false
       }
     }))
-    const { wrapper } = await mountWithApp(LoginModal, { path: '/', props: { open: true, mode: 'login' } })
-    const inputs = wrapper.findAll('input')
+    const { wrapper } = await mountWithApp(LoginModal, { stubs: realDialogStubs, path: '/', props: { open: true, mode: 'login' } })
+    const inputs = inDialog().findAll('input')
     expect(inputs.length).toBeGreaterThanOrEqual(2)
     await inputs[0].setValue('simplebase2026')
     await inputs[1].setValue('simplebase2026')
-    const btn = wrapper.findAll('button').find((b) => b.text().includes('登录'))
+    const btn = inDialog().findAll('button').find((b) => b.text().includes('登录'))
     await btn!.trigger('submit')
     await flushPromises()
     expect(mockApi.api.auth.login).toHaveBeenCalled()
@@ -59,14 +64,14 @@ describe('LoginModal / UserMenu / UserFormModal', () => {
     mockApi.api.auth.login = vi.fn(async () => {
       throw new Error('用户名或密码错误')
     })
-    const { wrapper } = await mountWithApp(LoginModal, { path: '/', props: { open: true, mode: 'login' } })
-    const inputs = wrapper.findAll('input')
+    const { wrapper } = await mountWithApp(LoginModal, { stubs: realDialogStubs, path: '/', props: { open: true, mode: 'login' } })
+    const inputs = inDialog().findAll('input')
     await inputs[0].setValue('bad')
     await inputs[1].setValue('bad')
-    const btn = wrapper.findAll('button').find((b) => b.text().includes('登录'))
+    const btn = inDialog().findAll('button').find((b) => b.text().includes('登录'))
     await btn!.trigger('submit')
     await flushPromises()
-    expect(wrapper.text()).toContain('登录失败')
+    expect(inDialog().text()).toContain('登录失败')
     expect(reload).not.toHaveBeenCalled()
   })
 
@@ -91,23 +96,23 @@ describe('LoginModal / UserMenu / UserFormModal', () => {
       }
     }))
     // 生产里 DefaultLayout 不传 mode；423 由 store.mustChangePassword 切视图
-    const { wrapper } = await mountWithApp(LoginModal, { path: '/', props: { open: true } })
-    let inputs = wrapper.findAll('input')
+    const { wrapper } = await mountWithApp(LoginModal, { stubs: realDialogStubs, path: '/', props: { open: true } })
+    let inputs = inDialog().findAll('input')
     await inputs[0].setValue('alice')
     await inputs[1].setValue('old12345')
-    const loginBtn = wrapper.findAll('button').find((b) => b.text().includes('登录'))
+    const loginBtn = inDialog().findAll('button').find((b) => b.text().includes('登录'))
     await loginBtn!.trigger('submit')
     await flushPromises()
     expect(reload).not.toHaveBeenCalled()
-    expect(wrapper.text()).toContain('当前密码')
-    expect(wrapper.text()).toContain('alice')
+    expect(inDialog().text()).toContain('当前密码')
+    expect(inDialog().text()).toContain('alice')
 
-    inputs = wrapper.findAll('input')
+    inputs = inDialog().findAll('input')
     expect(inputs.length).toBe(3)
     await inputs[0].setValue('old12345')
     await inputs[1].setValue('new12345')
     await inputs[2].setValue('new12345')
-    const changeBtn = wrapper.findAll('button').find((b) => b.text().includes('确认修改'))
+    const changeBtn = inDialog().findAll('button').find((b) => b.text().includes('确认修改'))
     await changeBtn!.trigger('submit')
     await flushPromises()
     expect(mockApi.api.auth.initialPassword).toHaveBeenCalledWith({
@@ -121,22 +126,22 @@ describe('LoginModal / UserMenu / UserFormModal', () => {
 
   it('LoginModal password mode shows mismatch hint', async () => {
     const { default: LoginModal } = await import('@/components/modal/LoginModal.vue')
-    const { wrapper } = await mountWithApp(LoginModal, {
+    const { wrapper } = await mountWithApp(LoginModal, { stubs: realDialogStubs,
       path: '/',
       props: { open: true, mode: 'password' }
     })
-    const inputs = wrapper.findAll('input')
+    const inputs = inDialog().findAll('input')
     await inputs[0].setValue('old12345')
     await inputs[1].setValue('new123456')
     await inputs[2].setValue('different')
     await flushPromises()
-    expect(wrapper.text()).toContain('两次输入不一致')
+    expect(inDialog().text()).toContain('两次输入不一致')
   })
 
   it('LoginModal password mode: 短密码校验与提交链路', async () => {
     const { default: LoginModal } = await import('@/components/modal/LoginModal.vue')
     mockApi.api.auth.changePassword = vi.fn(async () => undefined)
-    const { wrapper } = await mountWithApp(LoginModal, {
+    const { wrapper } = await mountWithApp(LoginModal, { stubs: realDialogStubs,
       path: '/',
       props: { open: true, mode: 'password' }
     })
@@ -161,7 +166,8 @@ describe('LoginModal / UserMenu / UserFormModal', () => {
     const { default: UserMenu } = await import('@/components/UserMenu.vue')
     const { default: LoginModal } = await import('@/components/modal/LoginModal.vue')
     const { useAuthStore } = await import('@/stores/auth')
-    const { wrapper, pinia } = await mountWithApp(UserMenu, { path: '/' })
+    // 用户菜单是真实 Popover：菜单项 teleport 到 body
+    const { wrapper, pinia } = await mountWithApp(UserMenu, { path: '/', attachTo: document.body, stubs: realPopoverStubs })
     const auth = useAuthStore(pinia)
     auth.applyTokens({
       accessToken: 'a',
@@ -169,21 +175,22 @@ describe('LoginModal / UserMenu / UserFormModal', () => {
       user: { id: 'u1', username: 'ada', role: 'user', displayName: '', email: '', status: 'active', mustChangePassword: false }
     })
     await flushPromises()
-    await wrapper.find('button').trigger('click')
+    await openPopover(wrapper)
+    Array.from(document.body.querySelectorAll<HTMLElement>('button')).find((b) => b.textContent?.includes('修改密码'))!.click()
     await flushPromises()
-    await wrapper.findAll('button').find((b) => b.text().includes('修改密码'))!.trigger('click')
     expect(auth.passwordDialogOpen).toBe(true)
     expect(auth.mustChangePassword).toBe(false)
     expect(auth.loginOpen).toBe(false)
 
     const { mount } = await import('@vue/test-utils')
     const { uiStubs } = await import('@/test/helpers')
-    const modal = { wrapper: mount(LoginModal, { props: { open: true }, global: { plugins: [pinia], stubs: uiStubs } }) }
+    const { realDialogStubs: realDlg } = await import('@/test/helpers')
+    const modal = { wrapper: mount(LoginModal, { attachTo: document.body, props: { open: true }, global: { plugins: [pinia], stubs: { ...uiStubs, ...realDlg } } }) }
     await flushPromises()
-    expect(modal.wrapper.findAll('input')).toHaveLength(3)
-    const cancel = modal.wrapper.findAll('button').find((b) => b.text() === '取消')
+    expect(inDialog().findAll('input')).toHaveLength(3)
+    const cancel = inDialog().findAll('button').find((b) => b.text() === '取消')
     expect(cancel).toBeTruthy()
-    expect(modal.wrapper.findAll('button').some((b) => b.text().includes('退出登录'))).toBe(false)
+    expect(inDialog().findAll('button').some((b) => b.text().includes('退出登录'))).toBe(false)
     await cancel!.trigger('click')
     expect(auth.passwordDialogOpen).toBe(false)
     expect(auth.isAuthenticated).toBe(true)
@@ -244,7 +251,8 @@ describe('LoginModal / UserMenu / UserFormModal', () => {
     }))
     const { wrapper, pinia } = await mountWithApp(UserFormModal, {
       path: '/',
-      props: { open: true, user: null }
+      props: { open: true, user: null },
+      stubs: realDialogStubs
     })
     const auth = useAuthStore(pinia)
     auth.applyTokens({
@@ -261,11 +269,11 @@ describe('LoginModal / UserMenu / UserFormModal', () => {
       }
     })
     await flushPromises()
-    const inputs = wrapper.findAll('input')
+    const inputs = inDialog().findAll('input')
     await inputs[0].setValue('alice')
     await inputs[1].setValue('Alice')
     // 角色 Select 用 reka-ui，这里直接调 submit 校验 create 被调用
-    const btn = wrapper.findAll('button').find((b) => b.text().includes('创建'))
+    const btn = inDialog().findAll('button').find((b) => b.text().includes('创建'))
     if (btn) {
       await btn.trigger('click')
       await flushPromises()
@@ -309,7 +317,82 @@ describe('LoginModal / UserMenu / UserFormModal', () => {
     })
     await flushPromises()
     // readonly（admin 只读）打开编辑：hideFooter，无「创建/保存」按钮
-    expect(wrapper.findAll('button').find((b) => b.text().includes('创建'))).toBeFalsy()
-    expect(wrapper.findAll('button').find((b) => b.text().includes('保存'))).toBeFalsy()
+    expect(inDialog().findAll('button').find((b) => b.text().includes('创建'))).toBeFalsy()
+    expect(inDialog().findAll('button').find((b) => b.text().includes('保存'))).toBeFalsy()
+  })
+})
+
+describe('LoginModal 分支', () => {
+  beforeEach(() => {
+    resetApiMocks()
+  })
+
+  it('closes optional password modal but keeps forced password change and login open', async () => {
+    const { wrapper, pinia } = await mountWithApp(LoginModal, { props: { open: true }, stubs: realDialogStubs })
+    const { useAuthStore } = await import('@/stores/auth')
+    const auth = useAuthStore(pinia)
+    auth.applyTokens({
+      accessToken: 'a',
+      refreshToken: 'r',
+      user: {
+        id: 'u1', username: 'alice', role: 'user', displayName: '', email: '',
+        status: 'active', mustChangePassword: false
+      }
+    })
+    auth.mustChangePassword = true
+    auth.openLogin()
+    await flushPromises()
+    // 真实 Dialog 的 ×：可选改密码时关闭即放弃
+    await closeDialog()
+    expect(auth.mustChangePassword).toBe(false)
+    expect(auth.loginOpen).toBe(false)
+
+    auth.user!.mustChangePassword = true
+    auth.mustChangePassword = true
+    auth.openLogin()
+    await flushPromises()
+    await closeDialog()
+    expect(auth.mustChangePassword).toBe(true)
+    expect(auth.loginOpen).toBe(true)
+
+    auth.mustChangePassword = false
+    await flushPromises()
+    await closeDialog()
+    expect(auth.loginOpen).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('LoginModal password change success path', async () => {
+    api.auth.changePassword.mockResolvedValue(undefined)
+    const { wrapper } = await mountWithApp(LoginModal, { stubs: realDialogStubs,
+      props: { open: true, mode: 'password' }
+    })
+    const inputs = inDialog().findAll('input')
+    await inputs[0].setValue('old12345')
+    await inputs[1].setValue('new123456')
+    await inputs[2].setValue('new123456')
+    await flushPromises()
+    await inDialog().find('form').trigger('submit')
+    await flushPromises()
+    expect(api.auth.changePassword).toHaveBeenCalled()
+  })
+
+  it('LoginModal password change failure and sign out', async () => {
+    api.auth.changePassword.mockRejectedValue(new Error('nope'))
+    api.auth.logout = vi.fn(async () => undefined)
+    const { wrapper } = await mountWithApp(LoginModal, { stubs: realDialogStubs,
+      props: { open: true, mode: 'password' }
+    })
+    const inputs = inDialog().findAll('input')
+    await inputs[0].setValue('old12345')
+    await inputs[1].setValue('new123456')
+    await inputs[2].setValue('new123456')
+    await flushPromises()
+    await inDialog().find('form').trigger('submit')
+    await flushPromises()
+    expect(inDialog().text()).toContain('修改失败')
+    const out = inDialog().findAll('button').find((b) => b.text().includes('退出'))
+    await out!.trigger('click')
+    await flushPromises()
   })
 })

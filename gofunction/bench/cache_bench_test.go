@@ -1,3 +1,24 @@
+// 文件说明：cache_bench_test.go — gofunction/bench 的单元测试（BenchmarkRunJSONCacheHit、BenchmarkRunJSONCacheMiss 等）
+//
+// 用法
+//
+//	go test ./gofunction/bench -run 'BenchmarkRunJSONCacheHit|BenchmarkRunJSONCacheMiss'
+//
+// 调用架构
+//
+//	[上游] 无（可执行入口）
+//	[本文件] gofunction/bench/cache_bench_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] bench_test.go, main.go
+//
+// 主要符号
+//
+//	BenchmarkRunJSONCacheHit(b *testing.B)
+//	BenchmarkRunJSONCacheMiss(b *testing.B)
+//	itoa(n int) string
+
 package main
 
 import (

@@ -1,4 +1,4 @@
-// bi-chart.ts — 聚合结果 → ECharts option 的纯函数（planv6.7 §4.3）。
+// bi-chart.ts — 聚合结果 → ECharts option 的纯函数。
 //
 // 方向约定（已确认）：
 //   column 纵向（类目轴在 xAxis）；bar / grouped_bar / stacked_bar 横向（类目轴在 yAxis，inverse）。
@@ -7,8 +7,8 @@
 
 import type { EChartsOption, SeriesOption } from 'echarts'
 import type { AggregateResult, BiChartType, BiWidget } from '@/services/types'
-import type { ResolvedType } from './bi-auto'
-import { isAdditiveMetrics, metricAlias, parseGroupBy, parseMetric } from './bi-compat'
+import type { ResolvedType } from '@/utils/bi-auto'
+import { isAdditiveMetrics, metricAlias, parseGroupBy, parseMetric } from '@/utils/bi-compat'
 
 export interface BiTheme {
   /** --chart-1..5；系列超过 5 个时在 palette 上循环并降低透明度。 */
@@ -580,9 +580,4 @@ function buildScatter(result: AggregateResult, theme: BiTheme, labels: BiLabels)
     yAxis: { ...valueAxis(theme), minInterval: undefined, scale: true },
     series
   }
-}
-
-/** 把 BiChartType（含 auto）收敛成渲染类型：auto 已由调用方用 bi-auto 解析。 */
-export function isChartType(type: BiChartType): type is Exclude<BiChartType, 'auto'> {
-  return type !== 'auto'
 }

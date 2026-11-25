@@ -84,9 +84,11 @@ func MaskSecretValue(v string) string {
 
 // CreateLLMSession 创建会话。
 func (s *Store) CreateLLMSession(ctx context.Context, sess LLMSession) (LLMSession, error) {
-	if s == nil || s.db == nil {
-		return LLMSession{}, ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return LLMSession{}, connErr
 	}
+
 	now := time.Now().UTC()
 	if sess.ID == "" {
 		sess.ID = uuid.NewString()
@@ -96,7 +98,7 @@ func (s *Store) CreateLLMSession(ctx context.Context, sess LLMSession) (LLMSessi
 	}
 	sess.CreatedAt = now
 	sess.UpdatedAt = now
-	_, err := s.db.ExecContext(ctx,
+	_, err := sqlDB.ExecContext(ctx,
 		`INSERT INTO sys_llm_sessions(id, project_id, title, provider, model, created_by, created_at, updated_at, archived_at)
 		 VALUES(?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
 		sess.ID, sess.ProjectID, sess.Title, sess.Provider, sess.Model, sess.CreatedBy, now, now)
@@ -109,15 +111,17 @@ func (s *Store) CreateLLMSession(ctx context.Context, sess LLMSession) (LLMSessi
 
 // AppendLLMMessage 写入一条消息并刷新会话 updated_at。
 func (s *Store) AppendLLMMessage(ctx context.Context, msg LLMMessage) (LLMMessage, error) {
-	if s == nil || s.db == nil {
-		return LLMMessage{}, ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return LLMMessage{}, connErr
 	}
+
 	now := time.Now().UTC()
 	if msg.ID == "" {
 		msg.ID = uuid.NewString()
 	}
 	msg.CreatedAt = now
-	_, err := s.db.ExecContext(ctx,
+	_, err := sqlDB.ExecContext(ctx,
 		`INSERT INTO sys_llm_messages(id, session_id, project_id, role, content, token_input, token_output, request_id, created_at)
 		 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		msg.ID, msg.SessionID, msg.ProjectID, msg.Role, msg.Content, msg.TokenInput, msg.TokenOutput, msg.RequestID, now)
@@ -129,11 +133,11 @@ func (s *Store) AppendLLMMessage(ctx context.Context, msg LLMMessage) (LLMMessag
 		title = title[:40]
 	}
 	if msg.Role == "user" && title != "" {
-		_, _ = s.db.ExecContext(ctx,
+		_, _ = sqlDB.ExecContext(ctx,
 			`UPDATE sys_llm_sessions SET updated_at = ?, title = CASE WHEN title = 'New chat' THEN ? ELSE title END WHERE id = ?`,
 			now, title, msg.SessionID)
 	} else {
-		_, _ = s.db.ExecContext(ctx, `UPDATE sys_llm_sessions SET updated_at = ? WHERE id = ?`, now, msg.SessionID)
+		_, _ = sqlDB.ExecContext(ctx, `UPDATE sys_llm_sessions SET updated_at = ? WHERE id = ?`, now, msg.SessionID)
 	}
 	s.notifyWrite(ctx)
 	return msg, nil
@@ -141,12 +145,14 @@ func (s *Store) AppendLLMMessage(ctx context.Context, msg LLMMessage) (LLMMessag
 
 // GetLLMSettings 返回项目默认；无记录时返回零值。
 func (s *Store) GetLLMSettings(ctx context.Context, projectID string) (LLMSettings, error) {
-	if s == nil || s.db == nil {
-		return LLMSettings{}, ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return LLMSettings{}, connErr
 	}
+
 	var st LLMSettings
 	var maxTok int64
-	err := s.db.QueryRowContext(ctx,
+	err := sqlDB.QueryRowContext(ctx,
 		`SELECT project_id, default_provider, default_model, COALESCE(api_key, ''), COALESCE(base_url, ''),
 		        temperature, max_tokens, updated_at
 		 FROM sys_llm_settings WHERE project_id = ?`, projectID).Scan(
@@ -165,22 +171,24 @@ func (s *Store) GetLLMSettings(ctx context.Context, projectID string) (LLMSettin
 // PutLLMSettings 全量更新项目模型配置。
 // APIKey 为空表示沿用库中既有值（前端只拿到脱敏串，不回传原文）。
 func (s *Store) PutLLMSettings(ctx context.Context, st LLMSettings) error {
-	if s == nil || s.db == nil {
-		return ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return connErr
 	}
+
 	now := time.Now().UTC()
 	st.UpdatedAt = now
 	var existingKey string
-	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(api_key, '') FROM sys_llm_settings WHERE project_id = ?`, st.ProjectID).Scan(&existingKey)
+	err := sqlDB.QueryRowContext(ctx, `SELECT COALESCE(api_key, '') FROM sys_llm_settings WHERE project_id = ?`, st.ProjectID).Scan(&existingKey)
 	if err == nil {
 		if st.APIKey == "" {
 			st.APIKey = existingKey
 		}
-		_, err = s.db.ExecContext(ctx,
+		_, err = sqlDB.ExecContext(ctx,
 			`UPDATE sys_llm_settings SET default_provider=?, default_model=?, api_key=?, base_url=?, temperature=?, max_tokens=?, updated_at=? WHERE project_id=?`,
 			st.DefaultProvider, st.DefaultModel, st.APIKey, st.BaseURL, st.Temperature, int64(st.MaxTokens), now, st.ProjectID)
 	} else if errors.Is(err, sql.ErrNoRows) {
-		_, err = s.db.ExecContext(ctx,
+		_, err = sqlDB.ExecContext(ctx,
 			`INSERT INTO sys_llm_settings(project_id, default_provider, default_model, api_key, base_url, temperature, max_tokens, updated_at)
 			 VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
 			st.ProjectID, st.DefaultProvider, st.DefaultModel, st.APIKey, st.BaseURL, st.Temperature, int64(st.MaxTokens), now)

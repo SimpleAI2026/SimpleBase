@@ -2,7 +2,7 @@ import { flushPromises } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import McpServersPanel from '@/components/settings/McpServersPanel.vue'
 import { api, resetApiMocks } from '@/test/api-mock'
-import { clickText, mountWithApp } from '@/test/helpers'
+import { clickText, mountWithApp, realDialogStubs, confirmAction, realAlertDialogStubs } from '@/test/helpers'
 
 vi.mock('@/services/api', async () => {
   const module = await import('@/test/api-mock')
@@ -24,6 +24,8 @@ const server = {
 }
 
 const extraStubs = {
+  ...realDialogStubs,
+  ...realAlertDialogStubs,
   McpServerModal: {
     props: ['open', 'projectId', 'server'],
     emits: ['saved', 'update:open'],
@@ -51,7 +53,7 @@ describe('McpServersPanel', () => {
 
   it('toggles, tests and deletes a server', async () => {
     const { wrapper } = await mountWithApp(McpServersPanel, { projectId: 'p1', stubs: extraStubs })
-    await wrapper.get('.switch').trigger('click')
+    await wrapper.get('[data-slot="switch"]').trigger('click')
     await flushPromises()
     expect(api.mcpServers.update).toHaveBeenCalledWith('p1', 'mcp-1', { enabled: false })
 
@@ -59,9 +61,7 @@ describe('McpServersPanel', () => {
     await flushPromises()
     expect(api.mcpServers.test).toHaveBeenCalledWith('p1', 'mcp-1')
 
-    await clickText(wrapper, '删除')
-    await wrapper.findAll('.confirm-action').at(-1)!.trigger('click')
-    await flushPromises()
+    await confirmAction(wrapper, '删除')
     expect(api.mcpServers.remove).toHaveBeenCalledWith('p1', 'mcp-1')
   })
 

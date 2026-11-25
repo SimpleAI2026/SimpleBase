@@ -1,3 +1,31 @@
+// 文件说明：executor_test.go — gofunction/internal/interp 的单元测试（TestExecutorPoolGetPutClose、TestExecutorPoolExhausted 等）
+//
+// 用法
+//
+//	go test ./gofunction/internal/interp -run 'TestExecutorPoolGetPutClose|TestExecutorPoolExhausted|TestExecutorPoolClosedGet|TestExecutorMaxAgeClose'
+//
+// 调用架构
+//
+//	[上游] gofunction
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/internal/interp/executor_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] bench_test.go, cachetest_test.go, call.go, call_test.go, cheap_test.go 等 40 个
+//
+// 主要符号
+//
+//	TestExecutorPoolGetPutClose(t *testing.T)
+//	TestExecutorPoolExhausted(t *testing.T)
+//	TestExecutorPoolClosedGet(t *testing.T)
+//	TestExecutorMaxAgeClose(t *testing.T)
+//	TestExecutorInterrupt(t *testing.T)
+//	TestExecutorExecutePanicRecover(t *testing.T)
+//	TestExecutorExecuteError(t *testing.T)
+//	TestExecutorPoolConcurrentClose(t *testing.T)
+
 package interp
 
 import (

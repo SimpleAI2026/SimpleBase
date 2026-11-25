@@ -1,3 +1,28 @@
+// 文件说明：jsonrun_cancel_test.go — gofunction/internal/interp 的单元测试（TestRunJSON_ParentCancelStopsExecution、TestRunJSON_CancelBoundsGoroutineWait 等）
+//
+// 用法
+//
+//	go test ./gofunction/internal/interp -run 'TestRunJSON_ParentCancelStopsExecution|TestRunJSON_CancelBoundsGoroutineWait|TestRunJSON_ConcurrentPrint|TestRunJSON_ConcurrentPrintOutputIntact'
+//
+// 调用架构
+//
+//	[上游] gofunction
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/internal/interp/jsonrun_cancel_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] bench_test.go, cachetest_test.go, call.go, call_test.go, cheap_test.go 等 40 个
+//
+// 主要符号
+//
+//	TestRunJSON_ParentCancelStopsExecution(t *testing.T)
+//	TestRunJSON_CancelBoundsGoroutineWait(t *testing.T)
+//	TestRunJSON_ConcurrentPrint(t *testing.T)
+//	TestRunJSON_ConcurrentPrintOutputIntact(t *testing.T)
+//	TestContext_ConcurrentPrintOutputLength(t *testing.T)
+
 package interp
 
 import (

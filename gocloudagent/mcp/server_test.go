@@ -1,3 +1,34 @@
+// 文件说明：server_test.go — gocloudagent/mcp 的单元测试（TestConnectInMemory、TestConnectInMemorySurvivesCancelledConnectContext 等）
+//
+// 用法
+//
+//	go test ./gocloudagent/mcp -run 'TestConnectInMemory|TestConnectInMemorySurvivesCancelledConnectContext|TestNewHTTPHandlerRoundTrip|TestNewHTTPHandlerStatusCodes'
+//	同包调用：testSpec() → pagination_test.go；assertTools() → pagination_test.go
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/cloudagent, gocloudagent/tools, internal/agentbridge 等 5 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/mcp/server_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] adapter.go, adapter_test.go, client.go, http_transport.go, http_transport_test.go 等 10 个
+//	[关键引用] testSpec ← pagination_test.go；assertTools ← pagination_test.go
+//
+// 主要符号
+//
+//	const objectSchema
+//	testSpec() *ServerSpec
+//	assertTools(t *testing.T, tools []ToolInfo)
+//	assertCalls(t *testing.T, sess Session)
+//	TestConnectInMemory(t *testing.T)
+//	TestConnectInMemorySurvivesCancelledConnectContext(t *testing.T)
+//	TestNewHTTPHandlerRoundTrip(t *testing.T)
+//	TestNewHTTPHandlerStatusCodes(t *testing.T)
+//	... 另有 3 个顶层符号
+
 package mcp
 
 import (

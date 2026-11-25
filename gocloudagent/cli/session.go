@@ -87,9 +87,12 @@ type Entry struct {
 	// TestSessionMessagesHonorCompactionCut 就是按「该条不再保留」写的。
 	FirstKept string `json:"first_kept,omitempty"`
 	// 以下字段仅 session 行有值。
-	Cwd       string    `json:"cwd,omitempty"`
-	Endpoint  string    `json:"endpoint,omitempty"`
-	Model     string    `json:"model,omitempty"`
+	Cwd      string `json:"cwd,omitempty"`
+	Endpoint string `json:"endpoint,omitempty"`
+	Model    string `json:"model,omitempty"`
+	// Group / Task 非空表示这是本地群模式里某个成员任务的会话（planv6.8 §13.8）。
+	Group     string    `json:"group,omitempty"`
+	Task      string    `json:"task,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -110,6 +113,11 @@ type Session struct {
 
 // NewSession 创建会话文件并写入首行。
 func NewSession(env []string, cfg Config, cwd string) (*Session, error) {
+	return NewSessionWithMeta(env, cfg, cwd, nil)
+}
+
+// NewSessionWithMeta 创建会话并在写入首行前用 decorate 补充元数据（如群 / 任务标记）。
+func NewSessionWithMeta(env []string, cfg Config, cwd string, decorate func(*Entry)) (*Session, error) {
 	dir := filepath.Join(HomeDir(env), "sessions")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
@@ -119,6 +127,9 @@ func NewSession(env []string, cfg Config, cwd string) (*Session, error) {
 		Type: EntrySession, ID: uuid.NewString(), Version: SessionVersion,
 		Cwd: cwd, Endpoint: cfg.Endpoint, Model: cfg.Model,
 		CreatedAt: time.Now().UTC(),
+	}
+	if decorate != nil {
+		decorate(&meta)
 	}
 	s := &Session{ID: id, Path: filepath.Join(dir, id+".jsonl"), Meta: meta}
 	f, err := os.OpenFile(s.Path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
@@ -236,7 +247,8 @@ func ListSessions(env []string) ([]Entry, error) {
 // RemoveSession 真删除会话文件（不做墓碑，§5.2）。
 func RemoveSession(path string) error { return os.Remove(path) }
 
-// Append 追加一条 entry 并落盘（fsync 失败只影响耐久性，不改会话语义）。
+// Append 追加一条 entry 并以追加模式落盘；写入即返回，不做 fsync，
+// 进程崩溃可能丢失尾部行（既有会话语义，非本轮变更）。
 func (s *Session) Append(e Entry) error {
 	if s == nil || s.Path == "" {
 		return errors.New("session is not initialized")

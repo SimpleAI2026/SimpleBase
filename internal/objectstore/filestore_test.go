@@ -1,3 +1,27 @@
+// 文件说明：filestore_test.go — internal/objectstore 的单元测试（TestValidateFileKey、TestMemoryFileStore_CRUD 等）
+//
+// 用法
+//
+//	go test ./internal/objectstore -run 'TestValidateFileKey|TestMemoryFileStore_CRUD|TestMemoryFileStore_InvalidKey|TestMemoryFileStore_MultipleProjects'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/api, internal/app, internal/backup 等 6 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/objectstore/filestore_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] blob.go, blob_test.go, branches_test.go, client.go, client_test.go 等 24 个
+//
+// 主要符号
+//
+//	TestValidateFileKey(t *testing.T)
+//	TestMemoryFileStore_CRUD(t *testing.T)
+//	TestMemoryFileStore_InvalidKey(t *testing.T)
+//	TestMemoryFileStore_MultipleProjects(t *testing.T)
+
 package objectstore
 
 import (

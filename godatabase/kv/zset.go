@@ -1,3 +1,34 @@
+// 文件说明：zset.go — godatabase/kv 中 ZSetItem、ZSetRepo 等符号的实现
+//
+// 用法
+//
+//	type ZSetItem struct{…}  // ZSetItem 是 zset 的成员+分值
+//	type ZSetRepo struct{…}  // ZSetRepo 是 zset（有序集合）仓库（事务版，由 Tx.ZSet() 返回）
+//
+// 调用架构
+//
+//	[上游] godatabase/cmd, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/kv/zset.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] bugfix_test.go, collections_test.go, conn_schema_test.go, core.go, executor.go 等 20 个
+//	[关键引用] ZSetItem ← collections_test.go；ZSetRepo ← executor.go
+//
+// 主要符号
+//
+//	type ZSetItem struct{…}
+//	type ZSetRepo struct{…}
+//	(r *ZSetRepo) Add(ctx context.Context, key string, items ...ZSetItem) (int, error)
+//	(r *ZSetRepo) Delete(ctx context.Context, key string, elems ...[]byte) (int, error)
+//	(r *ZSetRepo) Score(ctx context.Context, key string, elem []byte) (float64, error)
+//	(r *ZSetRepo) Rank(ctx context.Context, key string, elem []byte) (int64, float64, error)
+//	(r *ZSetRepo) RangeByRank(ctx context.Context, key string, start, stop int64, desc bool) ([]ZSetItem, error)
+//	(r *ZSetRepo) RangeByScore(ctx context.Context, key string, min, max float64, offset, count int64) ([]ZSetItem...
+//	... 另有 3 个顶层符号
+
 package kv
 
 import (
@@ -73,33 +104,11 @@ func (r *ZSetRepo) Delete(ctx context.Context, key string, elems ...[]byte) (int
 	if len(elems) == 0 {
 		return 0, ErrArgument
 	}
-	kr := r.t.Key()
-	if _, err := kr.getMetaOf(ctx, key, TypeZSet); errors.Is(err, ErrNotFound) {
-		return 0, nil
-	} else if err != nil {
-		return 0, err
+	members := make([]any, len(elems))
+	for i, e := range elems {
+		members[i] = e
 	}
-	args := make([]any, 0, len(elems)+1)
-	args = append(args, key)
-	for _, e := range elems {
-		args = append(args, e)
-	}
-	res, err := r.t.tx.ExecContext(ctx,
-		fmt.Sprintf(`DELETE FROM __sb_kv_zsets WHERE "key" = ? AND elem IN (%s)`, placeholders(len(elems))),
-		args...)
-	if err != nil {
-		return 0, fmt.Errorf("kv: zset delete: %w", err)
-	}
-	aff, _ := res.RowsAffected()
-	if aff > 0 {
-		if err := kr.touchAfterWrite(ctx, key, -aff); err != nil {
-			return 0, err
-		}
-		if _, err := kr.deleteIfEmpty(ctx, key); err != nil {
-			return 0, err
-		}
-	}
-	return int(aff), nil
+	return r.t.Key().deleteCollectionMembers(ctx, key, TypeZSet, "__sb_kv_zsets", "elem", "zset delete", members)
 }
 
 // Score 返回成员分数（ZSCORE）；不存在返回 ErrNotFound。

@@ -42,13 +42,8 @@
         </TableHeader>
         <SbAsyncRegion
           as="tbody"
+          :state="state"
           :columns="5"
-          :pending="pending"
-          :show-skeleton="showSkeleton"
-          :show-empty="showEmpty"
-          :show-error="showError"
-          :refreshing="refreshing"
-          :error="error"
           :empty-title="t('components.kvPanel.emptyTitle')"
           :empty-description="t('components.kvPanel.emptyDesc')"
           :empty-action-text="readonly ? undefined : t('components.kvPanel.createKey')"
@@ -107,26 +102,26 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import { Table, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { computed, unref } from 'vue'
 import SbAsyncRegion from '../../SbAsyncRegion.vue'
 import ConfirmAction from '../../ConfirmAction.vue'
+import type { AsyncRegionState } from '@/components/async-region-state'
 import type { KvKeyMeta } from '../../../services/api'
 
-defineProps<{
+const props = defineProps<{
   rows: KvKeyMeta[]
   pattern: string
   typeFilter: string
   readonly?: boolean
   hasMore: boolean
   loadingMore: boolean
-  pending: boolean
-  showSkeleton: boolean
-  showEmpty: boolean
-  showError: boolean
-  refreshing: boolean
-  error: string
+  /** 宿主 `useLoadState()` 的结果：列表的三态（加载 / 空 / 错误）由它驱动。 */
+  state: AsyncRegionState
   /** TTL 展示格式化（宿主持有倒计时计时器，故由此注入）。 */
   ttlText: (m: KvKeyMeta) => string
 }>()
+
+const pending = computed(() => unref(props.state.pending))
 
 const emit = defineEmits<{
   'update:pattern': [value: string]

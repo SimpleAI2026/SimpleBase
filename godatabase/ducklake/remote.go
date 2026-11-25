@@ -1,3 +1,29 @@
+// 文件说明：remote.go — godatabase/ducklake 中 RemoteStorage 等符号的实现
+//
+// 用法
+//
+//	type RemoteStorage struct{…}  // RemoteStorage 描述 S3 持久层
+//
+// 调用架构
+//
+//	[上游] internal/app, internal/systemdb
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/ducklake/remote.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] c4_syncer_lease_test.go, c4_syncer_ordering_test.go, catalog_syncer.go, catalog_syncer_test.go, coverage_test.go 等 35 个
+//	[关键引用] RemoteStorage ← catalog_syncer.go, catalog_syncer_test.go
+//
+// 主要符号
+//
+//	type RemoteStorage struct{…}
+//	(r RemoteStorage) keyBuilder() blob.KeyBuilder
+//	(r RemoteStorage) validate() error
+//	(r RemoteStorage) s3EndpointHost() string
+//	(r RemoteStorage) endpointUsesSSL() bool
+
 package ducklake
 
 import (

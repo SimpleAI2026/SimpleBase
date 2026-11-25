@@ -1,3 +1,35 @@
+// 文件说明：factory.go — godatabase/ducklake 中 Factory、Layout 等符号的实现
+//
+// 用法
+//
+//	type Factory struct{…}  // Factory 实现 godatabase.Factory：每库一个 DuckDB 实例（:memory: + ATTACH DuckLake）
+//	type Layout struct{…}  // Layout 描述单个 logical database 在本地缓存中的目录布局
+//	同包调用：buildBootSQL() → coverage_test.go, engine_test.go；validateRemoteDataPath() → coverage_test.go, more_test.go；layoutForEngine() → catalog_syncer_test.go, coverage_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app, internal/systemdb
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/ducklake/factory.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] c4_syncer_lease_test.go, c4_syncer_ordering_test.go, catalog_syncer.go, catalog_syncer_test.go, coverage_test.go 等 35 个
+//	[关键引用] Factory ← catalog_syncer_test.go, coverage_test.go；buildBootSQL ← coverage_test.go, engine_test.go；validateRemoteDataPath ← coverage_test.go, more_test.go
+//
+// 主要符号
+//
+//	type Factory struct{…}
+//	(f *Factory) layoutFor(db godatabase.Spec, engine string) Layout
+//	layoutAt(dataRoot, cacheDir, projectID, databaseID, engine string, dataLocal bool) Layout
+//	(f *Factory) observeOpen(stage string, duration time.Duration, err error)
+//	var openGuardMu / openGuardPaths
+//	(f *Factory) markOpening(absPath string) error
+//	(f *Factory) unmarkOpening(absPath string)
+//	(f *Factory) ensureOpening(layout Layout) (release func(), err error)
+//	... 另有 24 个顶层符号
+
 package ducklake
 
 import (
@@ -495,11 +527,14 @@ func (f *Factory) AfterWrite(ctx context.Context, db godatabase.Spec, sqlDB *sql
 	f.Syncer.MarkDirty(db.ID, snap)
 
 	// 保留每次提交后的本地水位：重启时不得以过期状态覆盖尚未同步的 catalog。
+	// B11：与 syncOnce 同一地址规则（ReadLocalState(cacheDir, dbID)）；旧实现
+	// 传 catalog 目录当 cache root，会拼出嵌套的 {..}/catalog/{id}/catalog/
+	// 路径，与同步器写入的水位文件不是同一份。
 	if f.CacheDir != "" {
-		st, _ := ReadLocalState(filepath.Dir(f.layoutFor(db, f.Options.normalized().CatalogEngine).CatalogFile), db.ID)
+		st, _ := ReadLocalState(f.CacheDir, db.ID)
 		if snap > st.SnapshotID {
 			st.SnapshotID = snap
-			if err := SaveLocalState(filepath.Dir(f.layoutFor(db, f.Options.normalized().CatalogEngine).CatalogFile), db.ID, st); err != nil && f.Logger != nil {
+			if err := SaveLocalState(f.CacheDir, db.ID, st); err != nil && f.Logger != nil {
 				f.Logger.Warn("ducklake local-state save after write failed",
 					zap.String("database_id", db.ID), zap.Error(err))
 			}
@@ -510,9 +545,14 @@ func (f *Factory) AfterWrite(ctx context.Context, db godatabase.Spec, sqlDB *sql
 
 // BeforeClose 在关闭连接前强制同步并解绑。
 func (f *Factory) BeforeClose(ctx context.Context, dbID string, sqlDB *sql.DB) error {
-	_ = sqlDB
 	if f == nil || f.Syncer == nil {
 		return nil
+	}
+	// B15：携带连接身份解绑——旧连接的关闭流程不得清掉重新绑定的新状态。
+	if uc, ok := f.Syncer.(interface {
+		UnbindConn(ctx context.Context, dbID string, sqlDB *sql.DB) error
+	}); ok {
+		return uc.UnbindConn(ctx, dbID, sqlDB)
 	}
 	if bs, ok := f.Syncer.(BindingSyncer); ok {
 		return bs.Unbind(ctx, dbID)

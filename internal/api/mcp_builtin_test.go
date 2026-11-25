@@ -1,3 +1,34 @@
+// 文件说明：mcp_builtin_test.go — internal/api 的单元测试（TestBuiltinMCP_Disabled、TestBuiltinMCP_RequiresAuth 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestBuiltinMCP_Disabled|TestBuiltinMCP_RequiresAuth|TestBuiltinMCP_ListToolsAndCall|TestBuiltinMCP_SubRequestKeepsRouteErrors'
+//	同包调用：mcpPost() → mcp_builtin_admin_test.go, mcp_builtin_session_test.go；builtinMCPRouter() → mcp_builtin_admin_test.go, mcp_builtin_session_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/mcp_builtin_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] mcpPost ← mcp_builtin_admin_test.go, mcp_builtin_session_test.go；builtinMCPRouter ← mcp_builtin_admin_test.go, mcp_builtin_session_test.go
+//
+// 主要符号
+//
+//	const mcpAccept
+//	mcpPost(t *testing.T, e *echo.Echo, path, key, body string) *httptest.ResponseRecorder
+//	builtinMCPRouter(t *testing.T, builtin bool) (*echo.Echo, Dependencies, string)
+//	TestBuiltinMCP_Disabled(t *testing.T)
+//	TestBuiltinMCP_RequiresAuth(t *testing.T)
+//	TestBuiltinMCP_ListToolsAndCall(t *testing.T)
+//	TestBuiltinMCP_SubRequestKeepsRouteErrors(t *testing.T)
+//	TestBuiltinMCP_UnknownName(t *testing.T)
+//	... 另有 4 个顶层符号
+
 package api
 
 import (

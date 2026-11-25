@@ -53,7 +53,7 @@ func (h *HealthHandler) Ready(c echo.Context) error {
 		return c.NoContent(http.StatusOK)
 	}
 	if err := h.checker.Ready(c.Request().Context()); err != nil {
-		rid := RequestIDFromContext(c.Request().Context())
+		rid := requestID(c)
 		return c.JSON(http.StatusServiceUnavailable, APIErrorBody{Error: APIErrorDetail{
 			Code: "not_ready", Message: "dependency check failed", RequestID: rid,
 		}})

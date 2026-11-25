@@ -1,3 +1,26 @@
+// 文件说明：sse_test_helpers_test.go — internal/api 的测试辅助代码
+//
+// 用法
+//
+//	同包调用：sseEvent → agent_e2e_harness_test.go, agent_plan_tools_e2e_test.go；parseSSE() → agent_e2e_errors_test.go, agent_e2e_harness_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/sse_test_helpers_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] sseEvent ← agent_e2e_harness_test.go, agent_plan_tools_e2e_test.go；parseSSE ← agent_e2e_errors_test.go, agent_e2e_harness_test.go
+//
+// 主要符号
+//
+//	type sseEvent struct{…}
+//	parseSSE(body string) ([]sseEvent, error)
+
 package api
 
 // sse_test_helpers_test.go：SSE 解析辅助（planv4.1 §5.1）。
@@ -29,23 +52,15 @@ type sseEvent struct {
 	ToolCalls        int    `json:"tool_calls"`
 	IsError          bool   `json:"is_error"`
 	Truncated        bool   `json:"truncated"`
-	// planv6.7 v2：协作轮次事件（route 卡 / task / human / turn）。
-	AgentID   string          `json:"agent_id"`
-	RouteKind string          `json:"route_kind"`
-	Status    string          `json:"status"`
-	Steps     []eventStepWire `json:"steps"`
-	Index     int             `json:"index"`
-	Total     int             `json:"total"`
-	HumanID   string          `json:"human_id"`
-	HumanName string          `json:"human_name"`
-}
-
-// eventStepWire 是 route 事件里的一个分工步骤。
-type eventStepWire struct {
-	Kind        string `json:"kind"`
-	AgentID     string `json:"agent_id"`
-	Instruction string `json:"instruction"`
-	RouteKind   string `json:"route_kind"`
+	// planv6.7 v2：协作轮次事件（task / human / turn）。
+	AgentID   string `json:"agent_id"`
+	Status    string `json:"status"`
+	Index     int    `json:"index"`
+	Total     int    `json:"total"`
+	HumanID   string `json:"human_id"`
+	HumanName string `json:"human_name"`
+	// planv6.8 B14：固定助手单聊的 v3 `plan` 帧（decision 为完整 plan.Decision）。
+	Decision json.RawMessage `json:"decision"`
 }
 
 // parseSSE 把 SSE 文本解析为事件列表；忽略注释（: ping）。

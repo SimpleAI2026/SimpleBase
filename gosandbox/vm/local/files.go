@@ -1,3 +1,32 @@
+// 文件说明：files.go — gosandbox/vm/local 中 Driver.ReadFile、Driver.WriteFile 等符号的实现
+//
+// 用法
+//
+//	(d *Driver) ReadFile(_ context.Context, t vm.Target, p string) ([]byte, error)  // ReadFile 读取至多 MaxFileBytes+1 字节（上层据此判断截断）
+//	(d *Driver) WriteFile(_ context.Context, t vm.Target, p string, data []byte) error  // WriteFile 写入文件并按需创建父目录
+//	(d *Driver) RemoveFile(_ context.Context, t vm.Target, p string) error  // RemoveFile 删除文件；不存在视为成功
+//	(d *Driver) ListDir(_ context.Context, t vm.Target, p string) ([]vm.FileEntry, error)  // ListDir 单层列目录，至多 501 项（上层截到 500）
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/vm/local/files.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] exec.go, export_test.go, local.go, local_test.go, metrics.go 等 8 个
+//
+// 主要符号
+//
+//	(d *Driver) openRoot(t vm.Target) (*os.Root, string, error)
+//	(d *Driver) ReadFile(_ context.Context, t vm.Target, p string) ([]byte, error)
+//	(d *Driver) WriteFile(_ context.Context, t vm.Target, p string, data []byte) error
+//	(d *Driver) RemoveFile(_ context.Context, t vm.Target, p string) error
+//	(d *Driver) ListDir(_ context.Context, t vm.Target, p string) ([]vm.FileEntry, error)
+//	kindOf(m fs.FileMode) string
+
 package local
 
 import (

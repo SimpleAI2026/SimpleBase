@@ -29,12 +29,7 @@
             <SbAsyncRegion
               as="tbody"
               :columns="6"
-              :pending="pending"
-              :show-skeleton="showSkeleton"
-              :show-empty="showEmpty"
-              :show-error="showError"
-              :refreshing="refreshing"
-              :error="error"
+              :state="loadState"
               :empty-title="isAdminProject ? t('pages.gofunctions.emptyAdminTitle') : t('pages.gofunctions.emptyTitle')"
               :empty-description="isAdminProject ? t('pages.gofunctions.emptyAdminDesc') : t('pages.gofunctions.emptyDesc')"
               :empty-action-text="canWrite ? t('pages.gofunctions.create') : undefined"
@@ -119,10 +114,10 @@
 <script setup lang="ts">
 import { errorMessage } from '@/utils/format'
 /**
- * 云函数列表页（ui-gofunction-plan §8.3）。
+ * 云函数列表页。
  * Badge 点击复制完整调用 URL；删除走 ConfirmAction；项目切换重载。
  */
-import { computed, ref, watch } from 'vue'
+import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
 import { toast } from 'vue-sonner'
@@ -136,44 +131,44 @@ import {
   TableHeader,
   TableRow
 } from '@/components/ui/table'
-import { api } from '../services/api'
-import type { GoFunctionItem } from '../services/api'
-import { useProjectStore } from '../stores/project'
-import { useAuthStore } from '../stores/auth'
-import { useLoadState } from '../composables/useLoadState'
-import SbAsyncRegion from '../components/SbAsyncRegion.vue'
-import SbRefreshButton from '../components/SbRefreshButton.vue'
-import SbListCard from '../components/SbListCard.vue'
-import { usePagination } from '../composables/usePagination'
-import { formatTime } from '../utils/format'
-import { copyText } from '../utils/clipboard'
-import PageContainer from '../components/PageContainer.vue'
-import ProjectScope from '../components/ProjectScope.vue'
-import ConfirmAction from '../components/ConfirmAction.vue'
-import GoFunctionModal from '../components/modal/GoFunctionModal.vue'
-import GoFuncTestModal from '../components/modal/GoFuncTestModal.vue'
-import GoFuncVersionsModal from '../components/modal/GoFuncVersionsModal.vue'
+import { api } from '@/services/api'
+import type { GoFunctionItem } from '@/services/api'
+import { useProjectStore } from '@/stores/project'
+import { useLoadState } from '@/composables/useLoadState'
+import { useCanWrite } from '@/composables/useCanWrite'
+import { useProjectReload } from '@/composables/useProjectReload'
+import SbAsyncRegion from '@/components/SbAsyncRegion.vue'
+import SbRefreshButton from '@/components/SbRefreshButton.vue'
+import SbListCard from '@/components/SbListCard.vue'
+import { usePagination } from '@/composables/usePagination'
+import { formatTime } from '@/utils/format'
+import { copyText } from '@/utils/clipboard'
+import PageContainer from '@/components/PageContainer.vue'
+import ProjectScope from '@/components/ProjectScope.vue'
+import ConfirmAction from '@/components/ConfirmAction.vue'
+import GoFunctionModal from '@/components/modal/GoFunctionModal.vue'
+import GoFuncTestModal from '@/components/modal/GoFuncTestModal.vue'
+import GoFuncVersionsModal from '@/components/modal/GoFuncVersionsModal.vue'
 
 const projectStore = useProjectStore()
 const { projectId, isAdmin: isAdminProject } = storeToRefs(projectStore)
-const auth = useAuthStore()
 const { t } = useI18n()
-/** 写入口：系统项目与只读角色都隐藏（planv6.7 ui-simplify-ux-plan B11）。 */
-const canWrite = computed(() => !isAdminProject.value && auth.canWrite)
+const canWrite = useCanWrite()
 
 const records = ref<GoFunctionItem[]>([])
 
 const { page, pageSize, total, pageCount, items: paged } = usePagination(records)
-const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
+const loadState = useLoadState({
   fallback: 'pages.gofunctions.loadFailed'
 })
+const { pending, run } = loadState
 
 function load() {
   if (!projectId.value) return Promise.resolve()
   return run(async () => {
     const data = await api.gofunctions.list(projectId.value)
     records.value = data
-    // 项目切换才回到第 1 页；保存 / 删除后刷新保留当前页（planv6.7 B2）
+    // 项目切换才回到第 1 页；保存 / 删除后刷新保留当前页
     return data.length > 0
   })
 }
@@ -234,9 +229,5 @@ function copyInvokePath(record: GoFunctionItem, fn?: string) {
   void copyText(url, t('pages.gofunctions.copiedPath', { path: url }), t('pages.gofunctions.copyFailed'))
 }
 
-void load()
-watch(projectId, () => {
-  page.value = 1
-  void load()
-})
+useProjectReload(projectId, load, { onSwitch: () => { page.value = 1 } })
 </script>

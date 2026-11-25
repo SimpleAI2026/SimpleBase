@@ -45,14 +45,9 @@
           </TableRow>
         </TableHeader>
         <SbAsyncRegion
+          :state="loadState"
           as="tbody"
           :columns="7"
-          :pending="loading"
-          :show-skeleton="showSkeleton"
-          :show-empty="showEmpty"
-          :show-error="showError"
-          :refreshing="refreshing"
-          :error="error"
           :empty-title="isAdmin ? t('pages.approvals.emptyAdminTitle') : t('pages.approvals.emptyTitle')"
           :empty-description="isAdmin ? t('pages.approvals.emptyAdminDesc') : t('pages.approvals.emptyDesc')"
           @retry="load"
@@ -164,15 +159,8 @@ const resolving = ref(new Set<string>())
 let listRequest = 0
 
 const { page, pageSize, total, pageCount, items: paged } = usePagination(records)
-const {
-  pending: loading,
-  showSkeleton,
-  showEmpty,
-  showError,
-  refreshing,
-  error,
-  run
-} = useLoadState({ fallback: 'pages.approvals.loadFailed' })
+const loadState = useLoadState({ fallback: 'pages.approvals.loadFailed' })
+const { pending: loading, run } = loadState
 
 /** 角标用 pending 总数；列表可能被状态过滤，两者不是同一个数。 */
 const pending = computed(() => pendingCount.value)

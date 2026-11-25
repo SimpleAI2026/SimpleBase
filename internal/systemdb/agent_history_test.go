@@ -1,3 +1,32 @@
+// 文件说明：agent_history_test.go — internal/systemdb 的单元测试（TestStatisticalBuiltinsSeedWithoutOverwritingExisting、TestSandboxBuiltinFollowsAvailabilityWithoutReplacingExisting 等）
+//
+// 用法
+//
+//	go test ./internal/systemdb -run 'TestStatisticalBuiltinsSeedWithoutOverwritingExisting|TestSandboxBuiltinFollowsAvailabilityWithoutReplacingExisting|TestAgentSeedKeysPreserveDismissalAndProjectIsolation|TestSeedDefaultCloudAgentsConcurrentFirstVisit'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app 等 8 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/systemdb/agent_history_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_approvals.go, agent_approvals_test.go, agent_collab.go, agent_collab_cron.go, agent_collab_test.go 等 54 个
+//
+// 主要符号
+//
+//	TestStatisticalBuiltinsSeedWithoutOverwritingExisting(t *testing.T)
+//	TestSandboxBuiltinFollowsAvailabilityWithoutReplacingExisting(t *testing.T)
+//	TestAgentSeedKeysPreserveDismissalAndProjectIsolation(t *testing.T)
+//	TestSeedDefaultCloudAgentsConcurrentFirstVisit(t *testing.T)
+//	TestSeedProjectLockWaitCanCancel(t *testing.T)
+//	TestAgentMessagesReturnMostRecentPageInChronologicalOrder(t *testing.T)
+//	TestCloudAgentsThreadsAndRuns(t *testing.T)
+//	TestAgentThreadsFilteredByAgent(t *testing.T)
+//	... 另有 1 个顶层符号
+
 package systemdb
 
 import (
@@ -216,7 +245,7 @@ func TestSeedDefaultCloudAgentsConcurrentFirstVisit(t *testing.T) {
 
 func TestSeedProjectLockWaitCanCancel(t *testing.T) {
 	s := newTestStore(t)
-	release, err := s.lockAgentSeed(context.Background(), "busy")
+	release, err := s.seedLocks.Lock(context.Background(), "busy")
 	if err != nil {
 		t.Fatal(err)
 	}

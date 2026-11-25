@@ -1,7 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api, resetApiMocks } from '@/test/api-mock'
-import { uiStubs } from '@/test/helpers'
+import { uiStubs, cancelModal, installJsdomPolyfills, okModal, realDialogStubs, confirmAction, realAlertDialogStubs } from '@/test/helpers'
 import KvPanel from '@/components/databases/kv/KvPanel.vue'
 import KvKeyListPanel from '@/components/databases/kv/KvKeyListPanel.vue'
 
@@ -36,12 +36,15 @@ function mockScanPage(keys: string[], cursor = '0') {
 
 async function mountPanel(props: Record<string, unknown> = {}) {
   const w = mount(KvPanel, {
+    attachTo: document.body,
     props: { projectId: 'p', ...props },
-    global: { stubs: uiStubs }
+    global: { stubs: { ...uiStubs, ...realDialogStubs, ...realAlertDialogStubs } }
   })
   await flushPromises()
   return w
 }
+
+installJsdomPolyfills()
 
 describe('KvPanel (项目级 Key-Value 列表)', () => {
   beforeEach(() => resetApiMocks())
@@ -72,6 +75,7 @@ describe('KvPanel (项目级 Key-Value 列表)', () => {
     // typeBadge 已随键列表拆到 KvKeyListPanel（plan v3 §3.6），
     // 断言改为直接打在拆出的组件上。
     const list = mount(KvKeyListPanel, {
+      attachTo: document.body,
       props: {
         rows: [
           { key: 'k:hash', type: 'hash', len: 1, ttl_ms: null },
@@ -84,15 +88,10 @@ describe('KvPanel (项目级 Key-Value 列表)', () => {
         typeFilter: 'all',
         hasMore: false,
         loadingMore: false,
-        pending: false,
-        showSkeleton: false,
-        showEmpty: false,
-        showError: false,
-        refreshing: false,
-        error: '',
+        state: { pending: false, showSkeleton: false, showEmpty: false, showError: false, refreshing: false, error: '' },
         ttlText: () => '—'
       },
-      global: { stubs: uiStubs }
+      global: { stubs: { ...uiStubs, ...realDialogStubs, ...realAlertDialogStubs } }
     })
     const vm = list.vm as unknown as { typeBadge: (t: string) => string }
     expect(vm.typeBadge('hash')).toBe('secondary')
@@ -244,8 +243,9 @@ function mockScanPage(keys = sampleKeys, cursor = '0') {
 
 async function mountPanel(props: Record<string, unknown> = {}) {
   const w = mount(KvPanel, {
+    attachTo: document.body,
     props: { projectId: 'p', ...props },
-    global: { stubs: uiStubs }
+    global: { stubs: { ...uiStubs, ...realDialogStubs, ...realAlertDialogStubs } }
   })
   await flushPromises()
   return w
@@ -300,10 +300,8 @@ describe('KvPanel 模板交互', () => {
       return argvs.length ? argvs : 1
     })
     mockScanPage([sampleKeys[1]])
-    const del = w.findAll('.confirm-action').find((c) => c.text().includes('删除'))!
     api.kv.exec.mockResolvedValueOnce(1)
-    await del.trigger('click')
-    await flushPromises()
+    await confirmAction(w, '删除')
     expect(api.kv.exec).toHaveBeenCalledWith('p', { type: 'cmd', argvs: ['DEL', 'session:1'] })
     expect(w.text()).not.toContain('session:1')
     w.unmount()
@@ -328,7 +326,7 @@ describe('KvPanel 模板交互', () => {
     vm.renameValue = 'session:9'
     api.kv.exec.mockResolvedValueOnce('OK')
     mockScanPage([])
-    await w.find('.sb-ok').trigger('click')
+    await okModal()
     await flushPromises()
     expect(api.kv.exec).toHaveBeenCalledWith('p', { type: 'cmd', argvs: ['RENAME', 'session:1', 'session:9'] })
     expect(vm.renameOpen).toBe(false)
@@ -477,7 +475,7 @@ describe('KvPanel 模板交互', () => {
     // 重命名 SbModal 的 update:open 内联回调
     vm.renameOpen = true
     await flushPromises()
-    await w.find('.sb-cancel').trigger('click')
+    await cancelModal()
     expect(vm.renameOpen).toBe(false)
     w.unmount()
   })

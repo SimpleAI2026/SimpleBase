@@ -97,7 +97,7 @@
 
 <script setup lang="ts">
 /**
- * SQL 工作台的结果区（从 SqlWorkModal 拆出，planv5.0 ui-optimization-v3 §3.6）。
+ * SQL 工作台的结果区（从 SqlWorkModal 拆出）。
  *
  * 三个模式的结果形态互不相同但共用同一套「徽标摘要 + 表格/空态」骨架，
  * 单独成件后可独立测试，宿主只负责取数与模式切换。
@@ -107,10 +107,11 @@ import { useI18n } from 'vue-i18n'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import SbEmptyState from '../SbEmptyState.vue'
-import TablePager from '../TablePager.vue'
-import { usePagination } from '../../composables/usePagination'
-import type { SqlBatchResult, SqlExecuteResult, SqlQueryResult } from '../../services/api'
+import SbEmptyState from '@/components/SbEmptyState.vue'
+import TablePager from '@/components/TablePager.vue'
+import { usePagination } from '@/composables/usePagination'
+import { formatCell } from '@/utils/format'
+import type { SqlBatchResult, SqlExecuteResult, SqlQueryResult } from '@/services/api'
 
 export type SqlMode = 'query' | 'execute' | 'batch'
 
@@ -138,10 +139,4 @@ const queryRows = computed(() => {
 
 const { page: queryPage, pageSize, total: queryTotal, pageCount: queryPageCount, items: queryPaged } =
   usePagination(queryRows)
-
-function formatCell(v: unknown): string {
-  if (v === null || v === undefined) return 'NULL'
-  if (typeof v === 'string') return v
-  return JSON.stringify(v)
-}
 </script>

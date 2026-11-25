@@ -4,9 +4,10 @@ import { t } from '@/locales'
 import { toast } from 'vue-sonner'
 import { errorMessage } from '@/utils/format'
 import { agentErrorText } from '@/utils/agent-errors'
-import type { AgentRouteKind, AgentRunMetrics, AgentStreamHandlers, AgentToolCallCard, ChatMsg, LlmStreamConnection } from '@/services/types'
+import { applyToolCall, applyToolConfirmation, applyToolDelta, applyToolResult, applyToolStart } from '@/utils/tool-cards'
+import type { AgentRunMetrics, AgentStreamHandlers, ChatMsg, LlmStreamConnection } from '@/services/types'
 
-/** 运行阶段（BUG-01：前端必须追踪流式回调，工具期间不回落）。 */
+/** 运行阶段：前端必须追踪流式回调，工具期间不回落。 */
 export type AgentPhase = 'idle' | 'thinking' | 'streaming' | 'tool' | 'awaiting_confirm' | 'done' | 'error' | 'canceled'
 
 export interface ConversationOptions {
@@ -19,21 +20,7 @@ export interface ConversationOptions {
 }
 
 /**
- * 定位工具卡：有 call_id 时按 id 精确匹配；无 id 时若给了回退条件，取最后一张满足条件的卡。
- * 仅供 delta / call / start / result 使用；确认事件按原样精确匹配，不走回退。
- */
-function findToolCard(
-  cards: AgentToolCallCard[],
-  callId: string | undefined,
-  fallback?: (card: AgentToolCallCard) => boolean
-): AgentToolCallCard | undefined {
-  if (callId) return cards.find((c) => c.call_id === callId)
-  if (!fallback) return undefined
-  return [...cards].reverse().find(fallback)
-}
-
-/**
- * useAgentConversation：单会话运行状态层（planv4.1 BUG-01/03/09/10）。
+ * useAgentConversation：单会话运行状态层（工具期间不回落 thinking，见 plan/planv6.7/legacy-plan-consolidation-plan.md 的 planv4.1 BUG 锚点）。
  * - 追踪全部 SSE 回调，工具执行期间 phase 停留在 tool（不跳回 thinking）
  * - 重试走后端 retry_of_run_id（不重复追加 user 消息）
  * - 页面刷新后从 run_status/error_code 还原失败态
@@ -57,8 +44,6 @@ export function useAgentConversation(opts: ConversationOptions) {
 
   const statusText = computed(() => {
     const secs = Math.floor(elapsedMs.value / 1000)
-    const routingReply = opts.messages().find((m) => m.role === 'assistant' && m.routing)
-    if (phase.value === 'thinking' && routingReply) return t('agentPhase.routing')
     if (phase.value === 'thinking') return t('agentPhase.thinking', { s: secs })
     if (phase.value === 'awaiting_confirm') return t('agentPhase.awaitingConfirm')
     if (phase.value === 'tool') return t('agentPhase.tool', { name: toolName.value })
@@ -91,7 +76,7 @@ export function useAgentConversation(opts: ConversationOptions) {
   type Handlers = AgentStreamHandlers & { onReply?: (reply: ChatMsg) => void }
 
   function start(
-    body: { content: string; mentions: { agent_id: string }[]; module?: string; agentId?: string; routing?: boolean; retry_of_run_id?: string },
+    body: { content: string; mentions: { agent_id: string }[]; module?: string; agentId?: string; retry_of_run_id?: string },
     handlers: Handlers
   ) {
     stop(false)
@@ -107,8 +92,7 @@ export function useAgentConversation(opts: ConversationOptions) {
       content: '',
       toolCalls: [],
       module: body.module,
-      agentId: body.agentId,
-      routing: !!body.routing
+      agentId: body.agentId
     })
     messages.push(reply)
     handlers.onReply?.(reply)
@@ -133,34 +117,23 @@ export function useAgentConversation(opts: ConversationOptions) {
     conn = api.agentThreads.attachRun(opts.projectId(), id, bindHandlers(reply, handlers, true))
   }
 
-  /** planv6.7 AGC-ROUTE：路由/首 run 事件确认实际回答者后回填气泡身份。 */
-  function applySpeaker(reply: ChatMsg, agentId: string, routeKind?: AgentRouteKind) {
+  /** 首 run 帧确认实际回答者后回填气泡身份。 */
+  function applySpeaker(reply: ChatMsg, agentId: string) {
     reply.agentId = agentId
-    reply.routeKind = routeKind
-    reply.routing = false
     const module = opts.moduleOf?.(agentId)
     if (module) reply.module = module
   }
 
   function bindHandlers(reply: ChatMsg, handlers: Handlers, attached: boolean): AgentStreamHandlers {
     return {
-      onRun: (id, agentId, routeKind) => {
+      onRun: (id, agentId) => {
         runId.value = id
-        if (agentId) applySpeaker(reply, agentId, routeKind)
-        handlers.onRun?.(id, agentId, routeKind)
-      },
-      onRoute: (ev) => {
-        if (ev.status === 'routing') {
-          reply.routing = true
-          if (phase.value !== 'tool' && phase.value !== 'awaiting_confirm') phase.value = 'thinking'
-        } else if (ev.agentId) {
-          applySpeaker(reply, ev.agentId, ev.routeKind)
-        }
-        handlers.onRoute?.(ev)
+        if (agentId) applySpeaker(reply, agentId)
+        handlers.onRun?.(id, agentId)
       },
       onThinking: (ms, content) => {
         elapsedMs.value = ms
-        // BUG-09：工具执行期间的 thinking 心跳不应把 phase 拉回 thinking。
+        // 工具执行期间的 thinking 心跳不应把 phase 拉回 thinking。
         if (phase.value !== 'tool' && phase.value !== 'awaiting_confirm') phase.value = 'thinking'
         if (content) reply.thinking = (reply.thinking || '') + content
         handlers.onThinking?.(ms, content)
@@ -169,55 +142,25 @@ export function useAgentConversation(opts: ConversationOptions) {
       onToolCallDelta: (name, argsDelta, callId) => {
         toolName.value = name
         phase.value = 'tool'
-        const cards = reply.toolCalls || []
-        const target = findToolCard(cards, callId)
-        if (!target) {
-          reply.toolCalls = [...cards, { call_id: callId, name, arguments: argsDelta, status: 'generating' }]
-        } else if (target.status === 'generating' || !target.status) {
-          target.arguments = (target.arguments || '') + argsDelta
-          target.status = 'generating'
-          reply.toolCalls = [...cards]
-        }
+        reply.toolCalls = applyToolDelta(reply.toolCalls || [], name, argsDelta, callId)
         handlers.onToolCallDelta?.(name, argsDelta, callId)
       },
       onToolCall: (name, args, callId) => {
         toolName.value = name
         if (phase.value !== 'awaiting_confirm') phase.value = 'tool'
-        const cards = reply.toolCalls || []
-        const target = findToolCard(cards, callId)
-        if (target) {
-          target.arguments = args
-          target.name = name
-          if (target.status === 'generating' || !target.status) target.status = 'pending'
-          reply.toolCalls = [...cards]
-        } else {
-          reply.toolCalls = [...cards, { call_id: callId, name, arguments: args, status: 'pending' }]
-        }
+        reply.toolCalls = applyToolCall(reply.toolCalls || [], name, args, callId)
         handlers.onToolCall?.(name, args, callId)
       },
       onToolStart: (name, callId) => {
         toolName.value = name
         phase.value = 'tool'
-        const cards = reply.toolCalls || []
-        const target = findToolCard(cards, callId, (c) => c.name === name)
-        if (target) {
-          target.status = 'running'
-          reply.toolCalls = [...cards]
-        } else {
-          reply.toolCalls = [...cards, { call_id: callId, name, status: 'running' }]
-        }
+        reply.toolCalls = applyToolStart(reply.toolCalls || [], name, callId)
         handlers.onToolStart?.(name, callId)
       },
       onConfirmationRequired: (callId, argv, message) => {
         phase.value = 'awaiting_confirm'
         confirmation.value = { callId, argv, message }
-        const cards = reply.toolCalls || []
-        const target = cards.find((c) => c.call_id === callId)
-        if (target) {
-          target.status = 'awaiting_confirm'
-          target.argv = argv
-          reply.toolCalls = [...cards]
-        }
+        reply.toolCalls = applyToolConfirmation(reply.toolCalls || [], callId, argv)
         handlers.onConfirmationRequired?.(callId, argv, message)
       },
       onConfirmationResolved: (callId, approved) => {
@@ -229,20 +172,11 @@ export function useAgentConversation(opts: ConversationOptions) {
         // 工具结果到达后保持 tool → thinking（等下一个 token），而非立即 streaming。
         phase.value = 'thinking'
         confirmation.value = null
-        const cards = reply.toolCalls || []
-        const target = findToolCard(cards, callId, (c) => c.name === name && !c.content)
-        if (target) {
-          target.content = content
-          target.duration_ms = durationMs
-          target.is_error = !!isError
-          target.truncated = !!truncated
-          target.status = isError ? 'error' : 'success'
-        } else cards.push({ call_id: callId, name, content, duration_ms: durationMs, is_error: !!isError, truncated: !!truncated, status: isError ? 'error' : 'success' })
-        reply.toolCalls = [...cards]
+        reply.toolCalls = applyToolResult(reply.toolCalls || [], name, { content, durationMs, isError, truncated }, callId)
         handlers.onToolResult?.(name, content, callId, durationMs, isError, truncated)
       },
       onToolProgress: (name, elapsed, callId) => {
-        // 心跳同步运行时长（BUG-04：长工具期间前端可见进度，不回落 thinking）。
+        // 心跳同步运行时长（长工具期间前端可见进度，不回落 thinking）。
         elapsedMs.value = elapsed
         handlers.onToolProgress?.(name, elapsed, callId)
       },

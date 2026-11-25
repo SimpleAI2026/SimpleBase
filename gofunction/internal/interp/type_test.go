@@ -1,3 +1,27 @@
+// 文件说明：type_test.go — gofunction/internal/interp 的单元测试（TestTypeChangeKindsAndConvNil、TestTypeChangeUnsupportedPanics 等）
+//
+// 用法
+//
+//	go test ./gofunction/internal/interp -run 'TestTypeChangeKindsAndConvNil|TestTypeChangeUnsupportedPanics|TestDerefNonPointer|TestConvNil'
+//
+// 调用架构
+//
+//	[上游] gofunction
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/internal/interp/type_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] bench_test.go, cachetest_test.go, call.go, call_test.go, cheap_test.go 等 40 个
+//
+// 主要符号
+//
+//	TestTypeChangeKindsAndConvNil(t *testing.T)
+//	TestTypeChangeUnsupportedPanics(t *testing.T)
+//	TestDerefNonPointer(t *testing.T)
+//	TestConvNil(t *testing.T)
+
 package interp
 
 // 本文件覆盖类型转换辅助：typeChange/conv/deref 及异常路径。

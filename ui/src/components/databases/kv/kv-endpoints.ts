@@ -1,5 +1,5 @@
 /**
- * KV 命令清单（key-value-ducklake-plan §3.3，与后端 kv_commands.go 命令表对应）。
+ * KV 命令清单（与后端 kv_commands.go 命令表对应）。
  * 单端点 POST /v1/projects/:projectId/kv，body {type:"cmd",argvs:[...]}。
  * 供「Key-Value → API」子页签展示命令、生成 curl 片段与试调用。
  * 纯静态数据，不从后端拉取。
@@ -104,11 +104,6 @@ export const KV_COMMANDS: KvCommand[] = [
   { name: 'ZCOUNT', write: false, group: 'zset', args: 'key min max', desc: '分数区间成员数', descKey: 'components.kvApi.cmdDesc.ZCOUNT', argv: ['ZCOUNT', '{key}', '-inf', '+inf'], reply: '数字' },
   { name: 'ZCARD', write: false, group: 'zset', args: 'key', desc: '成员数', descKey: 'components.kvApi.cmdDesc.ZCARD', argv: ['ZCARD', '{key}'], reply: '数字' }
 ]
-
-/** 单端点路径：项目级，无 databaseId */
-export function kvBasePath(projectId: string): string {
-  return '/v1/projects/' + encodeURIComponent(projectId) + '/kv'
-}
 
 /** 生成 curl 片段（命令 → 单端点 body） */
 export function kvCurlSnippet(cmd: KvCommand, baseFull: string): string {

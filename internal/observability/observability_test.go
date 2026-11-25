@@ -1,3 +1,28 @@
+// 文件说明：observability_test.go — internal/observability 的单元测试（TestParseLevel、TestNewLoggerLevelsAndFormats 等）
+//
+// 用法
+//
+//	go test ./internal/observability -run 'TestParseLevel|TestNewLoggerLevelsAndFormats|TestConsoleFormatIsNotJSON|TestSyncNil'
+//
+// 调用架构
+//
+//	[上游] internal/alerts, internal/api, internal/app, internal/audit 等 10 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/observability/observability_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] logger.go, logger_edge_test.go, metrics.go, stage_timing_metrics.go, zaplog.go 等 6 个
+//
+// 主要符号
+//
+//	TestParseLevel(t *testing.T)
+//	TestNewLoggerLevelsAndFormats(t *testing.T)
+//	TestConsoleFormatIsNotJSON(t *testing.T)
+//	TestSyncNil(t *testing.T)
+//	TestNewMetricsAndCacheHelpers(t *testing.T)
+
 package observability
 
 import (

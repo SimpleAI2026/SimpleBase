@@ -11,15 +11,10 @@
           </TableRow>
         </TableHeader>
         <SbAsyncRegion
+          :state="loadState"
           as="tbody"
           :columns="3"
           :rows="4"
-          :pending="pending"
-          :show-skeleton="showSkeleton"
-          :show-empty="showEmpty"
-          :show-error="showError"
-          :refreshing="refreshing"
-          :error="error"
           :empty-description="t('components.schemaPanel.emptyDesc')"
           @retry="load()"
         >
@@ -148,9 +143,10 @@ interface ColumnDraft {
 const busy = ref(false)
 const rowsOpen = ref(false)
 const activeTable = ref('')
-const { pending, settled, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
+const loadState = useLoadState({
   fallback: 'components.schemaPanel.loadFailed'
 })
+const { settled, showError, run } = loadState
 const tables = ref<SchemaTable[]>([])
 const tableName = ref('')
 const drafts = ref<ColumnDraft[]>([{ name: '', type: 'VARCHAR', nullable: true }])

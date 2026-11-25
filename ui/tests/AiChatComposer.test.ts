@@ -1,12 +1,14 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
-import { uiStubs } from '@/test/helpers'
+import { installJsdomPolyfills, popoverEl, realPopoverStubs, uiStubs } from '@/test/helpers'
 import AiChatComposer from '@/components/ai/AiChatComposer.vue'
 
 const agents = [
   { id: 'a1', name: 'Database', module: 'database' },
   { id: 'a2', name: 'S3', module: 's3' }
 ]
+
+installJsdomPolyfills()
 
 describe('AiChatComposer', () => {
   it('sends plain text without any mention candidate and never treats a skill alias as a mention', async () => {
@@ -28,18 +30,22 @@ describe('AiChatComposer', () => {
   })
 
   it('offers only agent mentions and inserts a mention token', async () => {
+    // 提及菜单是真实 Popover + Command：候选在 body 里
     const w = mount(AiChatComposer, {
       props: {
         modelValue: '@键', mentionAgents: [{ id: 'kv', name: '键值助手', module: 'kv' }]
       },
-      global: { stubs: uiStubs }
+      attachTo: document.body,
+      global: { stubs: { ...uiStubs, ...realPopoverStubs } }
     })
     const vm = w.vm as unknown as { parseMentionQuery: (text: string) => void; pickMention: (agent: { id: string; name: string; module?: string }) => void }
     vm.parseMentionQuery('@键')
     await flushPromises()
-    expect(w.text()).toContain('助手')
+    const menu = popoverEl('[data-slot="popover-content"]')!
+    expect(menu.textContent).toContain('助手')
+    expect(menu.querySelectorAll('[data-slot="command-item"]')).toHaveLength(1)
     // `@` 菜单里只有助手分组，不再出现技能分组。
-    expect(w.text()).not.toContain('技能')
+    expect(menu.textContent).not.toContain('技能')
     vm.pickMention({ id: 'kv', name: '键值助手', module: 'kv' })
     expect(w.emitted('update:modelValue')?.at(-1)?.[0]).toBe('@键值助手 ')
     expect(w.emitted('send')).toBeUndefined()

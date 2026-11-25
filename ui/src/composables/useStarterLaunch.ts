@@ -6,6 +6,7 @@ import { t } from '@/locales'
 import { useAuthStore } from '@/stores/auth'
 import { useProjectStore } from '@/stores/project'
 import { findStarterTemplate } from '@/constants/starter-prompts'
+import { isConflict } from '@/utils/api-errors'
 import { errorMessage } from '@/utils/format'
 import { genDnsSafeId } from '@/utils/project-id'
 import { clearPendingStarter, savePendingStarter } from '@/utils/starter-storage'
@@ -15,7 +16,7 @@ export interface StarterLaunchOptions {
   engine: 'duckdb' | 'sqlite'
 }
 
-/** 项目 ID 冲突（409）时最多换 ID 重试的次数（planv6.6 home-starter-prompts §2.2）。 */
+/** 项目 ID 冲突（409）时最多换 ID 重试的次数。 */
 export const MAX_ID_RETRIES = 3
 
 /**
@@ -71,7 +72,7 @@ export function useStarterLaunch() {
         } catch (e) {
           lastError = e
           // 只有 ID 冲突才换 ID 重试；其他错误（权限、配额、校验）重试没有意义。
-          if ((e as { status?: number })?.status !== 409) break
+          if (!isConflict(e)) break
         }
       }
       if (!created) {

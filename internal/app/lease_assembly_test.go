@@ -1,3 +1,26 @@
+// 文件说明：lease_assembly_test.go — internal/app 的单元测试（TestB4_LeaseEnabledProbeFailRejectsStart、TestB4_LeaseNotAssembledOnLocalDB 等）
+//
+// 用法
+//
+//	go test ./internal/app -run 'TestB4_LeaseEnabledProbeFailRejectsStart|TestB4_LeaseNotAssembledOnLocalDB'
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/api/perfbench
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/app/lease_assembly_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_shutdown_test.go, app.go, app_alerts.go, app_lease.go, app_test.go 等 41 个
+//
+// 主要符号
+//
+//	leaseProbeFailConfig(t *testing.T) config.Config
+//	TestB4_LeaseEnabledProbeFailRejectsStart(t *testing.T)
+//	TestB4_LeaseNotAssembledOnLocalDB(t *testing.T)
+
 package app
 
 // b4_lease_test.go：planv6.0 B4「lease manager 与失租回调」块表征测试。

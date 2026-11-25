@@ -1,3 +1,32 @@
+// 文件说明：bridge_test.go — internal/agentbridge 的单元测试（TestCommandPolicyReadOnlyMatchesSbcli、TestDestructiveArgv 等）
+//
+// 用法
+//
+//	go test ./internal/agentbridge -run 'TestCommandPolicyReadOnlyMatchesSbcli|TestDestructiveArgv|TestSQLDestructiveQuotedLiteral|TestRedactArgv'
+//
+// 调用架构
+//
+//	[上游] internal/agentrun, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/agentbridge/bridge_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] access_db.go, access_llm.go, access_object.go, access_test.go, cli.go 等 33 个
+//
+// 主要符号
+//
+//	TestCommandPolicyReadOnlyMatchesSbcli(t *testing.T)
+//	TestDestructiveArgv(t *testing.T)
+//	TestSQLDestructiveQuotedLiteral(t *testing.T)
+//	TestRedactArgv(t *testing.T)
+//	TestClassifyErrorMatchesHostSentinels(t *testing.T)
+//	TestAgentMappingIsAlwaysWritableAndKeepsTools(t *testing.T)
+//	TestMessagesMapping(t *testing.T)
+//	TestStoreAccessWrappers(t *testing.T)
+//	... 另有 1 个顶层符号
+
 package agentbridge_test
 
 import (

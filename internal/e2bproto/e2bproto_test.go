@@ -1,3 +1,32 @@
+// 文件说明：e2bproto_test.go — internal/e2bproto 的单元测试（TestFrameRoundTripAndEndStream、TestBytesAreBase64 等）
+//
+// 用法
+//
+//	go test ./internal/e2bproto -run 'TestFrameRoundTripAndEndStream|TestBytesAreBase64|TestInt64Encoding|TestSignalAcceptsNameAndNumber'
+//
+// 调用架构
+//
+//	[上游] internal/api
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/e2bproto/e2bproto_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] envelope.go, messages.go, watch.go
+//
+// 主要符号
+//
+//	TestFrameRoundTripAndEndStream(t *testing.T)
+//	TestBytesAreBase64(t *testing.T)
+//	TestInt64Encoding(t *testing.T)
+//	TestSignalAcceptsNameAndNumber(t *testing.T)
+//	TestFrameLimits(t *testing.T)
+//	TestEndStreamCarriesError(t *testing.T)
+//	TestDecodeUnaryAndUnknownFields(t *testing.T)
+//	TestHTTPStatusMapping(t *testing.T)
+//	... 另有 3 个顶层符号
+
 package e2bproto
 
 import (
@@ -202,4 +231,17 @@ func TestStartRequestShape(t *testing.T) {
 	if strings.Contains(string(out), `"start"`) || strings.Contains(string(out), `"data"`) {
 		t.Fatalf("unset oneof branches leaked: %s", out)
 	}
+}
+
+// DecodeFrame 读一个数据 envelope 并解成 v；读到 end-stream 返回 io.EOF（其中的错误体被忽略）。
+// 只服务于本包测试：生产代码由 Connect 处理器自己读帧（planv6.8 N-D1）。
+func DecodeFrame(r io.Reader, v any) error {
+	f, err := ReadFrame(r)
+	if err != nil {
+		return err
+	}
+	if f.EndStream {
+		return io.EOF
+	}
+	return decodeStrict(f.Body, v)
 }

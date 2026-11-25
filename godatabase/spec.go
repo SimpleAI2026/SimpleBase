@@ -1,3 +1,38 @@
+// 文件说明：spec.go — godatabase 中 Status、Spec 等符号的实现
+//
+// 用法
+//
+//	type Status string  // Status 是数据库的可访问状态
+//	type Spec struct{…}  // Spec 描述要打开的一个数据库
+//	type PathResolver interface{…}  // PathResolver 为缺失 DatabasePath 的用户库补全路径
+//	NormalizeEngine(engine string) (string, error)  // NormalizeEngine 把引擎名规范化为 duckdb / sqlite；空串视为 duckdb
+//	PathForProject(projectID, engine string) (string, error)  // PathForProject 返回项目文件的规范相对路径：{projectID}/database.{ext}
+//	EngineFromPath(databasePath string) (string, error)  // EngineFromPath 由文件扩展名推断引擎
+//
+// 调用架构
+//
+//	[上游] godatabase/cache, godatabase/cmd, godatabase/ducklake, godatabase/filedb 等 16 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/spec.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] coverage_test.go, dialect.go, errmatch.go, query.go, query_test.go 等 10 个
+//	[关键引用] Spec ← runtime.go, spec_test.go；NormalizeEngine ← spec_test.go；PathForProject ← spec_test.go
+//
+// 主要符号
+//
+//	type Status string
+//	const StatusCreating / StatusReady / StatusDegraded / StatusDeleting / StatusDeleted
+//	const KindUser / KindSystem
+//	type Spec struct{…}
+//	(s Spec) IsSystem() bool
+//	type PathResolver interface{…}
+//	const EngineDuckDB / EngineSQLite
+//	var ErrInvalidPath
+//	... 另有 8 个顶层符号
+
 package godatabase
 
 import (

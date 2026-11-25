@@ -3,45 +3,6 @@ import { mount } from '@vue/test-utils'
 import AgentCard from '@/components/agent/AgentCard.vue'
 import AgentToolCard from '@/components/agent/AgentToolCard.vue'
 import ConversationView from '@/components/agent/ConversationView.vue'
-import ThreadSwitcher from '@/components/agent/ThreadSwitcher.vue'
-
-const sampleAgent = {
-  id: 'ag-1', name: 'Database', module: 'database', description: '查库助手',
-  system_prompt: '', tool_ids: ['list_databases'], builtin_key: 'general',
-  team_enabled: false, created_at: 't', updated_at: 't'
-}
-
-describe('AgentCard', () => {
-  it('renders the compact row and emits select', async () => {
-    // planv6.0 §3.3：条目收窄成 图标 + 名称 + 一行描述；
-    // 内置标记改为小圆点，编辑/定时/删除移到宿主头部的「⋯」菜单。
-    const wrapper = mount(AgentCard, { props: { agent: sampleAgent, active: true } })
-    expect(wrapper.text()).toContain('Database')
-    expect(wrapper.text()).toContain('查库助手')
-    const row = wrapper.get('button[aria-label="选择 Agent Database"]')
-    expect(row.attributes('aria-pressed')).toBe('true')
-    expect(row.find('[data-agent-icon="databases"]').exists()).toBe(true)
-    await row.trigger('click')
-    expect(wrapper.emitted('select')).toHaveLength(1)
-    // 操作按钮不再出现在条目里
-    expect(wrapper.findAll('button')).toHaveLength(1)
-    // 助手不再有只读/可写配置（v2 §3.4）：条目里没有只读标签。
-    expect(wrapper.find('[data-agent-readonly]').exists()).toBe(false)
-  })
-
-  it('shows a spinning ring around the avatar while replying', () => {
-    const idle = mount(AgentCard, { props: { agent: sampleAgent } })
-    expect(idle.find('[data-agent-running]').exists()).toBe(false)
-    expect(idle.get('button').attributes('aria-busy')).toBeUndefined()
-    const running = mount(AgentCard, { props: { agent: sampleAgent, running: true } })
-    expect(running.find('[data-agent-running]').exists()).toBe(true)
-    const row = running.get('button')
-    expect(row.attributes('aria-busy')).toBe('true')
-    expect(row.attributes('aria-label')).toContain('正在回复')
-    // 样式 B：描述不变
-    expect(running.text()).toContain('查库助手')
-  })
-})
 
 describe('AgentToolCard', () => {
   it('folds failed results by default and marks them red (BUG-02)', async () => {
@@ -151,28 +112,5 @@ describe('ConversationView', () => {
     expect(btn).toBeTruthy()
     await btn!.trigger('click')
     expect(wrapper.emitted('retry')).toHaveLength(1)
-  })
-})
-
-describe('ThreadSwitcher', () => {
-  it('lists threads and emits create', async () => {
-    const wrapper = mount(ThreadSwitcher, {
-      props: { threads: [{ id: 't1', title: '会话一', created_at: 't', updated_at: new Date().toISOString() }], activeId: 't1' }
-    })
-    // 新建改为图标按钮（planv6.0 §3.6 #7），文案在 aria-label 上。
-    const create = wrapper.get('button[aria-label="新会话"]')
-    await create.trigger('click')
-    expect(wrapper.emitted('create')).toHaveLength(1)
-  })
-
-  it('accepts running thread ids without breaking render', () => {
-    const wrapper = mount(ThreadSwitcher, {
-      props: {
-        threads: [{ id: 't1', title: '会话一', created_at: 't', updated_at: new Date().toISOString() }],
-        activeId: 't1',
-        runningThreadIds: new Set(['t1'])
-      }
-    })
-    expect(wrapper.find('button[aria-label="新会话"]').exists()).toBe(true)
   })
 })

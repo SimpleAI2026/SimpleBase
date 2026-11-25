@@ -1,4 +1,6 @@
 // 文件说明：internal/sbcli database / sql / schema 命令实现（原 commands_resources.go 拆出）
+//
+// 单 ID 的 database get / delete、schema show 直接在 commands.go 的命令表里用 idResult 适配，不在本文件重复。
 package sbcli
 
 import (
@@ -20,18 +22,6 @@ func cmdDatabaseList(ctx context.Context, c *gosdk.Client, _ loadedConfig, args 
 	}
 	limit, _ := strconv.Atoi(*f["limit"])
 	return c.ListDatabases(ctx, limit, *f["cursor"])
-}
-
-func cmdDatabaseGet(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
-	f, _, err := mustFlags(args, "id")
-	if err != nil {
-		return nil, err
-	}
-	id, err := need(f, "id")
-	if err != nil {
-		return nil, err
-	}
-	return c.GetDatabase(ctx, id)
 }
 
 func cmdDatabaseCreate(ctx context.Context, c *gosdk.Client, cfg loadedConfig, args []string, stdin io.Reader) (any, error) {
@@ -58,34 +48,16 @@ func cmdDatabaseCreate(ctx context.Context, c *gosdk.Client, cfg loadedConfig, a
 	return c.CreateDatabaseWith(ctx, in)
 }
 
-func cmdDatabaseDelete(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
-	f, _, err := mustFlags(args, "id")
-	if err != nil {
-		return nil, err
+// sqlCommand 是 `sql query`（exec=false）与 `sql exec`（exec=true）共用的入口：flag 集合只在这里声明一次。
+func sqlCommand(exec bool) commandFunc {
+	return func(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, stdin io.Reader) (any, error) {
+		f, _, err := mustFlags(args, "database", "statement", "param", "max-rows")
+		if err != nil {
+			return nil, err
+		}
+		return runSQL(ctx, c, f, stdin, exec)
 	}
-	id, err := need(f, "id")
-	if err != nil {
-		return nil, err
-	}
-	return c.DeleteDatabase(ctx, id)
 }
-
-func cmdSQLQuery(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, stdin io.Reader) (any, error) {
-	f, _, err := mustFlags(args, "database", "statement", "param", "max-rows")
-	if err != nil {
-		return nil, err
-	}
-	return runSQL(ctx, c, f, stdin, false)
-}
-
-func cmdSQLExec(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, stdin io.Reader) (any, error) {
-	f, _, err := mustFlags(args, "database", "statement", "param", "max-rows")
-	if err != nil {
-		return nil, err
-	}
-	return runSQL(ctx, c, f, stdin, true)
-}
-
 func runSQL(ctx context.Context, c *gosdk.Client, f map[string]*string, stdin io.Reader, exec bool) (any, error) {
 	db, err := need(f, "database")
 	if err != nil {
@@ -160,18 +132,6 @@ func cmdSQLBatch(ctx context.Context, c *gosdk.Client, cfg loadedConfig, args []
 		return nil, usagef("batch input must be a JSON array of {sql, args}")
 	}
 	return c.Database(*db).Batch(ctx, stmts, *transactional)
-}
-
-func cmdSchemaShow(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
-	f, _, err := mustFlags(args, "database")
-	if err != nil {
-		return nil, err
-	}
-	id, err := need(f, "database")
-	if err != nil {
-		return nil, err
-	}
-	return c.DatabaseSchema(ctx, id)
 }
 
 func cmdSchemaRows(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {

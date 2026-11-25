@@ -73,14 +73,9 @@
           </TableRow>
         </TableHeader>
         <SbAsyncRegion
+          :state="loadState"
           as="tbody"
           :columns="10"
-          :pending="pending"
-          :show-skeleton="showSkeleton"
-          :show-empty="showEmpty"
-          :show-error="showError"
-          :refreshing="refreshing"
-          :error="error"
           :empty-description="t('pages.traces.emptyDesc')"
           :empty-action-text="hasFilter ? t('pages.logs.clearFilter') : undefined"
           @retry="load"
@@ -178,9 +173,10 @@ const modelFilter = ref('')
 const page = ref(1)
 const groups = ref<LLMTraceGroup[]>([])
 const total = ref(0)
-const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
+const loadState = useLoadState({
   fallback: 'pages.traces.loadFailed'
 })
+const { pending, run } = loadState
 
 const hasFilter = computed(() => Boolean(statusFilter.value || callerFilter.value || modelFilter.value.trim()))
 const pageCount = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)))

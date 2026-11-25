@@ -1,3 +1,32 @@
+// 文件说明：snapshot_test.go — gosandbox/snapshot 的单元测试（TestCreateRestoreRoundTrip、TestCreateDedup 等）
+//
+// 用法
+//
+//	go test ./gosandbox/snapshot -run 'TestCreateRestoreRoundTrip|TestCreateDedup|TestRestoreKeepsOtherDirs|TestRestoreWithoutUpper'
+//
+// 调用架构
+//
+//	[上游] gosandbox/vm/box, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/snapshot/snapshot_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] multidir.go, paths.go, snapshot.go
+//
+// 主要符号
+//
+//	makeBox(t *testing.T, upper bool) string
+//	TestCreateRestoreRoundTrip(t *testing.T)
+//	TestCreateDedup(t *testing.T)
+//	TestRestoreKeepsOtherDirs(t *testing.T)
+//	TestRestoreWithoutUpper(t *testing.T)
+//	TestRestoreRejectsTraversal(t *testing.T)
+//	TestCreateEmpty(t *testing.T)
+//	TestIndexPersists(t *testing.T)
+//	... 另有 2 个顶层符号
+
 package snapshot
 
 // snapshot_test.go：快照的打包、去重、恢复与安全边界。

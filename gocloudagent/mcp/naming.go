@@ -1,3 +1,32 @@
+// 文件说明：naming.go — gocloudagent/mcp 中 ToolName、DisplayName 等符号的实现
+//
+// 用法
+//
+//	ToolName(serverID, tool string) string  // ToolName 生成暴露给模型的工具名：mcp__<server>__<tool>（§3.2）
+//	DisplayName(name string) string  // DisplayName 把 mcp__server__tool 还原成「server · tool」供前端展示（§4.4）
+//	IsMCPToolID(id string) bool  // IsMCPToolID 报告 Agent 的 tool_ids 条目是否为 MCP 引用（§3.2）
+//	ParseToolID(id string) (serverID, tool string, ok bool)  // ParseToolID 拆解 mcp:<server>[/<tool>]
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/cloudagent, gocloudagent/tools, internal/agentbridge 等 5 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/mcp/naming.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] adapter.go, adapter_test.go, client.go, http_transport.go, http_transport_test.go 等 10 个
+//	[关键引用] ToolName ← naming_test.go；DisplayName ← naming_test.go；IsMCPToolID ← naming_test.go
+//
+// 主要符号
+//
+//	ToolName(serverID, tool string) string
+//	sanitizeSegment(v string) string
+//	DisplayName(name string) string
+//	IsMCPToolID(id string) bool
+//	ParseToolID(id string) (serverID, tool string, ok bool)
+
 package mcp
 
 import (

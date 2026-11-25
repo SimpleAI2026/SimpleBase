@@ -20,12 +20,7 @@
               </label>
             </div>
             <SbAsyncRegion
-              :pending="pending"
-              :show-skeleton="showSkeleton"
-              :show-empty="showEmpty"
-              :show-error="showError"
-              :refreshing="refreshing"
-              :error="error"
+              :state="loadState"
               block="spinner"
               :empty-title="t('components.sandboxDrawer.emptyDirTitle')"
               :empty-description="t('components.sandboxDrawer.emptyDirDesc')"
@@ -155,9 +150,10 @@ const filePath = ref('')
 const fileText = ref('')
 const fileBinary = ref(false)
 const reading = ref(false)
-const { pending, showSkeleton, showEmpty, showError, refreshing, error, run, reset } = useLoadState({
+const loadState = useLoadState({
   fallback: 'components.sandboxDrawer.loadFilesFailed'
 })
+const { run, reset } = loadState
 
 /** 可写：有写权限，并且不是 agent 占用的沙盒。 */
 const writable = computed(() => auth.canWrite && props.sandbox?.source !== 'agent')

@@ -8,6 +8,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	collectionquery "github.com/linkxzhou/SimpleBase/internal/collection/query"
 	"net/http"
 	"time"
 
@@ -23,6 +24,35 @@ const (
 	defaultAggregateTimeout = 30 * time.Second
 )
 
+// aggregateLimitConfig 是聚合接口的超时与扫描上限；零值取默认。
+// DataHandler 与 SchemaHandler 内嵌它，共用设置与读取逻辑。
+type aggregateLimitConfig struct {
+	aggregateTimeout time.Duration
+	aggregateScan    int
+}
+
+// setAggregateLimits 设置上限；非正数保持原值。
+func (c *aggregateLimitConfig) setAggregateLimits(timeout time.Duration, scan int) {
+	if timeout > 0 {
+		c.aggregateTimeout = timeout
+	}
+	if scan > 0 {
+		c.aggregateScan = scan
+	}
+}
+
+// aggregateLimits 返回生效的超时与扫描上限，未设置时回落到默认值。
+func (c *aggregateLimitConfig) aggregateLimits() (time.Duration, int) {
+	timeout, scan := c.aggregateTimeout, c.aggregateScan
+	if timeout <= 0 {
+		timeout = defaultAggregateTimeout
+	}
+	if scan <= 0 {
+		scan = defaultAggregateScan
+	}
+	return timeout, scan
+}
+
 // aggregateResponse 是聚合接口响应。行值经 godatabase.SerializeRows，与 /query 同一序列化路径。
 type aggregateResponse struct {
 	Columns []string `json:"columns"`
@@ -37,7 +67,7 @@ type aggregateResponse struct {
 }
 
 // aggregateTotal 执行同口径总量查询（不分组的 count / sum）。没有 TotalSQL 时返回 nil。
-func aggregateTotal(ctx context.Context, lease SQLLease, q aggregateQuery) (json.RawMessage, error) {
+func aggregateTotal(ctx context.Context, lease SQLLease, q collectionquery.AggregateQuery) (json.RawMessage, error) {
 	if q.TotalSQL == "" {
 		return nil, nil
 	}
@@ -57,24 +87,8 @@ func aggregateTotal(ctx context.Context, lease SQLLease, q aggregateQuery) (json
 
 // WithAggregateLimits 设置聚合的扫描上限与超时；非正数保持默认。
 func (h *DataHandler) WithAggregateLimits(timeout time.Duration, scan int) *DataHandler {
-	if timeout > 0 {
-		h.aggregateTimeout = timeout
-	}
-	if scan > 0 {
-		h.aggregateScan = scan
-	}
+	h.setAggregateLimits(timeout, scan)
 	return h
-}
-
-func (h *DataHandler) aggregateLimits() (time.Duration, int) {
-	timeout, scan := h.aggregateTimeout, h.aggregateScan
-	if timeout <= 0 {
-		timeout = defaultAggregateTimeout
-	}
-	if scan <= 0 {
-		scan = defaultAggregateScan
-	}
-	return timeout, scan
 }
 
 // Aggregate: GET /v1/projects/:projectID/databases/:databaseID/data/collections/:collection/aggregate
@@ -104,7 +118,7 @@ func (h *DataHandler) Aggregate(c echo.Context) error {
 	if err != nil {
 		return WriteError(c, err)
 	}
-	query, err := parseAggregateQuery(c.QueryParams(), collectionSource(name, schema), schema, dialect)
+	query, err := collectionquery.ParseAggregateQuery(c.QueryParams(), collectionSource(name, schema), schema, dialect)
 	if err != nil {
 		return validationAPIError(c, err)
 	}
@@ -139,8 +153,8 @@ func (h *DataHandler) Aggregate(c echo.Context) error {
 		truncated = true
 		rows = rows[:query.Limit]
 	}
-	if query.needsSeriesFold && len(query.Columns) > 0 {
-		foldSeries(rows, len(query.Columns)-1)
+	if query.NeedsSeriesFold && len(query.Columns) > 0 {
+		collectionquery.FoldSeries(rows, len(query.Columns)-1)
 	}
 	serialized, err := godatabase.SerializeRows(rows)
 	if err != nil {
@@ -160,15 +174,15 @@ func (h *DataHandler) Aggregate(c echo.Context) error {
 		Truncated:  truncated,
 		Scanned:    scanned,
 		DurationMS: result.Duration.Milliseconds(),
-		RequestID:  RequestIDFromContext(c.Request().Context()),
+		RequestID:  requestID(c),
 	})
 }
 
 // emptyAggregate：集合表尚未创建（还没写入过文档）时返回空结果，与 ListDocuments 一致。
-func emptyAggregate(q aggregateQuery, c echo.Context) aggregateResponse {
+func emptyAggregate(q collectionquery.AggregateQuery, c echo.Context) aggregateResponse {
 	return aggregateResponse{
 		Columns:   q.Columns,
 		Rows:      [][]any{},
-		RequestID: RequestIDFromContext(c.Request().Context()),
+		RequestID: requestID(c),
 	}
 }

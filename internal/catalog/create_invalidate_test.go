@@ -1,3 +1,32 @@
+// 文件说明：create_invalidate_test.go — internal/catalog 的单元测试（TestCreateDatabase_InvalidateOnCreate 等）
+//
+// 用法
+//
+//	go test ./internal/catalog -run 'TestCreateDatabase_InvalidateOnCreate'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app 等 10 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/catalog/create_invalidate_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] always_open_test.go, cache.go, cache_test.go, data_model.go, data_model_test.go 等 20 个
+//
+// 主要符号
+//
+//	type belongsRepo struct{…}
+//	(r *belongsRepo) ProjectBelongsToTenant(ctx context.Context, projectID, tenantID string) (bool, error)
+//	(r *belongsRepo) GetProjectTenant(ctx context.Context, projectID string) (string, error)
+//	(r *belongsRepo) CreateDatabase(ctx context.Context, db Database) error
+//	(r *belongsRepo) TransitionDatabase(ctx context.Context, id string, from []DatabaseStatus, to DatabaseStatus, ...
+//	newSvcBelongs(t *testing.T) (*Service, *belongsRepo, string, string)
+//	TestCreateDatabase_InvalidateOnCreate(t *testing.T)
+//	type failingCreateRepo struct{…}
+//	... 另有 3 个顶层符号
+
 package catalog
 
 import (

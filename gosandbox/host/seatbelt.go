@@ -1,3 +1,33 @@
+// 文件说明：seatbelt.go — gosandbox/host 中 SeatbeltProfile、SeatbeltArgs 等符号的实现
+//
+// 用法
+//
+//	SeatbeltProfile(p Policy) (profile string, params []string, err error)  // SeatbeltProfile 生成 SBPL 与 -D 参数
+//	SeatbeltArgs(p Policy, argv []string) ([]string, error)  // SeatbeltArgs 返回 sandbox-exec 的参数：-p <profile> -D k=v ... -- argv...
+//	同包调用：seatbeltProfile() → glob_test.go, seatbelt_test.go
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/tools, gosandbox/box, gosandbox/vm/box 等 5 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/host/seatbelt.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] bwrap_args.go, bwrap_args_extra_test.go, cgroup.go, cgroup_linux.go, cgroup_linux_test.go 等 36 个
+//	[关键引用] SeatbeltProfile ← seatbelt_test.go；seatbeltProfile ← glob_test.go, seatbelt_test.go；SeatbeltArgs ← run_darwin.go, seatbelt_test.go
+//
+// 主要符号
+//
+//	const SeatbeltExecutable
+//	var SeatbeltMachServices
+//	const seatbeltBase
+//	SeatbeltProfile(p Policy) (profile string, params []string, err error)
+//	seatbeltProfile(p Policy, home string, exists func(string) bool) (profile string, params []string, err error)
+//	canonical(path string) string
+//	SeatbeltArgs(p Policy, argv []string) ([]string, error)
+
 package host
 
 import (

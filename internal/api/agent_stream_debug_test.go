@@ -1,3 +1,24 @@
+// 文件说明：agent_stream_debug_test.go — internal/api 的单元测试（TestDbg16 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestDbg16'
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/agent_stream_debug_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//
+// 主要符号
+//
+//	TestDbg16(t *testing.T)
+
 package api
 
 import (

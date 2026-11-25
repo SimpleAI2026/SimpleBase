@@ -1,3 +1,28 @@
+// 文件说明：upstream_request_test.go — internal/llmgateway 的单元测试（TestChatStreamUpstreamRequestFields、TestChatStreamToolsPassedThrough 等）
+//
+// 用法
+//
+//	go test ./internal/llmgateway -run 'TestChatStreamUpstreamRequestFields|TestChatStreamToolsPassedThrough|TestToolChoiceForwardedUpstream'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app 等 5 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/llmgateway/upstream_request_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_tools_test.go, catalog_resolver.go, client_chat_usage_test.go, fallback_resolver.go, fallback_resolver_test.go 等 14 个
+//
+// 主要符号
+//
+//	type upstreamRequestCapture struct{…}
+//	captureRequestServer(t *testing.T, cap *upstreamRequestCapture) *httptest.Server
+//	TestChatStreamUpstreamRequestFields(t *testing.T)
+//	TestChatStreamToolsPassedThrough(t *testing.T)
+//	TestToolChoiceForwardedUpstream(t *testing.T)
+
 package llmgateway
 
 import (

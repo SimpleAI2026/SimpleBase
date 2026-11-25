@@ -1,3 +1,32 @@
+// 文件说明：serialize_test.go — godatabase 的单元测试（TestSerializeValue_Nil、TestSerializeValue_Int64 等）
+//
+// 用法
+//
+//	go test ./godatabase -run 'TestSerializeValue_Nil|TestSerializeValue_Int64|TestSerializeValue_Float64|TestSerializeValue_Bool'
+//
+// 调用架构
+//
+//	[上游] godatabase/cache, godatabase/cmd, godatabase/ducklake, godatabase/filedb 等 16 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/serialize_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] coverage_test.go, dialect.go, errmatch.go, query.go, query_test.go 等 10 个
+//
+// 主要符号
+//
+//	TestSerializeValue_Nil(t *testing.T)
+//	TestSerializeValue_Int64(t *testing.T)
+//	TestSerializeValue_Float64(t *testing.T)
+//	TestSerializeValue_Bool(t *testing.T)
+//	TestSerializeValue_String(t *testing.T)
+//	TestSerializeValue_Bytes(t *testing.T)
+//	TestSerializeValue_Time(t *testing.T)
+//	TestSerializeValue_Unsupported(t *testing.T)
+//	... 另有 10 个顶层符号
+
 package godatabase
 
 import (

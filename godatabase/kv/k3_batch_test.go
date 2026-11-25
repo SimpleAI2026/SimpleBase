@@ -1,3 +1,24 @@
+// 文件说明：k3_batch_test.go — godatabase/kv 的单元测试（TestBatchOpsEdgeCases 等）
+//
+// 用法
+//
+//	go test ./godatabase/kv -run 'TestBatchOpsEdgeCases'
+//
+// 调用架构
+//
+//	[上游] godatabase/cmd, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/kv/k3_batch_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] bugfix_test.go, collections_test.go, conn_schema_test.go, core.go, executor.go 等 20 个
+//
+// 主要符号
+//
+//	TestBatchOpsEdgeCases(t *testing.T)
+
 package kv
 
 import (

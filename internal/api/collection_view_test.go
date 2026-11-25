@@ -1,3 +1,32 @@
+// 文件说明：collection_view_test.go — internal/api 的单元测试（TestLogicalViewRealEngines 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestLogicalViewRealEngines'
+//	同包调用：mapCollectionSchemas → collection_update_validation_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/collection_view_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] mapCollectionSchemas ← collection_update_validation_test.go
+//
+// 主要符号
+//
+//	type mapCollectionSchemas map[string]*collection.Collection
+//	(m mapCollectionSchemas) Get(_ context.Context, _ string, name string) (*collection.Collection, error)
+//	(m mapCollectionSchemas) List(context.Context, string) ([]collection.Collection, error)
+//	(m mapCollectionSchemas) Put(_ context.Context, schema collection.Collection) error
+//	(m mapCollectionSchemas) Delete(_ context.Context, _ string, name string) error
+//	TestLogicalViewRealEngines(t *testing.T)
+//	jsonUnmarshal(data []byte, target any) error
+
 package api
 
 import (

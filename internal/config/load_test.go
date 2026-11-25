@@ -1,3 +1,32 @@
+// 文件说明：load_test.go — internal/config 的单元测试（TestParseDuration、TestEnvHelpers 等）
+//
+// 用法
+//
+//	go test ./internal/config -run 'TestParseDuration|TestEnvHelpers|TestLoadLLMProviders|TestLoadLLMProvidersFlatEnvFallback'
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/api, internal/api/perfbench, internal/app 等 6 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/config/load_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] agent_config_test.go, backup.go, config.go, config_agent_types.go, config_example_test.go 等 24 个
+//
+// 主要符号
+//
+//	writeYAML(t *testing.T, body string) string
+//	TestParseDuration(t *testing.T)
+//	TestEnvHelpers(t *testing.T)
+//	TestLoadLLMProviders(t *testing.T)
+//	TestLoadLLMProvidersFlatEnvFallback(t *testing.T)
+//	TestLoadLLMProvidersFlatEnvTimeout(t *testing.T)
+//	TestConfigFilePath(t *testing.T)
+//	TestLoadFromEnvAndYAMLOverride(t *testing.T)
+//	... 另有 16 个顶层符号
+
 package config
 
 import (

@@ -1,3 +1,27 @@
+// 文件说明：log_level_test.go — internal/config 的单元测试（TestNormalizeLogLevel、TestValidLogLevel 等）
+//
+// 用法
+//
+//	go test ./internal/config -run 'TestNormalizeLogLevel|TestValidLogLevel|TestLoadNormalizesEmptyLogLevel|TestProfileName'
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/api, internal/api/perfbench, internal/app 等 6 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/config/log_level_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] agent_config_test.go, backup.go, config.go, config_agent_types.go, config_example_test.go 等 24 个
+//
+// 主要符号
+//
+//	TestNormalizeLogLevel(t *testing.T)
+//	TestValidLogLevel(t *testing.T)
+//	TestLoadNormalizesEmptyLogLevel(t *testing.T)
+//	TestProfileName(t *testing.T)
+
 package config
 
 import "testing"

@@ -1,3 +1,36 @@
+// 文件说明：server.go — gocloudagent/mcp 中 ServerTool、ServerSpec 等符号的实现
+//
+// 用法
+//
+//	type ServerTool struct{…}  // ServerTool 是一个服务端工具（不含 SDK 类型）
+//	type ServerSpec struct{…}  // ServerSpec 是一个 MCP Server 的完整定义
+//	NewHTTPHandler(resolve func(*http.Request) *ServerSpec) http.Handler  // NewHTTPHandler 返回 stateless + JSONResponse 的 Streamable HTTP handler
+//	ConnectInMemory(ctx context.Context, serverID string, spec *ServerSpec) (Session, error)  // ConnectInMemory 用 InMemoryTransport 直连 spec，返回与 ConnectHTTP 同接口的 Session
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/cloudagent, gocloudagent/tools, internal/agentbridge 等 5 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/mcp/server.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapter_test.go, client.go, http_transport.go, http_transport_test.go 等 10 个
+//	[关键引用] ServerTool ← server_test.go；ServerSpec ← server_test.go；NewHTTPHandler ← server_test.go
+//
+// 主要符号
+//
+//	const MaxServerRequestBytes
+//	type ServerTool struct{…}
+//	type ServerSpec struct{…}
+//	(s *ServerSpec) validate() error
+//	buildServer(spec *ServerSpec) (srv *sdkmcp.Server, err error)
+//	toolAnnotations(t ServerTool) *sdkmcp.ToolAnnotations
+//	toolHandler(t ServerTool) sdkmcp.ToolHandler
+//	textResult(text string, isError bool) *sdkmcp.CallToolResult
+//	... 另有 6 个顶层符号
+
 package mcp
 
 import (

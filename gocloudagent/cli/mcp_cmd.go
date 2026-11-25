@@ -1,3 +1,28 @@
+// 文件说明：mcp_cmd.go — gocloudagent/cli 的内部实现（cmdMCP、mcpList 等）
+//
+// 用法
+//
+//	同包调用：cmdMCP() → command.go, mcp_adapter_test.go；maskURL() → config.go, mcp_config_test.go
+//
+// 调用架构
+//
+//	[上游] gocloudagent
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/cli/mcp_cmd.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] agent_loop.go, agent_loop_test.go, budget_test.go, client.go, client_conn_reuse_test.go 等 39 个
+//	[关键引用] cmdMCP ← command.go, mcp_adapter_test.go；maskURL ← config.go, mcp_config_test.go
+//
+// 主要符号
+//
+//	cmdMCP(env []string, args []string, stdout, stderr *os.File) int
+//	mcpList(env []string, stdout, stderr *os.File) int
+//	mcpTools(env []string, only string, stdout, stderr *os.File) int
+//	maskURL(raw string) string
+
 // mcp_cmd.go — `gocloudagent mcp ...` 子命令（planv6.2 §5.2）。
 //
 // 只做配置管理与连通性检查：不改会话、不写配置文件的凭据以外内容。
@@ -10,7 +35,6 @@ import (
 	"os"
 	"sort"
 	"strings"
-	"time"
 )
 
 func cmdMCP(env []string, args []string, stdout, stderr *os.File) int {
@@ -103,8 +127,14 @@ func mcpTools(env []string, only string, stdout, stderr *os.File) int {
 		return exitOK
 	}
 	// 非交互：不提供 Confirm（只列工具，不执行）。
-	mcpEnv := mcpServerEnv{Env: env, Cwd: "."}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// 隔离策略与交互 run 同源：开启时 stdio 一律拒绝。
+	iso, perr := cfg.ShellIsolation.Policy(".", HomeDir(env))
+	if perr != nil {
+		fmt.Fprintf(stderr, "error: shell_isolation: %v\n", perr)
+		return exitConfig
+	}
+	mcpEnv := mcpServerEnv{Env: env, Cwd: ".", IsolationEnabled: iso.Enabled}
+	ctx, cancel := context.WithTimeout(context.Background(), mcpStartupTimeout)
 	defer cancel()
 	tools, closeAll, cerr := connectMCPServers(ctx, cfg, mcpEnv)
 	defer closeAll()
@@ -122,14 +152,30 @@ func mcpTools(env []string, only string, stdout, stderr *os.File) int {
 	return exitOK
 }
 
-// maskURL 隐藏 URL 里的 query（可能含 token），只保留 scheme://host/path。
+// maskURL 隐藏 URL 里可能含凭据的部分：userinfo、query 与 fragment，
+// 只保留 scheme://host/path（存在 query 时以 ?*** 标记）。
 func maskURL(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return ""
 	}
-	if idx := strings.IndexByte(raw, '?'); idx >= 0 {
-		return raw[:idx] + "?***"
+	if idx := strings.IndexByte(raw, '#'); idx >= 0 {
+		raw = raw[:idx]
 	}
-	return raw
+	masked := ""
+	if idx := strings.IndexByte(raw, '?'); idx >= 0 {
+		raw, masked = raw[:idx], "?***"
+	}
+	if scheme := strings.Index(raw, "://"); scheme >= 0 {
+		rest := raw[scheme+3:]
+		authority, path := rest, ""
+		if slash := strings.IndexByte(rest, '/'); slash >= 0 {
+			authority, path = rest[:slash], rest[slash:]
+		}
+		if at := strings.LastIndexByte(authority, '@'); at >= 0 {
+			authority = "***@" + authority[at+1:]
+		}
+		raw = raw[:scheme+3] + authority + path
+	}
+	return raw + masked
 }

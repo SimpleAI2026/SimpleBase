@@ -1,8 +1,37 @@
-// planv6.7 AGC-NAV/AGC-ROUTE：agent_tags.go 的仓储测试（§7.12）。
+// 文件说明：agent_tags_test.go — internal/systemdb 的单元测试（TestCreateAgentTagBasicAndListOrder、TestCreateAgentTagDuplicateCaseInsensitive 等）
+//
+// 用法
+//
+//	go test ./internal/systemdb -run 'TestCreateAgentTagBasicAndListOrder|TestCreateAgentTagDuplicateCaseInsensitive|TestCreateAgentTagLimit|TestUpdateAgentTagVersionAndRename'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app 等 8 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/systemdb/agent_tags_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] agent_approvals.go, agent_approvals_test.go, agent_collab.go, agent_collab_cron.go, agent_collab_test.go 等 54 个
+//
+// 主要符号
+//
+//	tagCtx(t *testing.T) context.Context
+//	mustCreateTag(t *testing.T, s *Store, projectID, name string, agentIDs []string) AgentTag
+//	TestCreateAgentTagBasicAndListOrder(t *testing.T)
+//	TestCreateAgentTagDuplicateCaseInsensitive(t *testing.T)
+//	TestCreateAgentTagLimit(t *testing.T)
+//	TestUpdateAgentTagVersionAndRename(t *testing.T)
+//	TestUpsertBuiltinAgentTag(t *testing.T)
+//	TestArchiveAgentTagTransaction(t *testing.T)
+//	... 另有 3 个顶层符号
+
+// planv6.7 AGC-NAV：agent_tags.go 的仓储测试（§7.12）。
 // 覆盖：建/改/归档、重名（大小写）、50 上限、版本冲突、预置 upsert、
 // 归档事务（tag_id 清空且 dispatch_mode 保留）、CreateAgentThreadWithWorkspace
-// 零值不写元数据、PageAgentThreadsFiltered 的 chat 规则与标签分区、
-// UpdateAgentRunAgent 只回填一次、ListAgentRunRoutes。
+// 零值不写元数据、PageAgentThreadsFiltered 的 chat 规则与标签分区。
+// （run 路由记录随一轮一助手 auto 调度一并下线，见 planv6.8 §13.15 CB-BE-13。）
 package systemdb
 
 import (
@@ -176,7 +205,7 @@ func TestArchiveAgentTagTransaction(t *testing.T) {
 	tag := mustCreateTag(t, s, "p1", "发布", []string{"a1"})
 
 	// 标签会话：tag_id=tag.ID, dispatch_mode=auto
-	wsThread, err := s.CreateAgentThreadWithWorkspace(ctx, AgentThread{ProjectID: "p1", Title: "t1"}, AgentThreadWorkspace{TagID: tag.ID, DispatchMode: DispatchAuto, Source: ThreadSourceWorkspace})
+	wsThread, err := s.CreateAgentThreadWithWorkspace(ctx, AgentThread{ProjectID: "p1", Title: "t1"}, AgentThreadWorkspace{TagID: tag.ID, DispatchMode: DispatchCollaborative, Source: ThreadSourceWorkspace})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +240,7 @@ func TestArchiveAgentTagTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ws.TagID != tag.ID || ws.DispatchMode != DispatchAuto {
+	if ws.TagID != tag.ID || ws.DispatchMode != DispatchCollaborative {
 		t.Fatalf("workspace after archive should keep ownership: %+v", ws)
 	}
 	// 普通会话仍无元数据行
@@ -240,12 +269,12 @@ func TestCreateAgentThreadWithWorkspaceZeroValue(t *testing.T) {
 		t.Fatalf("zero ws should not persist: %v %+v", err, ws)
 	}
 	// 带元数据
-	th2, err := s.CreateAgentThreadWithWorkspace(ctx, AgentThread{ProjectID: "p1", Title: "x"}, AgentThreadWorkspace{DispatchMode: DispatchAuto, Source: ThreadSourceWorkspace})
+	th2, err := s.CreateAgentThreadWithWorkspace(ctx, AgentThread{ProjectID: "p1", Title: "x"}, AgentThreadWorkspace{DispatchMode: DispatchCollaborative, Source: ThreadSourceWorkspace})
 	if err != nil {
 		t.Fatal(err)
 	}
 	ws2, err := s.GetAgentThreadWorkspace(ctx, "p1", th2.ID)
-	if err != nil || ws2.DispatchMode != DispatchAuto || ws2.Source != ThreadSourceWorkspace {
+	if err != nil || ws2.DispatchMode != DispatchCollaborative || ws2.Source != ThreadSourceWorkspace {
 		t.Fatalf("meta: %v %+v", err, ws2)
 	}
 	// 批量读取
@@ -253,7 +282,7 @@ func TestCreateAgentThreadWithWorkspaceZeroValue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(m) != 1 || m[th2.ID].DispatchMode != DispatchAuto {
+	if len(m) != 1 || m[th2.ID].DispatchMode != DispatchCollaborative {
 		t.Fatalf("batch: %+v", m)
 	}
 	if empty, err := s.ListAgentThreadWorkspaces(ctx, "p1", nil); err != nil || len(empty) != 0 {
@@ -275,7 +304,7 @@ func TestPageAgentThreadsFilteredTagRules(t *testing.T) {
 	}
 	generalID := mk("通用会话", "a1", "", AgentThreadWorkspace{TagID: AgentTagGeneral, DispatchMode: DispatchCollaborative})
 	generalAPIKeyID := mk("通用 API 会话", "a2", "key-123", AgentThreadWorkspace{TagID: AgentTagGeneral, DispatchMode: DispatchCollaborative})
-	tagThreadID := mk("标签会话", "", "", AgentThreadWorkspace{TagID: tag.ID, DispatchMode: DispatchAuto})
+	tagThreadID := mk("标签会话", "", "", AgentThreadWorkspace{TagID: tag.ID, DispatchMode: DispatchCollaborative})
 	mk("无标签会话", "a3", "", AgentThreadWorkspace{})
 
 	threads, next, err := s.PageAgentThreadsFiltered(ctx, "p1", AgentThreadFilter{TagID: AgentTagGeneral}, "", 50)
@@ -353,86 +382,5 @@ func TestPageAgentThreadsFilteredPagination(t *testing.T) {
 	}
 	if len(seen) != 4 {
 		t.Fatalf("distinct: %d", len(seen))
-	}
-}
-
-func TestUpdateAgentRunAgentSingleBackfill(t *testing.T) {
-	s := newTestStore(t)
-	ctx := tagCtx(t)
-	th, err := s.CreateAgentThread(ctx, AgentThread{ProjectID: "p1"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	// run 以 agent_id='' 创建（路由中）
-	run, err := s.CreateAgentRun(ctx, AgentRun{ProjectID: "p1", ThreadID: th.ID, Status: AgentRunRunning})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if run.AgentID != "" {
-		t.Fatalf("run agent should be empty: %+v", run)
-	}
-	// 回填
-	if err := s.UpdateAgentRunAgent(ctx, "p1", run.ID, "agent-9"); err != nil {
-		t.Fatal(err)
-	}
-	got, err := s.GetAgentRun(ctx, "p1", run.ID)
-	if err != nil || got.AgentID != "agent-9" {
-		t.Fatalf("after backfill: %v %+v", err, got)
-	}
-	// 再次回填不生效（只允许从空回填一次）
-	if err := s.UpdateAgentRunAgent(ctx, "p1", run.ID, "agent-other"); err != nil {
-		t.Fatal(err)
-	}
-	got, err = s.GetAgentRun(ctx, "p1", run.ID)
-	if err != nil || got.AgentID != "agent-9" {
-		t.Fatalf("second backfill must not apply: %v %+v", err, got)
-	}
-	// 跨项目不生效
-	if err := s.UpdateAgentRunAgent(ctx, "p2", run.ID, "agent-x"); err != nil {
-		t.Fatal(err)
-	}
-	got, _ = s.GetAgentRun(ctx, "p1", run.ID)
-	if got.AgentID != "agent-9" {
-		t.Fatalf("cross project backfill: %+v", got)
-	}
-}
-
-func TestInsertAndListAgentRunRoutes(t *testing.T) {
-	s := newTestStore(t)
-	ctx := tagCtx(t)
-	th, err := s.CreateAgentThread(ctx, AgentThread{ProjectID: "p1"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	run, err := s.CreateAgentRun(ctx, AgentRun{ProjectID: "p1", ThreadID: th.ID, Status: AgentRunRunning})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.InsertAgentRunRoute(ctx, AgentRunRoute{
-		ProjectID: "p1", RunID: run.ID, ThreadID: th.ID, AgentID: "agent-1", RouteKind: RouteAuto, RouterMS: 120,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	// 同 run 重复插入跳过
-	if err := s.InsertAgentRunRoute(ctx, AgentRunRoute{
-		ProjectID: "p1", RunID: run.ID, ThreadID: th.ID, AgentID: "agent-2", RouteKind: RouteFallback,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	routes, err := s.ListAgentRunRoutes(ctx, "p1", th.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(routes) != 1 {
-		t.Fatalf("routes: %d", len(routes))
-	}
-	r := routes[run.ID]
-	if r.AgentID != "agent-1" || r.RouteKind != RouteAuto || r.RouterMS != 120 {
-		t.Fatalf("route row: %+v", r)
-	}
-	// 其他会话隔离
-	empty, err := s.ListAgentRunRoutes(ctx, "p1", "other-thread")
-	if err != nil || len(empty) != 0 {
-		t.Fatalf("other thread: %v %d", err, len(empty))
 	}
 }

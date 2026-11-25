@@ -1,3 +1,33 @@
+// 文件说明：mcp_adapter.go — gocloudagent/cli 的内部实现（mcpLocalTool、newMCPLocalTool 等）
+//
+// 用法
+//
+//	同包调用：newMCPLocalTool() → mcp_adapter_test.go, mcp_config.go；mcpCallTimeout() → mcp_adapter_test.go, mcp_config.go；localToolInfo() → mcp_adapter_test.go
+//
+// 调用架构
+//
+//	[上游] gocloudagent
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/cli/mcp_adapter.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_loop.go, agent_loop_test.go, budget_test.go, client.go, client_conn_reuse_test.go 等 39 个
+//	[关键引用] newMCPLocalTool ← mcp_adapter_test.go, mcp_config.go；mcpCallTimeout ← mcp_adapter_test.go, mcp_config.go；localToolInfo ← mcp_adapter_test.go
+//
+// 主要符号
+//
+//	type mcpLocalTool struct{…}
+//	newMCPLocalTool(serverID string, cfg MCPServerConfig, sess mcp.Session, info mcp.ToolInfo, env mcpServerEnv) *...
+//	(t *mcpLocalTool) Info(context.Context) (*schema.ToolInfo, error)
+//	(t *mcpLocalTool) InvokableRun(ctx context.Context, argumentsInJSON string, _ ...tool.Option) (string, error)
+//	(t *mcpLocalTool) confirm() bool
+//	(t *mcpLocalTool) record(result string)
+//	mcpCallTimeout(cfg MCPServerConfig) time.Duration
+//	localToolInfo(name string, info mcp.ToolInfo) *schema.ToolInfo
+//	... 另有 2 个顶层符号
+
 // mcp_adapter.go — CLI 侧的 MCP 工具包装（planv6.2 §5.2）。
 //
 // 权限模型与云端不同：CLI 没有 Agent.Writable，破坏性判定来自本地配置的
@@ -7,17 +37,16 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 	"time"
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
-	"github.com/eino-contrib/jsonschema"
 
 	"github.com/linkxzhou/SimpleBase/gocloudagent/agentcore"
 	"github.com/linkxzhou/SimpleBase/gocloudagent/mcp"
+	"github.com/linkxzhou/SimpleBase/gocloudagent/tools"
 )
 
 // mcpLocalTool 把一个 MCP 工具包装成 eino InvokableTool（本地版）。
@@ -55,7 +84,7 @@ func (t *mcpLocalTool) InvokableRun(ctx context.Context, argumentsInJSON string,
 	yolo := t.env.Workspace != nil && t.env.Workspace.Yolo
 	if !t.cfg.ReadOnly(t.rawName) && !yolo {
 		if !t.confirm() {
-			return toolsErrEnvelope(mcp.CodeConfirmationDenied, "已取消"), nil
+			return tools.ErrEnvelope(mcp.CodeConfirmationDenied, "已取消"), nil
 		}
 	}
 	callCtx, cancel := context.WithTimeout(ctx, t.timeout)
@@ -63,15 +92,15 @@ func (t *mcpLocalTool) InvokableRun(ctx context.Context, argumentsInJSON string,
 	res, err := t.session.CallTool(callCtx, t.rawName, []byte(argumentsInJSON))
 	if err != nil {
 		if errors.Is(callCtx.Err(), context.DeadlineExceeded) {
-			return toolsErrEnvelope(mcp.CodeTimeout, "MCP 工具调用超时"), nil
+			return tools.ErrEnvelope(mcp.CodeTimeout, "MCP 工具调用超时"), nil
 		}
 		if ctx.Err() != nil {
 			return "", ctx.Err()
 		}
-		return toolsErrEnvelope(mcp.CodeUnavailable, "MCP Server 不可用"), nil
+		return tools.ErrEnvelope(mcp.CodeUnavailable, "MCP Server 不可用"), nil
 	}
 	if res.IsError {
-		return toolsErrEnvelope(mcp.CodeToolError, truncateMCPText(res.Text, 2000)), nil
+		return tools.ErrEnvelope(mcp.CodeToolError, truncateMCPText(res.Text, 2000)), nil
 	}
 	out := agentcore.RedactSecrets(res.Text)
 	if res.Truncated {
@@ -113,22 +142,8 @@ func mcpCallTimeout(cfg MCPServerConfig) time.Duration {
 //
 // 与云端同一策略：schema 走 JSON 往返，两套 jsonschema 库不交换类型。
 func localToolInfo(name string, info mcp.ToolInfo) *schema.ToolInfo {
-	ti := &schema.ToolInfo{
-		Name:  name,
-		Desc:  info.Description,
-		Extra: map[string]any{"mcp_tool": info.Name},
-	}
-	var js jsonschema.Schema
-	if err := json.Unmarshal(info.InputSchema, &js); err == nil && (js.Type == "" || js.Type == "object") {
-		ti.ParamsOneOf = schema.NewParamsOneOfByJSONSchema(&js)
-	}
+	ti, _ := tools.MCPToolInfo(name, info, false)
 	return ti
-}
-
-// toolsErrEnvelope 构造与云端 skillFail 同形的失败信封。
-func toolsErrEnvelope(code, msg string) string {
-	b, _ := json.Marshal(map[string]any{"ok": false, "error": map[string]any{"code": code, "message": msg}})
-	return string(b)
 }
 
 func truncateMCPText(s string, max int) string {
@@ -152,6 +167,3 @@ func mcpToolNames(tools []tool.BaseTool) []string {
 	}
 	return out
 }
-
-// mcpDisplay 把 mcp__server__tool 展示成「server · tool」。
-func mcpDisplay(name string) string { return mcp.DisplayName(name) }

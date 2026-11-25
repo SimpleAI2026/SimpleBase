@@ -1,3 +1,30 @@
+// 文件说明：always_open_test.go — internal/catalog 的单元测试（TestPlan_SetDatabaseReadyDoesNotPromoteDegraded、TestPlan_StartupRepairCreating 等）
+//
+// 用法
+//
+//	go test ./internal/catalog -run 'TestPlan_SetDatabaseReadyDoesNotPromoteDegraded|TestPlan_StartupRepairCreating|TestPlan_DeleteReadyIsSoftDelete'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app 等 10 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/catalog/always_open_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] cache.go, cache_test.go, create_invalidate_test.go, data_model.go, data_model_test.go 等 20 个
+//
+// 主要符号
+//
+//	type headDescriptor struct{…}
+//	(h *headDescriptor) PutJSON(context.Context, string, any, objectstore.PutOptions) error
+//	(h *headDescriptor) Head(context.Context, string) (objectstore.ObjectInfo, error)
+//	seedStatus(t *testing.T, repo Repository, tenantID, projectID string, status DatabaseStatus, deleted bool) Dat...
+//	TestPlan_SetDatabaseReadyDoesNotPromoteDegraded(t *testing.T)
+//	TestPlan_StartupRepairCreating(t *testing.T)
+//	TestPlan_DeleteReadyIsSoftDelete(t *testing.T)
+
 package catalog
 
 import (

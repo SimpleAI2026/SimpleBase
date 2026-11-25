@@ -1,3 +1,37 @@
+// 文件说明：basics.go — gofunction/testdata 中 __testSet.Imports、__testSet.Functions 等符号的实现
+//
+// 用法
+//
+//	(__testSet) Imports() interface{}  // Imports 导入
+//	(__testSet) Functions() interface{}  // Functions 函数
+//	(__testSet) Functions2() interface{}  // Functions2 函数
+//	(__testSet) MultipleResult() interface{}  // MultipleResult 多值返回
+//	(__testSet) NamedResults() interface{}  // NamedResults 命名返回值
+//	(__testSet) Variables() interface{}  // Variables 变量
+//
+// 调用架构
+//
+//	[上游] 仅测试引用：gofunction/internal/interp
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/testdata/basics.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] basic.go, controlflow.go, flowcontrol.go, funclist.go, globals.go 等 13 个
+//
+// 主要符号
+//
+//	(__testSet) Imports() interface{}
+//	add(x int, y int) int
+//	(__testSet) Functions() interface{}
+//	add2(x, y int) int
+//	(__testSet) Functions2() interface{}
+//	swap(x, y string) (string, string)
+//	(__testSet) MultipleResult() interface{}
+//	split(sum int) (x, y int)
+//	... 另有 14 个顶层符号
+
 package testdata
 
 import (

@@ -1,3 +1,26 @@
+// 文件说明：hashx_test.go — godatabase/hashx 的单元测试（TestSum、TestShort 等）
+//
+// 用法
+//
+//	go test ./godatabase/hashx -run 'TestSum|TestShort'
+//
+// 调用架构
+//
+//	[上游] godatabase/blob, godatabase/ducklake, internal/api, internal/auth 等 5 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/hashx/hashx_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] hashx.go
+//
+// 主要符号
+//
+//	const emptySum
+//	TestSum(t *testing.T)
+//	TestShort(t *testing.T)
+
 package hashx
 
 import "testing"

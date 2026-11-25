@@ -1,3 +1,32 @@
+// 文件说明：crontab_test.go — internal/utils/crontab 的单元测试（TestParseCronValid、TestParseCronInvalid 等）
+//
+// 用法
+//
+//	go test ./internal/utils/crontab -run 'TestParseCronValid|TestParseCronInvalid|TestNextAfterEvery15|TestNextAfterDaily8UTC'
+//
+// 调用架构
+//
+//	[上游] internal/api, internal/backup, internal/cronjob
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/utils/crontab/crontab_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] crontab.go
+//
+// 主要符号
+//
+//	mustParseCron(t *testing.T, expr string) CronSpec
+//	TestParseCronValid(t *testing.T)
+//	TestParseCronInvalid(t *testing.T)
+//	TestNextAfterEvery15(t *testing.T)
+//	TestNextAfterDaily8UTC(t *testing.T)
+//	TestNextAfterWeekdayList(t *testing.T)
+//	TestNextAfterSundaySeven(t *testing.T)
+//	TestNextAfterDayAndWeekdayUnion(t *testing.T)
+//	... 另有 2 个顶层符号
+
 package crontab
 
 import (

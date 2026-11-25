@@ -29,12 +29,7 @@
             <SbAsyncRegion
               as="tbody"
               :columns="6"
-              :pending="pending"
-              :show-skeleton="showSkeleton"
-              :show-empty="showEmpty"
-              :show-error="showError"
-              :refreshing="refreshing"
-              :error="error"
+              :state="loadState"
               :empty-title="isAdminProject ? t('pages.cronJobs.emptyAdminTitle') : t('pages.cronJobs.emptyTitle')"
               :empty-description="isAdminProject ? t('pages.cronJobs.emptyAdminDesc') : t('pages.cronJobs.emptyDesc')"
               :empty-action-text="canWrite ? t('pages.cronJobs.create') : undefined"
@@ -153,10 +148,10 @@
 <script setup lang="ts">
 import { errorMessage } from '@/utils/format'
 /**
- * 定时任务列表页（ui-cronjob-plan §7.2）。
+ * 定时任务列表页。
  * 调度/目标/状态快照/启用 Switch；立即执行触发后刷新；删除走 ConfirmAction。
  */
-import { computed, ref, watch } from 'vue'
+import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
@@ -173,37 +168,37 @@ import {
   TableRow
 } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { api } from '../services/api'
-import type { CronJobItem } from '../services/api'
-import { useProjectStore } from '../stores/project'
-import { useAuthStore } from '../stores/auth'
-import { useLoadState } from '../composables/useLoadState'
-import { usePagination } from '../composables/usePagination'
-import { cronStatusText, cronStatusVariant } from '@/lib/status'
-import { formatTime } from '../utils/format'
-import PageContainer from '../components/PageContainer.vue'
-import ProjectScope from '../components/ProjectScope.vue'
-import SbAsyncRegion from '../components/SbAsyncRegion.vue'
-import SbRefreshButton from '../components/SbRefreshButton.vue'
-import SbListCard from '../components/SbListCard.vue'
-import ConfirmAction from '../components/ConfirmAction.vue'
-import CronJobModal from '../components/modal/CronJobModal.vue'
-import CronJobRunsModal from '../components/modal/CronJobRunsModal.vue'
+import { api } from '@/services/api'
+import type { CronJobItem } from '@/services/api'
+import { useProjectStore } from '@/stores/project'
+import { useLoadState } from '@/composables/useLoadState'
+import { useCanWrite } from '@/composables/useCanWrite'
+import { useProjectReload } from '@/composables/useProjectReload'
+import { usePagination } from '@/composables/usePagination'
+import { cronStatusText, cronStatusVariant } from '@/utils/status'
+import { formatTime } from '@/utils/format'
+import PageContainer from '@/components/PageContainer.vue'
+import ProjectScope from '@/components/ProjectScope.vue'
+import SbAsyncRegion from '@/components/SbAsyncRegion.vue'
+import SbRefreshButton from '@/components/SbRefreshButton.vue'
+import SbListCard from '@/components/SbListCard.vue'
+import ConfirmAction from '@/components/ConfirmAction.vue'
+import CronJobModal from '@/components/modal/CronJobModal.vue'
+import CronJobRunsModal from '@/components/modal/CronJobRunsModal.vue'
 
 const projectStore = useProjectStore()
 const { t } = useI18n()
 const { projectId, isAdmin: isAdminProject } = storeToRefs(projectStore)
-const auth = useAuthStore()
-/** 写入口：系统项目与只读角色都隐藏（planv6.7 ui-simplify-ux-plan B11）。 */
-const canWrite = computed(() => !isAdminProject.value && auth.canWrite)
+const canWrite = useCanWrite()
 
 const records = ref<CronJobItem[]>([])
 const toggling = ref(new Set<string>())
 
 const { page, pageSize, total, pageCount, items: paged } = usePagination(records)
-const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
+const loadState = useLoadState({
   fallback: 'pages.cronJobs.loadFailed'
 })
+const { pending, run } = loadState
 
 /** 助手 id → 名称，仅用于列表展示；加载失败时回退显示 id，不影响主列表。 */
 const agentNames = ref(new Map<string, string>())
@@ -308,11 +303,7 @@ function openRuns(record: CronJobItem, opts?: { trigger?: boolean }) {
   runsOpen.value = true
 }
 
-void load()
-watch(projectId, () => {
-  page.value = 1
-  void load()
-})
+useProjectReload(projectId, load, { onSwitch: () => { page.value = 1 } })
 
 /** AgentManager 的「定时任务」菜单跳转而来：?agent=<id> 直接打开新建弹窗并预选该助手。 */
 const route = useRoute()

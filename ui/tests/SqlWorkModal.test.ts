@@ -2,7 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'vue-sonner'
 import { api, resetApiMocks } from '@/test/api-mock'
-import { clickText, readyDb, uiStubs } from '@/test/helpers'
+import { clickText, readyDb, uiStubs, realDialogStubs, inDialog, installJsdomPolyfills, mountDialog } from '@/test/helpers'
 import SqlWorkModal from '@/components/modal/SqlWorkModal.vue'
 
 vi.mock('@/services/api', async () => {
@@ -10,13 +10,18 @@ vi.mock('@/services/api', async () => {
   return { api: m.api }
 })
 
+/** 真实 ToggleGroup / ToggleGroupItem：断言的是 data-state 与模式切换后的真实参数区。 */
+const realToggle = { ...uiStubs, ...realDialogStubs, ToggleGroup: false, ToggleGroupItem: false }
+
+installJsdomPolyfills()
+
 describe('SqlWorkModal', () => {
   beforeEach(() => resetApiMocks())
 
   it('covers parsers, formatters, and all run modes', async () => {
-    const w = mount(SqlWorkModal, {
+    const w = await mountDialog(SqlWorkModal, {
       props: { open: true, projectId: 'p', database: readyDb },
-      global: { stubs: uiStubs }
+      global: { stubs: { ...uiStubs, ...realDialogStubs } }
     })
     const vm = w.vm as any
     expect(vm.formatCell(null)).toBe('NULL')
@@ -66,8 +71,8 @@ describe('SqlWorkModal', () => {
       error: { failedIndex: 0, code: 'e', message: 'bad' }
     })
     await vm.run()
-    expect(w.findAll('th').find((el) => el.text() === '错误详情')?.classes()).toContain('text-left')
-    expect(w.findAll('th').find((el) => el.text() === '#')?.classes()).not.toContain('text-left')
+    expect(inDialog().findAll('th').find((el) => el.text() === '错误详情')?.classes()).toContain('text-left')
+    expect(inDialog().findAll('th').find((el) => el.text() === '#')?.classes()).not.toContain('text-left')
     api.sql.batch.mockResolvedValueOnce({
       results: [{ errorCode: 'e' }, { rowsAffected: 1 }],
       durability: 'ok',
@@ -98,29 +103,29 @@ describe('SqlWorkModal', () => {
   })
 
   it('runs a SELECT from the footer button and shows query rows', async () => {
-    const w = mount(SqlWorkModal, {
+    const w = await mountDialog(SqlWorkModal, {
       props: { open: true, projectId: 'p', database: readyDb },
-      global: { stubs: uiStubs }
+      global: { stubs: { ...uiStubs, ...realDialogStubs } }
     })
-    await w.get('textarea').setValue('SELECT 1')
+    await inDialog().get('textarea').setValue('SELECT 1')
     await clickText(w, '执行查询')
     await flushPromises()
     expect(api.sql.query).toHaveBeenCalledWith('p', 'db-1', expect.objectContaining({ sql: 'SELECT 1' }))
-    expect(w.text()).toContain('1 行')
-    expect(w.text()).toContain('request_id: r1')
-    const resultTable = w.get('table')
+    expect(inDialog().text()).toContain('1 行')
+    expect(inDialog().text()).toContain('request_id: r1')
+    const resultTable = inDialog().get('table')
     expect(resultTable.classes()).toContain('[&_th]:text-left')
     expect(resultTable.classes()).toContain('[&_td]:text-left')
   })
 
   it('hides write modes in readonly and still allows query', async () => {
-    const w = mount(SqlWorkModal, {
+    const w = await mountDialog(SqlWorkModal, {
       props: { open: true, projectId: 'p', database: readyDb, readonly: true },
-      global: { stubs: uiStubs }
+      global: { stubs: { ...uiStubs, ...realDialogStubs } }
     })
-    expect(w.text()).toContain('系统库只读')
-    expect(w.text()).toContain('执行查询')
-    await w.get('textarea').setValue('SELECT id FROM users')
+    expect(inDialog().text()).toContain('系统库只读')
+    expect(inDialog().text()).toContain('执行查询')
+    await inDialog().get('textarea').setValue('SELECT id FROM users')
     await clickText(w, '执行查询')
     await flushPromises()
     expect(api.sql.query).toHaveBeenCalled()
@@ -134,40 +139,50 @@ describe('SqlWorkModal', () => {
       durationMs: 1,
       requestId: 'r'
     })
-    const w = mount(SqlWorkModal, {
+    const w = await mountDialog(SqlWorkModal, {
       props: { open: true, projectId: 'p', database: readyDb },
-      global: { stubs: uiStubs }
+      global: { stubs: realToggle }
     })
-    await w.get('.tg-execute').trigger('click')
-    await w.get('.tg-batch').trigger('click')
-    await w.get('.switch').trigger('click')
-    await w.get('.tg-query').trigger('click')
-    await w.get('textarea').setValue('SELECT 1')
-    await w.findAll('button').find((b) => b.text().includes('查询') || b.text() === '查询')?.trigger('click')
+    // 真实 ToggleGroup：按文本切模式，data-state 与参数区跟着变
+    const mode = (label: string) => inDialog().findAll('button').find((b) => b.text() === label)!
+    expect(mode('查询').attributes('data-state')).toBe('on')
+    await mode('执行').trigger('click')
+    expect(mode('执行').attributes('data-state')).toBe('on')
+    expect(mode('查询').attributes('data-state')).toBe('off')
+    expect(inDialog().findAll('input[type="number"]')).toHaveLength(0)
+    await mode('批量').trigger('click')
+    expect(inDialog().text()).toContain('事务')
+    await inDialog().get('[data-slot="switch"]').trigger('click')
+    expect(inDialog().text()).toContain('独立')
+    await mode('查询').trigger('click')
+    expect(inDialog().findAll('input[type="number"]')).toHaveLength(1)
+    await inDialog().get('textarea').setValue('SELECT 1')
+    await inDialog().findAll('button').find((b) => b.text().includes('查询') || inDialog().text() === '查询')?.trigger('click')
     await flushPromises()
-    if (w.find('.pager-next').exists()) await w.get('.pager-next').trigger('click')
-    await w.findAll('button').find((b) => b.text().includes('关闭'))?.trigger('click')
+    if (inDialog().find('.pager-next').exists()) await inDialog().get('.pager-next').trigger('click')
+    await inDialog().findAll('button').find((b) => b.text().includes('关闭'))?.trigger('click')
     w.unmount()
   })
 
   it('SqlWorkModal inputs, pager, and empty query result', async () => {
     api.sql.query.mockResolvedValue({ columns: [], rows: [], rowCount: 0, durationMs: 1, requestId: 'r' })
-    const w = mount(SqlWorkModal, {
+    const w = await mountDialog(SqlWorkModal, {
       props: { open: true, projectId: 'p', database: readyDb },
-      global: { stubs: uiStubs }
+      global: { stubs: realToggle }
     })
-    await w.get('.tg-execute').trigger('click')
-    for (const i of w.findAll('input')) {
+    const mode = (label: string) => inDialog().findAll('button').find((b) => b.text() === label)!
+    await mode('执行').trigger('click')
+    for (const i of inDialog().findAll('input')) {
       if (i.attributes('type') === 'number') await i.setValue('10')
       else await i.setValue('["1"]')
     }
-    await w.get('.tg-batch').trigger('click')
-    await w.get('.tg-query').trigger('click')
-    for (const i of w.findAll('input')) {
+    await mode('批量').trigger('click')
+    await mode('查询').trigger('click')
+    for (const i of inDialog().findAll('input')) {
       if (i.attributes('type') === 'number') await i.setValue('5')
       else await i.setValue('[]')
     }
-    await w.get('textarea').setValue('SELECT 1')
+    await inDialog().get('textarea').setValue('SELECT 1')
     api.sql.query.mockResolvedValueOnce({
       columns: ['id'],
       rows: [['1'], ['2']],
@@ -177,7 +192,7 @@ describe('SqlWorkModal', () => {
     })
     await (w.vm as Record<string, any>).run()
     await flushPromises()
-    if (w.find('.pager-next').exists()) await w.get('.pager-next').trigger('click')
+    if (inDialog().find('.pager-next').exists()) await inDialog().get('.pager-next').trigger('click')
     w.unmount()
   })
 

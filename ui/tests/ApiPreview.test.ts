@@ -3,14 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ApiPreview from '@/pages/ApiPreview.vue'
 import { useProjectStore } from '@/stores/project'
 import { api, resetApiMocks } from '@/test/api-mock'
-import { mountWithApp } from '@/test/helpers'
+import { alertDialogEl, clickAlertDialog, installJsdomPolyfills, mountWithApp, realAlertDialogStubs } from '@/test/helpers'
 
 vi.mock('@/services/api', async () => {
   const module = await import('@/test/api-mock')
   return { api: module.api }
 })
 
-const document = {
+const openapiDoc = {
   openapi: '3.0.3',
   paths: {
     '/health/live': {
@@ -44,7 +44,8 @@ const sourceDocument = {
   }
 }
 
-const stubs = { ConfirmAction: false }
+// 真实 ConfirmAction + AlertDialog：确认按钮是真实按钮，内容 teleport 到 body
+const stubs = { ...realAlertDialogStubs }
 // 不桩 Combobox：用真实组件，断言打在真实 DOM 上
 const realCombobox = {
   Combobox: false,
@@ -61,16 +62,18 @@ function db(id: string, name = id) {
   return { id, name, engine: 'duckdb', status: 'ready' }
 }
 
+installJsdomPolyfills()
+
 describe('ApiPreview', () => {
   beforeEach(() => {
     sessionStorage.clear()
     resetApiMocks()
-    api.preview.document.mockResolvedValue(document)
+    api.preview.document.mockResolvedValue(openapiDoc)
     api.preview.request.mockResolvedValue({ status: 200, body: '{"ok":true}' })
   })
 
   it('loads routes, validates parameters and runs GET without confirmation', async () => {
-    const { wrapper } = await mountWithApp(ApiPreview, { stubs })
+    const { wrapper } = await mountWithApp(ApiPreview, { stubs, attachTo: document.body })
     await flushPromises()
     expect(wrapper.text()).toContain('/health/live')
     expect(wrapper.text()).toContain('$SIMPLEBASE_TOKEN')
@@ -84,9 +87,8 @@ describe('ApiPreview', () => {
     await wrapper.get('textarea').setValue('{"name":"Ada"}')
     await run.trigger('click')
     expect(api.preview.request).not.toHaveBeenCalled()
-    expect(wrapper.text()).toContain('确认执行写请求')
-    await wrapper.get('.ad-ok').trigger('click')
-    await flushPromises()
+    expect(alertDialogEl()!.textContent).toContain('确认执行写请求')
+    await clickAlertDialog('确定')
     expect(api.preview.request).toHaveBeenCalledWith('POST', '/v1/projects/p1/documents', { name: 'Ada' })
 
     const get = wrapper.findAll('button').find((button) => button.text().includes('GET'))!
@@ -102,11 +104,11 @@ describe('ApiPreview', () => {
     const { wrapper: failed } = await mountWithApp(ApiPreview)
     await flushPromises()
     expect(failed.text()).toContain('offline')
-    api.preview.document.mockResolvedValue(document)
+    api.preview.document.mockResolvedValue(openapiDoc)
     await failed.findAll('button').find((button) => button.text() === '重试')!.trigger('click')
     await flushPromises()
 
-    const { wrapper } = await mountWithApp(ApiPreview, { stubs })
+    const { wrapper } = await mountWithApp(ApiPreview, { stubs, attachTo: document.body })
     await flushPromises()
     await wrapper.findAll('button').find((button) => button.text().includes('POST'))!.trigger('click')
     await wrapper.get('input[placeholder="搜索端点"]').setValue('documents')
@@ -118,8 +120,8 @@ describe('ApiPreview', () => {
     await wrapper.get('textarea').setValue('{}')
     api.preview.request.mockRejectedValueOnce(new Error('denied'))
     await wrapper.findAll('button').find((button) => button.text() === '发送请求')!.trigger('click')
-    await wrapper.get('.ad-ok').trigger('click')
     await flushPromises()
+    await clickAlertDialog('确定')
     expect(wrapper.text()).toContain('denied')
   })
 
@@ -147,7 +149,7 @@ describe('ApiPreview', () => {
     }
 
     it('projectID 默认为当前项目', async () => {
-      const { wrapper } = await mountWithApp(ApiPreview, { stubs: { ...stubs, ...realCombobox }, projectId: 'prj-cur' })
+      const { wrapper } = await mountWithApp(ApiPreview, { attachTo: document.body, stubs: { ...stubs, ...realCombobox }, projectId: 'prj-cur' })
       await flushPromises()
       expect(input(wrapper, 'projectID').element.value).toBe('prj-cur')
     })
@@ -155,7 +157,7 @@ describe('ApiPreview', () => {
     it('只有一个库时 databaseID 自动填入，并拉取 collection 选项', async () => {
       api.databases.list.mockResolvedValue([db('db1')])
       api.db.collections.mockResolvedValue(['users', 'orders'])
-      const { wrapper } = await mountWithApp(ApiPreview, { stubs: { ...stubs, ...realCombobox } })
+      const { wrapper } = await mountWithApp(ApiPreview, { attachTo: document.body, stubs: { ...stubs, ...realCombobox } })
       await flushPromises()
       expect(input(wrapper, 'databaseID').element.value).toBe('db1')
       expect(api.db.collections).toHaveBeenCalledWith('testprj1', 'db1')
@@ -164,7 +166,7 @@ describe('ApiPreview', () => {
 
     it('有两个库时不自动填入，依赖参数为空时 collection 禁用并提示', async () => {
       api.databases.list.mockResolvedValue([db('db1'), db('db2')])
-      const { wrapper } = await mountWithApp(ApiPreview, { stubs: { ...stubs, ...realCombobox } })
+      const { wrapper } = await mountWithApp(ApiPreview, { attachTo: document.body, stubs: { ...stubs, ...realCombobox } })
       await flushPromises()
       expect(input(wrapper, 'databaseID').element.value).toBe('')
       expect(input(wrapper, 'collection').element.disabled).toBe(true)
@@ -175,7 +177,7 @@ describe('ApiPreview', () => {
     it('换库后 collection 被清空并按新库重新拉取', async () => {
       api.databases.list.mockResolvedValue([db('db1'), db('db2')])
       api.db.collections.mockImplementation(async (_p: string, d: string) => (d === 'db1' ? ['a'] : ['b']))
-      const { wrapper } = await mountWithApp(ApiPreview, { stubs: { ...stubs, ...realCombobox } })
+      const { wrapper } = await mountWithApp(ApiPreview, { attachTo: document.body, stubs: { ...stubs, ...realCombobox } })
       await flushPromises()
       const vm = wrapper.vm as unknown as { onParamCommit: (n: string, v: string) => void }
       vm.onParamCommit('databaseID', 'db1')
@@ -192,7 +194,7 @@ describe('ApiPreview', () => {
     it('数据源失败时退化为自由输入并提示，不弹 toast', async () => {
       api.databases.list.mockRejectedValue(new Error('boom'))
       const { toast } = await import('vue-sonner')
-      const { wrapper } = await mountWithApp(ApiPreview, { stubs: { ...stubs, ...realCombobox } })
+      const { wrapper } = await mountWithApp(ApiPreview, { attachTo: document.body, stubs: { ...stubs, ...realCombobox } })
       await flushPromises()
       expect(wrapper.text()).toContain('候选项加载失败，可直接输入')
       expect(input(wrapper, 'databaseID').element.disabled).toBe(false)
@@ -203,7 +205,7 @@ describe('ApiPreview', () => {
 
     it('手动输入任意值能正常发出请求', async () => {
       api.databases.list.mockResolvedValue([db('db1'), db('db2')])
-      const { wrapper } = await mountWithApp(ApiPreview, { stubs: { ...stubs, ...realCombobox } })
+      const { wrapper } = await mountWithApp(ApiPreview, { attachTo: document.body, stubs: { ...stubs, ...realCombobox } })
       await flushPromises()
       await input(wrapper, 'databaseID').setValue('ghost')
       const vm = wrapper.vm as unknown as { onParamCommit: (n: string, v: string) => void }
@@ -221,7 +223,7 @@ describe('ApiPreview', () => {
 
     it('切换项目后重新注入默认值', async () => {
       api.databases.list.mockResolvedValue([db('db1')])
-      const { wrapper } = await mountWithApp(ApiPreview, { stubs: { ...stubs, ...realCombobox }, projectId: 'prj-a' })
+      const { wrapper } = await mountWithApp(ApiPreview, { attachTo: document.body, stubs: { ...stubs, ...realCombobox }, projectId: 'prj-a' })
       await flushPromises()
       expect(input(wrapper, 'projectID').element.value).toBe('prj-a')
       useProjectStore().setProject('prj-b', 'B')
@@ -245,7 +247,7 @@ describe('ApiPreview', () => {
           }
         }
       })
-      const { wrapper } = await mountWithApp(ApiPreview, { stubs: { ...stubs, ...realCombobox } })
+      const { wrapper } = await mountWithApp(ApiPreview, { attachTo: document.body, stubs: { ...stubs, ...realCombobox } })
       await flushPromises()
       const vm = wrapper.vm as unknown as { onParamCommit: (n: string, v: string) => void }
       vm.onParamCommit('databaseID', 'db2')

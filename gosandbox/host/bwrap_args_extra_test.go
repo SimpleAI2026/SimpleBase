@@ -1,3 +1,27 @@
+// 文件说明：bwrap_args_extra_test.go — gosandbox/host 的单元测试（TestBwrapArgsShmSize、TestBwrapArgsMaskedPaths 等）
+//
+// 用法
+//
+//	go test ./gosandbox/host -run 'TestBwrapArgsShmSize|TestBwrapArgsMaskedPaths|TestBwrapArgsMaskedOrder|TestFilterForSelection'
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/tools, gosandbox/box, gosandbox/vm/box 等 5 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/host/bwrap_args_extra_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] bwrap_args.go, cgroup.go, cgroup_linux.go, cgroup_linux_test.go, glob.go 等 36 个
+//
+// 主要符号
+//
+//	TestBwrapArgsShmSize(t *testing.T)
+//	TestBwrapArgsMaskedPaths(t *testing.T)
+//	TestBwrapArgsMaskedOrder(t *testing.T)
+//	TestFilterForSelection(t *testing.T)
+
 package host
 
 import (

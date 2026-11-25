@@ -1,3 +1,28 @@
+// 文件说明：adapter.go — gocloudagent/mcp 的内部实现（toToolInfo、marshalSchema 等）
+//
+// 用法
+//
+//	同包调用：toToolInfo() → adapter_test.go, client.go；marshalSchema() → adapter_test.go；sanitizeDescription() → adapter_test.go
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/cloudagent, gocloudagent/tools, internal/agentbridge 等 5 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/mcp/adapter.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter_test.go, client.go, http_transport.go, http_transport_test.go, limits.go 等 10 个
+//	[关键引用] toToolInfo ← adapter_test.go, client.go；marshalSchema ← adapter_test.go；sanitizeDescription ← adapter_test.go
+//
+// 主要符号
+//
+//	toToolInfo(t *sdkmcp.Tool) (ToolInfo, bool)
+//	marshalSchema(v any) ([]byte, bool)
+//	sanitizeDescription(v string) string
+//	toCallResult(res *sdkmcp.CallToolResult) CallResult
+
 package mcp
 
 import (
@@ -8,9 +33,6 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
-
-// jsonRaw 把原始 JSON 包成 json.RawMessage，让 SDK 原样透传。
-func jsonRaw(b []byte) json.RawMessage { return json.RawMessage(b) }
 
 // toToolInfo 把 SDK 的 Tool 转成自有 ToolInfo。
 // 返回 false 表示该工具应被跳过（schema 不可用或超限）。

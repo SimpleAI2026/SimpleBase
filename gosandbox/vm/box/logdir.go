@@ -1,5 +1,28 @@
 //go:build linux
 
+// 文件说明：logdir.go — gosandbox/vm/box 的内部实现（logDir、logNamesIn 等）
+//
+// 用法
+//
+//	同包调用：logNamesIn() → capabilities.go, contracts_linux_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/vm/box/logdir.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] capabilities.go, contracts_linux_test.go, diskuse_linux.go, driver_linux.go, driver_other.go 等 15 个
+//	[关键引用] logNamesIn ← capabilities.go, contracts_linux_test.go
+//
+// 主要符号
+//
+//	(d *Driver) logDir(name string) string
+//	logNamesIn(dir string) ([]string, error)
+
 package box
 
 import (
@@ -9,9 +32,6 @@ import (
 	"sort"
 	"strings"
 )
-
-// errNotExist 是 os.ErrNotExist 的别名，便于在本包里统一判断。
-var errNotExist = os.ErrNotExist
 
 // logDir 返回一个沙盒的日志目录。
 //
@@ -29,7 +49,7 @@ func logNamesIn(dir string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, errNotExist
+			return nil, os.ErrNotExist
 		}
 		return nil, err
 	}

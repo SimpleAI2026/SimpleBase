@@ -61,12 +61,7 @@
           <SbAsyncRegion
             as="tbody"
             :columns="6"
-            :pending="pending"
-            :show-skeleton="showSkeleton"
-            :show-empty="showEmpty"
-            :show-error="showError"
-            :refreshing="refreshing"
-            :error="error"
+            :state="loadState"
             :empty-description="t('pages.users.emptyDesc')"
             :empty-action-text="auth.canManageUsers ? t('pages.users.create') : undefined"
             @retry="load"
@@ -92,10 +87,10 @@
                 </Badge>
               </TableCell>
               <TableCell>{{ u.projectCount }}</TableCell>
-              <TableCell class="text-xs text-muted-foreground">{{ fmtTime(u.lastLoginAt) }}</TableCell>
+              <TableCell class="text-xs text-muted-foreground">{{ formatTime(u.lastLoginAt, '—') }}</TableCell>
               <TableCell>
                 <div class="flex flex-wrap items-center justify-center gap-1">
-                  <!-- 「查看」与「编辑」打开同一个弹窗：可管理时只给「编辑」（planv6.7 ui-simplify-ux-plan R1） -->
+                  <!-- 「查看」与「编辑」打开同一个弹窗：可管理时只给「编辑」 -->
                   <Button size="sm" variant="ghost" @click="openEdit(u)">
                     {{ canManage(u) ? t('pages.users.edit') : t('pages.users.view') }}
                   </Button>
@@ -142,17 +137,17 @@ import {
   TableHeader,
   TableRow
 } from '@/components/ui/table'
-import PageContainer from '../components/PageContainer.vue'
-import SbAsyncRegion from '../components/SbAsyncRegion.vue'
-import SbRefreshButton from '../components/SbRefreshButton.vue'
-import SbListCard from '../components/SbListCard.vue'
-import SbEmptyState from '../components/SbEmptyState.vue'
-import UserFormModal from '../components/modal/UserFormModal.vue'
-import { api } from '../services/api'
-import type { UserItem, UserRole } from '../services/types'
-import { BOOTSTRAP_USERNAME, useAuthStore } from '../stores/auth'
-import { useLoadState } from '../composables/useLoadState'
-import { formatTime } from '../utils/format'
+import PageContainer from '@/components/PageContainer.vue'
+import SbAsyncRegion from '@/components/SbAsyncRegion.vue'
+import SbRefreshButton from '@/components/SbRefreshButton.vue'
+import SbListCard from '@/components/SbListCard.vue'
+import SbEmptyState from '@/components/SbEmptyState.vue'
+import UserFormModal from '@/components/modal/UserFormModal.vue'
+import { api } from '@/services/api'
+import type { UserItem, UserRole } from '@/services/types'
+import { BOOTSTRAP_USERNAME, useAuthStore } from '@/stores/auth'
+import { useLoadState } from '@/composables/useLoadState'
+import { formatTime } from '@/utils/format'
 
 const auth = useAuthStore()
 const { t } = useI18n()
@@ -206,13 +201,10 @@ function goToPage(value: number) {
   void load()
 }
 
-function fmtTime(s?: string) {
-  return formatTime(s, '—')
-}
-
-const { pending, hasData, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
+const loadState = useLoadState({
   fallback: 'pages.users.loadFailed'
 })
+const { pending, hasData, run } = loadState
 
 function load() {
   return run(async () => {

@@ -506,7 +506,7 @@ func (s *Service) BeginDeleteDatabase(ctx context.Context, principal auth.Princi
 		ID:          uuid.NewString(),
 		DatabaseID:  db.ID,
 		ProjectID:   projectID,
-		PrincipalID: principal.APIKeyID,
+		PrincipalID: principal.Actor(),
 		Kind:        "delete",
 		Status:      "ok",
 		CreatedAt:   s.now(),

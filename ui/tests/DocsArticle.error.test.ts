@@ -6,7 +6,6 @@ import { uiStubs } from '@/test/helpers'
 const loadMarkdown = vi.hoisted(() => vi.fn())
 vi.mock('@/docs/catalog', () => ({
   githubBlobUrl: (p: string) => `https://github.com/x/blob/${p}`,
-  isLargeDoc: () => false,
   loadMarkdown
 }))
 

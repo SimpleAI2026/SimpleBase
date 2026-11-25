@@ -122,12 +122,16 @@ describe('Dashboard (监控大盘)', () => {
   })
 
   it('switches between bar and line chart modes', async () => {
-    const { wrapper } = await mountWithApp(Dashboard)
+    const { wrapper } = await mountWithApp(Dashboard, { stubs: { ToggleGroup: false, ToggleGroupItem: false } })
     await flushPromises()
     expect(wrapper.find('.trend-chart').exists()).toBe(true)
-    // uiStubs 的 ToggleGroup 在点击时 emit update:modelValue → line
-    await wrapper.get('.tg-line').trigger('click')
+    // 真实 ToggleGroup：默认「折线」为选中，点「柱状图」后 data-state 互换
+    const item = (label: string) => wrapper.get('.trend-mode-switch').findAll('button').find((b) => b.text() === label)!
+    expect(item('折线图').attributes('data-state')).toBe('on')
+    await item('柱状图').trigger('click')
     await flushPromises()
+    expect(item('柱状图').attributes('data-state')).toBe('on')
+    expect(item('折线图').attributes('data-state')).toBe('off')
     expect(wrapper.find('.trend-chart').exists()).toBe(true)
   })
 

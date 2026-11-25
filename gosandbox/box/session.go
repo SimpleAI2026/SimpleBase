@@ -1,3 +1,37 @@
+// 文件说明：session.go — gosandbox/box 中 Config、Policy 等符号的实现
+//
+// 用法
+//
+//	type Config struct{…}  // Config 是拉起一个沙盒所需的一切
+//	type Policy struct{…}  // Policy 是沙盒内 Landlock 的规则来源
+//	type Session struct{…}  // Session 是一个运行中的沙盒：一条到 agent 的控制连接
+//	Start(ctx context.Context, cfg Config) (*Session, error)  // Start 拉起 bwrap + agent 并等 Hello
+//	同包调用：newObjectID() → handle.go, watch.go；newSessionOn() → session_proto_test.go, supervise_test.go；outFrame → backpressure_test.go, files.go
+//
+// 调用架构
+//
+//	[上游] gosandbox/cmd, gosandbox/vm/box
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/box/session.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] backpressure_test.go, copytree.go, deadline.go, egress_e2e_test.go, files.go 等 26 个
+//	[关键引用] Config ← egress_e2e_test.go, launch_args_test.go；Policy ← egress_e2e_test.go, launch_linux.go；Session ← egress_e2e_test.go, files.go
+//
+// 主要符号
+//
+//	var ErrUnavailable
+//	type Config struct{…}
+//	type Policy struct{…}
+//	type Session struct{…}
+//	Start(ctx context.Context, cfg Config) (*Session, error)
+//	(s *Session) startEgress(ctx context.Context) *netx.Runner
+//	(s *Session) closeDone()
+//	(s *Session) queueCleanup(m *proto.Msg)
+//	... 另有 17 个顶层符号
+
 // Package box 是沙盒的宿主侧：拉起一个常驻 agent、持有控制连接、按请求
 // 把帧发给它，并把 agent 的异步事件（输出、退出）转给调用方。
 //
@@ -100,7 +134,9 @@ type Session struct {
 	// sinks 是进程输出的落盘池；nil 表示不落盘。（不叫 logs：与 Logs() 方法重名）
 	sinks *logSink
 	// watches 是进行中的目录监听，按监听 id 索引。
-	watches map[string]*Watch
+	watches      map[string]*Watch
+	cleanup      []*proto.Msg
+	cleanupReady chan struct{}
 	// egress 是 pasta 进程；nil 表示没有出网（none 档或没接上）。
 	egress *netx.Runner
 
@@ -176,7 +212,50 @@ func (s *Session) startEgress(ctx context.Context) *netx.Runner {
 
 // closeDone 只关闭一次 done。
 func (s *Session) closeDone() {
-	s.doneOnce.Do(func() { close(s.done) })
+	s.doneOnce.Do(func() {
+		close(s.done)
+		if s.conn != nil {
+			_ = s.conn.Close()
+		}
+	})
+}
+
+func (s *Session) queueCleanup(m *proto.Msg) {
+	if s.closed.Load() {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	select {
+	case <-s.done:
+		return
+	default:
+	}
+	if s.cleanupReady == nil {
+		s.cleanupReady = make(chan struct{}, 1)
+	}
+	s.cleanup = append(s.cleanup, m)
+	select {
+	case s.cleanupReady <- struct{}{}:
+	default:
+	}
+}
+
+func (s *Session) cleanupSignal() <-chan struct{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.cleanupReady == nil {
+		s.cleanupReady = make(chan struct{}, 1)
+	}
+	return s.cleanupReady
+}
+
+func (s *Session) takeCleanup() []*proto.Msg {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	pending := s.cleanup
+	s.cleanup = nil
+	return pending
 }
 
 // newObjectID 生成宿主侧唯一的对象 id。
@@ -249,17 +328,39 @@ type outFrame struct {
 // writer 是唯一的写入者。帧与它的裸字节之间不能插别的东西，
 // 所以两者在同一次循环里写出。
 func (s *Session) writer(w io.Writer) {
-	for f := range s.out {
-		if err := proto.Send(w, f.msg); err != nil {
+	cleanup := s.cleanupSignal()
+	write := func(f outFrame) bool {
+		err := proto.Send(w, f.msg)
+		if err == nil && len(f.raw) > 0 {
+			_, err = w.Write(f.raw)
+		}
+		if err != nil {
 			s.writeErr.Store(err)
 			s.closeDone()
-			return
+			return false
 		}
-		if len(f.raw) > 0 {
-			if _, err := w.Write(f.raw); err != nil {
-				s.writeErr.Store(err)
-				s.closeDone()
+		return true
+	}
+	for {
+		select {
+		case <-s.done:
+			return
+		case f := <-s.out:
+			if !write(f) {
 				return
+			}
+		case <-cleanup:
+			pending := s.takeCleanup()
+			// 创建与已排队数据必须先于其关闭帧；只排空当前队列快照。
+			for n := len(s.out); n > 0; n-- {
+				if !write(<-s.out) {
+					return
+				}
+			}
+			for _, m := range pending {
+				if !write(outFrame{msg: m}) {
+					return
+				}
 			}
 		}
 	}
@@ -330,7 +431,7 @@ func (s *Session) dispatch(m proto.Msg) {
 				// 沙盒内没人 listen：让 DialPort 报错，而不是返回一条「立刻 EOF」的连接。
 				rc.abort(fmt.Errorf("box: nothing is listening on 127.0.0.1:%d in the sandbox", rc.port))
 			} else {
-				rc.deliverEOF()
+				rc.finish(nil, false)
 			}
 		}
 	case proto.KindWatchEvent:
@@ -427,12 +528,13 @@ func (s *Session) Close() error {
 	case s.out <- outFrame{msg: &proto.Msg{Kind: proto.KindShutdown}}:
 	default:
 	}
-	close(s.out)
 	select {
 	case <-s.done:
 	case <-time.After(5 * time.Second):
 	}
-	// 先关监听：它们的 Close 会给 agent 发 Unwatch，必须在 out 关闭之前。
+	s.closeDone()
+	// out 有多个发送者，不关闭它；writer 由 done 退出。
+	// 关闭监听后，所有适配层转发者都能观察到终止。
 	s.mu.Lock()
 	watches := s.watches
 	s.watches = map[string]*Watch{}

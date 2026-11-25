@@ -1,3 +1,32 @@
+// 文件说明：system_handlers_test.go — internal/api 的单元测试（TestSystemHandlers_MissingProject、TestMetricsAndLogsHandlers 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestSystemHandlers_MissingProject|TestMetricsAndLogsHandlers|TestSettingsHandlers|TestLLMSettingsHandlers'
+//	同包调用：openSystemAPI() → llm_traces_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/system_handlers_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] openSystemAPI ← llm_traces_test.go
+//
+// 主要符号
+//
+//	openSystemAPI(t *testing.T) *systemdb.Store
+//	setupSystemRouter(t *testing.T, store *systemdb.Store, withProject, withPrincipal bool) *echo.Echo
+//	TestSystemHandlers_MissingProject(t *testing.T)
+//	TestMetricsAndLogsHandlers(t *testing.T)
+//	TestSettingsHandlers(t *testing.T)
+//	TestLLMSettingsHandlers(t *testing.T)
+//	TestSystemHandlers_StoreErrors(t *testing.T)
+
 package api
 
 import (

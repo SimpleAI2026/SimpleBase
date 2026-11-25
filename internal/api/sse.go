@@ -1,8 +1,10 @@
-// 文件说明：sse.go — internal/api 的内部实现（beginSSE 等）
+// 文件说明：sse.go — SSE 连接的公共部分：解除写 deadline、统一帧格式、带自增 id 的写入器
 //
 // 用法
 //
-//	同包调用：beginSSE() → agent_handler.go, e2b_process_handler.go 等
+//	beginSSE() → e2b_process_handler.go, e2b_terminal.go 等自己写帧的调用方
+//	newSSEWriter() → agent_run_handler.go（run 流）、collab_group_stream.go（轮次流）
+//	writeSSEFrame() → run_events.go, collab_query_handler.go（续传 / 回放）
 //
 // 调用架构
 //
@@ -12,21 +14,30 @@
 //	[本文件] internal/api/sse.go
 //	         │
 //	         ▼
-//	[下游] 仅标准库 / 第三方
-//	[同包] adapter.go, agent_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[下游] 仅标准库 / 第三方（gocloudagent/cloudagent 的事件类型）
+//	[同包] agent_run_handler.go, collab_group_stream.go, run_events.go, collab_query_handler.go 等
 //	[关键引用] beginSSE() ← agent_handler.go, e2b_process_handler.go, e2b_terminal.go
 //
 // 主要符号
 //
 //	beginSSE(c echo.Context)
+//	writeSSEFrame(dst io.Writer, flusher http.Flusher, id int64, payload any)
+//	type sseWriter struct {…}
+//	newSSEWriter(c echo.Context, idHeader, idValue string) *sseWriter
+//	(*sseWriter).write(ev cloudagent.Event)
 
 package api
 
 import (
+	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 )
 
 // beginSSE 为长连接响应解除 http.Server.WriteTimeout 的写 deadline。
@@ -44,4 +55,41 @@ import (
 func beginSSE(c echo.Context) {
 	rc := http.NewResponseController(c.Response())
 	_ = rc.SetWriteDeadline(time.Time{})
+}
+
+// writeSSEFrame 写出一帧 `id: N\ndata: <json>\n\n` 并立刻 flush；flusher 为 nil 时只写不刷。
+func writeSSEFrame(dst io.Writer, flusher http.Flusher, id int64, payload any) {
+	data, _ := json.Marshal(payload)
+	_, _ = fmt.Fprintf(dst, "id: %d\ndata: %s\n\n", id, data)
+	if flusher != nil {
+		flusher.Flush()
+	}
+}
+
+// sseWriter 是带自增帧 id 的 SSE 写入器：一条连接上的所有帧串行写出（mu），
+// run 流与轮次流共用，保证响应头与帧格式只有这一份实现。
+type sseWriter struct {
+	c       echo.Context
+	flusher http.Flusher
+	mu      sync.Mutex
+	seq     int64
+}
+
+// newSSEWriter 解除写 deadline、写出 SSE 响应头（附带一个标识头，如 X-Run-Id / X-Turn-Id，
+// 让连接在首帧之前断开时客户端也能拿到 id 做续传），并返回写入器。
+func newSSEWriter(c echo.Context, idHeader, idValue string) *sseWriter {
+	beginSSE(c)
+	c.Response().Header().Set(echo.HeaderContentType, "text/event-stream")
+	c.Response().Header().Set(echo.HeaderCacheControl, "no-cache")
+	c.Response().Header().Set(idHeader, idValue)
+	c.Response().WriteHeader(http.StatusOK)
+	flusher, _ := c.Response().Writer.(http.Flusher)
+	return &sseWriter{c: c, flusher: flusher}
+}
+
+func (w *sseWriter) write(ev cloudagent.Event) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.seq++
+	writeSSEFrame(w.c.Response().Writer, w.flusher, w.seq, ev)
 }

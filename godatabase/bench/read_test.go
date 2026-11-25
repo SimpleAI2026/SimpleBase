@@ -1,3 +1,30 @@
+// 文件说明：read_test.go — godatabase/bench 的单元测试（BenchmarkLogsQueryDense、BenchmarkLogsQueryInlined 等）
+//
+// 用法
+//
+//	go test ./godatabase/bench -run 'BenchmarkLogsQueryDense|BenchmarkLogsQueryInlined|BenchmarkMetricsSummaryDense|BenchmarkMetricsSummaryInlined'
+//
+// 调用架构
+//
+//	[上游] 无（仅包内调用）
+//	[本文件] godatabase/bench/read_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] harness_test.go
+//
+// 主要符号
+//
+//	BenchmarkLogsQueryDense(b *testing.B)
+//	BenchmarkLogsQueryInlined(b *testing.B)
+//	BenchmarkMetricsSummaryDense(b *testing.B)
+//	BenchmarkMetricsSummaryInlined(b *testing.B)
+//	BenchmarkUserPointLookupDense(b *testing.B)
+//	BenchmarkSingleWriteCost(b *testing.B)
+//	TestReadAmplificationReport(t *testing.T)
+//	TestReadLatencyPhases(t *testing.T)
+//	... 另有 2 个顶层符号
+
 // read_test.go 复现并量化「系统库读路径慢」的核心机制：读放大。
 //
 // 每个 Benchmark 都成对出现：Dense（inlining=0，每次写入一个小文件，最坏情况）

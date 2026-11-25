@@ -1,3 +1,25 @@
+// 文件说明：data_model_test.go — internal/catalog 的单元测试（TestNormalizeDataModel、TestIsSQLDataModel 等）
+//
+// 用法
+//
+//	go test ./internal/catalog -run 'TestNormalizeDataModel|TestIsSQLDataModel'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app 等 10 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/catalog/data_model_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] always_open_test.go, cache.go, cache_test.go, create_invalidate_test.go, data_model.go 等 20 个
+//
+// 主要符号
+//
+//	TestNormalizeDataModel(t *testing.T)
+//	TestIsSQLDataModel(t *testing.T)
+
 package catalog
 
 import "testing"

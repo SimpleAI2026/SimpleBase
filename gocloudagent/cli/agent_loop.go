@@ -284,9 +284,11 @@ func (r *SessionRunner) consumeEvents(ctx context.Context, iter *adk.AsyncIterat
 						break
 					}
 					toolCalls++
-					calls = append(calls, EntryToolCa{ID: tc.ID, Name: tc.Function.Name, Arguments: tc.Function.Arguments})
+					// 落盘与对外事件只用脱敏后的参数；工具本身仍按模型给出的原始参数执行。
+					args := r.redact(tc.Function.Arguments)
+					calls = append(calls, EntryToolCa{ID: tc.ID, Name: tc.Function.Name, Arguments: args})
 					if emit != nil {
-						emit(CLIEvent{Type: "tool_call", CallID: tc.ID, Name: tc.Function.Name, Arguments: tc.Function.Arguments})
+						emit(CLIEvent{Type: "tool_call", CallID: tc.ID, Name: tc.Function.Name, Arguments: args})
 					}
 				}
 				if runErr != nil { // 重复超限，退出工具轮
@@ -346,6 +348,9 @@ func finishCLIRun(out cliRunOutcome) (RunResult, error) {
 }
 
 // historyMessages 把会话历史投影成 eino 消息（含最近的压缩摘要）。
+//
+// 每条消息经 entryToSchema 还原：assistant 的 tool_calls 必须一并带上，
+// 否则其后的 tool 结果在原生协议下是孤儿结果。
 func (r *SessionRunner) historyMessages() []*schema.Message {
 	msgs := r.Session.Messages()
 	out := make([]*schema.Message, 0, len(msgs)+2)
@@ -353,19 +358,12 @@ func (r *SessionRunner) historyMessages() []*schema.Message {
 		out = append(out, agentcore.SystemSchemaMessage("[compacted]\n"+compaction.Summary))
 	}
 	for _, m := range msgs {
-		switch m.Role {
-		case "assistant":
-			out = append(out, agentcore.AssistantSchemaMessage(m.Content))
-		case "tool":
-			out = append(out, agentcore.ToolResultSchemaMessage(m.Name, m.ToolCallID, m.Content))
-		default:
-			out = append(out, agentcore.UserSchemaMessage(m.Content))
-		}
+		out = append(out, entryToSchema(m))
 	}
 	return out
 }
 
-// warn 是降级路径的日志出口；未注入 Warn 时退化为写 stderr。
+// warn 是降级路径的日志出口；未注入 Warn 时 no-op（不写 stderr，避免打扰终端输出）。
 func (r *SessionRunner) warn(msg string, fields ...zap.Field) {
 	if r != nil && r.Warn != nil {
 		r.Warn(msg, fields...)
@@ -391,8 +389,8 @@ func resultIsError(content string) bool {
 const defaultInstruction = `You are a local coding assistant running on the user's machine.
 
 Guidelines:
-- Inspect before you change: prefer read_file, glob and grep to understand the code.
-- Use shell for build, test and git inspection; avoid destructive commands.
+- Inspect before you change: prefer read, glob and grep to understand the code.
+- Use bash for build, test and git inspection; avoid destructive commands.
 - Keep answers short and concrete. Cite file:line when you reference code.
 - Never print secrets, tokens or credentials, even if you find them.
 - If a tool returns an error envelope, read the code field and adapt instead of repeating the same call.`

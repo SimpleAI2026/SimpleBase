@@ -7,14 +7,9 @@
     @update:open="emit('update:open', $event)"
   >
     <SbAsyncRegion
+      :state="loadState"
       class="flex max-h-[420px] min-w-0 max-w-full flex-col gap-2 overflow-y-auto"
       block="lines"
-      :pending="pending"
-      :show-skeleton="showSkeleton"
-      :show-empty="showEmpty"
-      :show-error="showError"
-      :refreshing="refreshing"
-      :error="error"
       @retry="load"
     >
       <template #empty>
@@ -79,9 +74,10 @@ const { t } = useI18n()
 const projectStore = useProjectStore()
 const versions = ref<GoFuncVersionSummary[]>([])
 const activating = ref(false)
-const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
+const loadState = useLoadState({
   fallback: 'components.goFuncVersions.loadFailed'
 })
+const { run } = loadState
 
 function load() {
   const record = props.record

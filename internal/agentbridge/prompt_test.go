@@ -1,3 +1,27 @@
+// 文件说明：prompt_test.go — internal/agentbridge 的单元测试（TestAssembleInstructionOrderAndRedact、TestKnownModuleAndTools 等）
+//
+// 用法
+//
+//	go test ./internal/agentbridge -run 'TestAssembleInstructionOrderAndRedact|TestKnownModuleAndTools|TestExtractToolCall|TestPromptRedactAndTruncate'
+//
+// 调用架构
+//
+//	[上游] internal/agentrun, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/agentbridge/prompt_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] access_db.go, access_llm.go, access_object.go, access_test.go, bridge_test.go 等 33 个
+//
+// 主要符号
+//
+//	TestAssembleInstructionOrderAndRedact(t *testing.T)
+//	TestKnownModuleAndTools(t *testing.T)
+//	TestExtractToolCall(t *testing.T)
+//	TestPromptRedactAndTruncate(t *testing.T)
+
 package agentbridge
 
 import (

@@ -4,7 +4,7 @@
 //
 //	(h *S3Handler) ListObjects(c echo.Context) error  // ListObjects 列出当前项目下的对象
 //	(h *S3Handler) UploadObject(c echo.Context) error  // UploadObject 上传一个文件
-//	同包调用：joinKey() → gocloudagent_access.go, s3_content_handler.go；ListObjects() → gocloudagent_access.go, router.go；S3Handler → router.go, s3_content_handler.go
+//	同包调用：joinKey() → s3_content_handler.go；ListObjects() → router.go；S3Handler → router.go, s3_content_handler.go
 //
 // 调用架构
 //
@@ -16,7 +16,7 @@
 //	         ▼
 //	[下游] godatabase, internal/objectstore, internal/systemdb
 //	[同包] adapter.go, agent_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
-//	[关键引用] joinKey() ← gocloudagent_access.go, s3_content_handler.go
+//	[关键引用] joinKey() ← s3_content_handler.go
 //
 // 主要符号
 //
@@ -41,14 +41,20 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
 
+// objectEventPublisher 是文件写路径发布对象事件的端口（发布语言 objectstore.ObjectEvent）；
+// 由 deps.TriggerEvents 注入，nil 表示不发布。订阅方在 app 装配时登记。
+type objectEventPublisher interface {
+	PublishObject(event objectstore.ObjectEvent)
+}
+
 // S3Handler 依赖 objectstore.FileStore，可选系统库对象索引。
 type S3Handler struct {
 	store       objectstore.FileStore
 	index       *systemdb.Store
-	writable    *bool
+	writable    bool
 	tokenSecret string
 	allowedMIME []string
-	events      objectEventPublisher
+	events      objectEventPublisher // 对象事件的发布端口；nil 表示不发布
 	// planv6.5：发布网站。sites 为 nil 时站点相关字段与接口降级（publishable=false）。
 	sites            SiteStore
 	sitesCfg         config.SitesConfig
@@ -94,9 +100,9 @@ func stripProject(projectID, key string) string {
 
 // ListObjects 列出当前项目下的对象。默认读 sys_s3_objects；refresh=1 时对账平面 A。
 func (h *S3Handler) ListObjects(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	prefix := c.QueryParam("prefix")
 	if prefix != "" {
@@ -145,12 +151,12 @@ func (h *S3Handler) ListObjects(c echo.Context) error {
 
 // UploadObject 上传一个文件。使用 multipart/form-data，字段：key + file。
 func (h *S3Handler) UploadObject(c echo.Context) error {
-	if h.writable != nil && !*h.writable {
+	if !h.writable {
 		return WriteError(c, godatabase.ErrWriterUnavailable)
 	}
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	key := c.FormValue("key")
 	if key == "" {
@@ -170,7 +176,7 @@ func (h *S3Handler) UploadObject(c echo.Context) error {
 	defer src.Close()
 	uploadReader, contentType, err := sniffUploadMIME(src, key, file.Header.Get("Content-Type"), h.allowedMIME)
 	if err != nil {
-		return WriteError(c, NewAPIError(http.StatusUnsupportedMediaType, "mime_mismatch", "file MIME type is not allowed or does not match", RequestIDFromContext(c.Request().Context())))
+		return WriteError(c, NewAPIError(http.StatusUnsupportedMediaType, "mime_mismatch", "file MIME type is not allowed or does not match", requestID(c)))
 	}
 	obj, err := h.store.Put(c.Request().Context(), joinKey(pc.ID, key), uploadReader, file.Size, contentType)
 	if err != nil {
@@ -180,19 +186,19 @@ func (h *S3Handler) UploadObject(c echo.Context) error {
 		_ = h.index.UpsertS3Object(c.Request().Context(), pc.ID, key, obj.Size, "", contentType, obj.LastModified)
 	}
 	if h.events != nil {
-		h.events.PublishObject(ObjectEvent{ProjectID: pc.ID, Key: key, Action: "upload"})
+		h.events.PublishObject(objectstore.ObjectEvent{ProjectID: pc.ID, Key: key, Action: "upload"})
 	}
 	return c.JSON(http.StatusOK, toDTO(obj, pc.ID))
 }
 
 // DeleteObject 删除指定 key 的对象。
 func (h *S3Handler) DeleteObject(c echo.Context) error {
-	if h.writable != nil && !*h.writable {
+	if !h.writable {
 		return WriteError(c, godatabase.ErrWriterUnavailable)
 	}
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	key := c.QueryParam("key")
 	if key == "" {
@@ -212,16 +218,16 @@ func (h *S3Handler) DeleteObject(c echo.Context) error {
 		_ = h.sites.DeletePublicFile(c.Request().Context(), pc.ID, key)
 	}
 	if h.events != nil {
-		h.events.PublishObject(ObjectEvent{ProjectID: pc.ID, Key: key, Action: "delete"})
+		h.events.PublishObject(objectstore.ObjectEvent{ProjectID: pc.ID, Key: key, Action: "delete"})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"ok": true})
 }
 
 // PresignObject 生成预签名下载 URL。
 func (h *S3Handler) PresignObject(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	key := c.QueryParam("key")
 	if key == "" {

@@ -2,12 +2,12 @@
 //
 // 用法
 //
-//	NewCronAgentExecutor(store CronAgentStore, runner CronAgentRunner, quota ...
+//	NewCronAgentExecutor(store CronAgentStore, runner CronAgentRunner, quota CronAgentQuota, finalizer RunFinalizer)
 //	(e *CronAgentExecutor) RunAgent(ctx context.Context, j systemdb.CronJob, trigger ...  // RunAgent 执行一次 agent 定时任务
 //
 // 调用架构
 //
-//	[上游] internal/api, internal/app
+//	[上游] internal/app（装配：finalizer 与 Group 都是 internal/agentrun.Service）
 //	         │ 调用本包导出 API
 //	         ▼
 //	[本文件] internal/agentbridge/cron_agent.go
@@ -18,13 +18,16 @@
 //
 // 主要符号
 //
-//	const CronAgentPrincipalID
 //	const CronAgentPromptLimit
 //	type CronAgentRunner interface {…}
 //	type CronAgentStore interface {…}
 //	type CronAgentQuota interface {…}
+//	type RunFinalizer interface {…}
+//	type RunFinish struct {…}
 //	type CronAgentExecutor struct {…}
 //	... 另有 10 个顶层符号
+//
+// run 的创建在这里，收尾不在：统一经 RunFinalizer 端口交给 Agent 协作应用服务（状态迁移的唯一出口）。
 
 package agentbridge
 
@@ -44,8 +47,6 @@ import (
 )
 
 const (
-	// CronAgentPrincipalID 是定时任务执行 Agent 时使用的只读系统身份。
-	CronAgentPrincipalID = "system-scheduler"
 	// cronAgentHistoryLimit 是带入 run 的历史消息条数上限。
 	cronAgentHistoryLimit = 40
 	// cronAgentErrorLimit 是落库错误文本的截断长度。
@@ -67,9 +68,6 @@ type CronAgentStore interface {
 	AppendAgentMessage(ctx context.Context, msg systemdb.AgentMessage) (systemdb.AgentMessage, error)
 	ListAgentMessages(ctx context.Context, projectID, threadID string, limit int) ([]systemdb.AgentMessage, error)
 	CreateAgentRun(ctx context.Context, r systemdb.AgentRun) (systemdb.AgentRun, error)
-	UpdateAgentRunStatus(ctx context.Context, projectID, id, status, errMsg string, started, finished *time.Time) error
-	UpdateAgentRunMetrics(ctx context.Context, projectID, runID string, m systemdb.AgentRun) error
-	RecordAgentToolSpans(projectID, traceID, toolCardsJSON string) error
 	GetAgentGroupCron(ctx context.Context, projectID, jobID string) (systemdb.AgentGroupCron, error)
 	// 回写任务：thread 被归档后重建，或 agent 不存在时停用任务。
 	GetCronJob(ctx context.Context, projectID, id string) (systemdb.CronJob, error)
@@ -109,18 +107,34 @@ type CronAgentQuota interface {
 	CheckQuota(ctx context.Context, projectID string, kind string) error
 }
 
+// RunFinalizer 是「助手 run 的统一收尾」端口：落 assistant 消息、run 状态与用量、工具 span 与审计。
+// 由 Agent 协作应用服务实现并经 app 注入，cron 触发的 run 与 HTTP 触发的 run 走同一套收尾；
+// run 状态迁移因此只在应用服务一处发出（internal-ddd-hexagonal-implementation-plan §3.7）。
+type RunFinalizer interface {
+	Finish(ctx context.Context, in RunFinish) error
+}
+
+// RunFinish 是一次收尾的输入；Err 为运行错误（nil 表示成功）。
+type RunFinish struct {
+	Run    systemdb.AgentRun
+	Agent  systemdb.CloudAgent
+	Result cloudagent.RunResult
+	Err    error
+}
+
 // CronAgentExecutor 实现 cronjob.AgentRunner。
 type CronAgentExecutor struct {
-	Store  CronAgentStore
-	Runner CronAgentRunner
-	Quota  CronAgentQuota // 可为 nil
+	Store     CronAgentStore
+	Runner    CronAgentRunner
+	Quota     CronAgentQuota // 可为 nil
+	Finalizer RunFinalizer   // run 收尾；到达收尾点仍为 nil 时按未配置处理
 	// Group 是群定时执行器（planv6.7 v2）；nil 时群绑定任务按普通 agent 任务处理。
 	Group GroupCronRunner
 }
 
-// NewCronAgentExecutor 构造执行器。
-func NewCronAgentExecutor(store CronAgentStore, runner CronAgentRunner, quota CronAgentQuota) *CronAgentExecutor {
-	return &CronAgentExecutor{Store: store, Runner: runner, Quota: quota}
+// NewCronAgentExecutor 构造执行器；finalizer 通常就是 Agent 协作应用服务。
+func NewCronAgentExecutor(store CronAgentStore, runner CronAgentRunner, quota CronAgentQuota, finalizer RunFinalizer) *CronAgentExecutor {
+	return &CronAgentExecutor{Store: store, Runner: runner, Quota: quota, Finalizer: finalizer}
 }
 
 // GroupCronResult 是一次群定时触发的执行结果。
@@ -133,8 +147,8 @@ type GroupCronResult struct {
 
 // GroupCronRunner 是「群定时任务」的窄接口（planv6.7 v2 §11）。
 //
-// 实现放在 internal/api（轮次协调器所在包），由 internal/app 装配注入；
-// agentbridge 只依赖这个接口，不 import api，依赖方向保持不变。
+// 实现是 Agent 协作应用服务（internal/agentrun），由 internal/app 装配注入；
+// agentbridge 只依赖这个接口，不 import agentrun / api，依赖方向保持不变。
 type GroupCronRunner interface {
 	// RunGroupCron 按群绑定发起一轮；ownerUserID 为空表示没有负责人。
 	RunGroupCron(ctx context.Context, projectID, jobID string, bind GroupCronBinding) (GroupCronResult, error)
@@ -201,7 +215,7 @@ func (e *CronAgentExecutor) RunAgent(ctx context.Context, j systemdb.CronJob, tr
 	if err != nil {
 		// 专属 thread 不存在或被归档：新建并回写任务。
 		created, cerr := e.Store.CreateAgentThread(ctx, systemdb.AgentThread{
-			ProjectID: j.ProjectID, AgentID: agent.ID, Title: "Scheduled: " + agent.Name, CreatedBy: CronAgentPrincipalID,
+			ProjectID: j.ProjectID, AgentID: agent.ID, Title: "Scheduled: " + agent.Name, CreatedBy: auth.ActorScheduler,
 		})
 		if cerr != nil {
 			return cronjob.AgentResult{}, errors.New("schedule thread unavailable")
@@ -214,7 +228,7 @@ func (e *CronAgentExecutor) RunAgent(ctx context.Context, j systemdb.CronJob, tr
 	}
 
 	principal := auth.Principal{
-		APIKeyID:   CronAgentPrincipalID,
+		APIKeyID:   auth.ActorScheduler,
 		ProjectIDs: map[string]struct{}{j.ProjectID: {}},
 		Permissions: map[auth.Permission]struct{}{
 			auth.DatabaseRead: {},
@@ -245,37 +259,18 @@ func (e *CronAgentExecutor) RunAgent(ctx context.Context, j systemdb.CronJob, tr
 	runCtx := llmgateway.WithTraceMeta(ctx, agentRun.ID, "cron")
 	res, runErr := e.Runner.StartRun(runCtx, cloudagent.RunRequest{
 		Agent: Agent(agent), ThreadID: thread.ID, RunID: agentRun.ID, UserText: j.AgentPrompt,
-		History: Messages(hist), Stream: false, Headless: true, Subject: CronAgentPrincipalID,
+		History: Messages(hist), Stream: false, Headless: true, Subject: auth.ActorScheduler,
 		Context: RunContext{ProjectID: j.ProjectID, Principal: principal, Skills: skills},
 	}, nil)
-	fin := time.Now().UTC()
-
-	// 工具卡片补写为 tool span；解析失败不影响 run 收尾。
-	_ = e.Store.RecordAgentToolSpans(j.ProjectID, agentRun.ID, res.ToolCallsJSON)
-
-	code := ""
-	if runErr != nil {
-		code = ClassifyError(runErr).Code
+	// 统一收尾（与 HTTP 触发的 run 同一套）：assistant 消息 → run 状态与用量 → 工具 span → 审计。
+	// 落库失败不改变调度器看到的运行结果（与迁移前一致），只影响 run 行的可信度。
+	if e.Finalizer == nil {
+		return cronjob.AgentResult{}, errors.New("agent run finalizer is not configured")
 	}
-	_ = e.Store.UpdateAgentRunMetrics(ctx, j.ProjectID, agentRun.ID, systemdb.AgentRun{
-		DurationMS: res.DurationMS, PromptTokens: res.PromptTokens, CompletionTokens: res.CompletionTokens,
-		ReasoningTokens: res.ReasoningTokens, ToolCalls: res.ToolCalls, ErrorCode: code,
-	})
-
+	_ = e.Finalizer.Finish(ctx, RunFinish{Run: agentRun, Agent: agent, Result: res, Err: runErr})
 	if runErr != nil {
-		status := systemdb.AgentRunFailed
-		if strings.Contains(runErr.Error(), "context canceled") {
-			status = systemdb.AgentRunCanceled
-		}
-		msg := cronAgentErr(runErr)
-		_ = e.Store.UpdateAgentRunStatus(ctx, j.ProjectID, agentRun.ID, status, msg, nil, &fin)
-		return cronjob.AgentResult{}, errors.New(msg)
+		return cronjob.AgentResult{}, errors.New(cronAgentErr(runErr))
 	}
-	_, _ = e.Store.AppendAgentMessage(ctx, systemdb.AgentMessage{
-		ThreadID: thread.ID, ProjectID: j.ProjectID, Role: "assistant", Content: res.Content,
-		AgentID: agent.ID, ToolCallsJSON: res.ToolCallsJSON, RunID: agentRun.ID,
-	})
-	_ = e.Store.UpdateAgentRunStatus(ctx, j.ProjectID, agentRun.ID, systemdb.AgentRunCompleted, "", nil, &fin)
 	return cronjob.AgentResult{Response: res.Content}, nil
 }
 

@@ -1,3 +1,32 @@
+// 文件说明：e2b_e2e_test.go — internal/api 的单元测试（TestProcessStartStreamsOutputAndExit、TestProcessStartExitCodeAndJSONRequestForm 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestProcessStartStreamsOutputAndExit|TestProcessStartExitCodeAndJSONRequestForm|TestProcessBackgroundTagConnectInputSignalList|TestUntaggedProcessKilledWhenClientDisconnects'
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/e2b_e2e_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//
+// 主要符号
+//
+//	type e2eStore struct{…}
+//	(s *e2eStore) CreateSandbox(_ context.Context, sb sandbox.Sandbox) (sandbox.Sandbox, error)
+//	(s *e2eStore) GetSandbox(_ context.Context, p, id string) (sandbox.Sandbox, error)
+//	(s *e2eStore) GetSandboxByID(_ context.Context, id string) (sandbox.Sandbox, error)
+//	(s *e2eStore) GetSandboxByName(_ context.Context, p, n string) (sandbox.Sandbox, error)
+//	(s *e2eStore) GetSandboxByThread(context.Context, string, string) (sandbox.Sandbox, error)
+//	(s *e2eStore) ListSandboxes(_ context.Context, p, _, _, _ string, _ int) ([]sandbox.Sandbox, string, error)
+//	(s *e2eStore) CountSandboxes(ctx context.Context, p string) (int, error)
+//	... 另有 25 个顶层符号
+
 package api
 
 // e2b_e2e_test.go：用真实的 sandbox.Manager（fake 驱动）走完整链路，覆盖 fakeRouterSandbox 够不到的部分：

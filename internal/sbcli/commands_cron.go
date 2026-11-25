@@ -43,15 +43,6 @@ func cmdCronList(ctx context.Context, c *gosdk.Client, _ loadedConfig, _ []strin
 	return decodeRaw(raw), err
 }
 
-func cmdCronGet(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
-	id, err := one(args, "id")
-	if err != nil {
-		return nil, err
-	}
-	raw, err := c.GetCronJob(ctx, id)
-	return decodeRaw(raw), err
-}
-
 func cmdCronCreate(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
 	f, err := cronFlags(args)
 	if err != nil {
@@ -79,34 +70,5 @@ func cmdCronUpdate(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []
 		return nil, err
 	}
 	raw, err := c.UpdateCronJob(ctx, id, in)
-	return decodeRaw(raw), err
-}
-
-func cmdCronDelete(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
-	id, err := one(args, "id")
-	if err != nil {
-		return nil, err
-	}
-	if err := c.DeleteCronJob(ctx, id); err != nil {
-		return nil, err
-	}
-	return map[string]any{"ok": true}, nil
-}
-
-func cmdCronRuns(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
-	id, err := one(args, "id")
-	if err != nil {
-		return nil, err
-	}
-	raw, err := c.ListCronRuns(ctx, id)
-	return decodeRaw(raw), err
-}
-
-func cmdCronTrigger(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
-	id, err := one(args, "id")
-	if err != nil {
-		return nil, err
-	}
-	raw, err := c.TriggerCronJob(ctx, id)
 	return decodeRaw(raw), err
 }

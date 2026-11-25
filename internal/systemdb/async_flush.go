@@ -152,33 +152,12 @@ func insertMetrics(ctx context.Context, ex execer, batch []MetricSample) error {
 
 // flushLogsBatch 单事务批量写日志（P3.2）；空批 no-op。
 func (s *Store) flushLogsBatch(ctx context.Context, batch []LogEvent) error {
-	if s == nil || s.db == nil || len(batch) == 0 {
-		return nil
-	}
-	if err := insertLogs(ctx, s.db, batch); err != nil {
-		// 批量失败：退回缓冲（下轮重试），避免整批丢失。
-		s.mu.Lock()
-		s.logBuf = append(batch, s.logBuf...)
-		s.mu.Unlock()
-		return err
-	}
-	s.notifyWrite(ctx)
-	return nil
+	return flushBatch(ctx, s, batch, insertLogs, func(b []LogEvent) { s.logBuf = append(b, s.logBuf...) })
 }
 
 // flushMetricsBatch 单事务批量写指标样本（P3.2）。
 func (s *Store) flushMetricsBatch(ctx context.Context, batch []MetricSample) error {
-	if s == nil || s.db == nil || len(batch) == 0 {
-		return nil
-	}
-	if err := insertMetrics(ctx, s.db, batch); err != nil {
-		s.mu.Lock()
-		s.metricsBuf = append(batch, s.metricsBuf...)
-		s.mu.Unlock()
-		return err
-	}
-	s.notifyWrite(ctx)
-	return nil
+	return flushBatch(ctx, s, batch, insertMetrics, func(b []MetricSample) { s.metricsBuf = append(b, s.metricsBuf...) })
 }
 
 // —— 指标预聚合（P3.3）——
@@ -286,16 +265,18 @@ func (s *Store) flushAllAsync(ctx context.Context) error {
 	if len(logs) == 0 && len(metrics) == 0 && len(audits) == 0 && len(traces) == 0 {
 		return nil
 	}
-	if s == nil || s.db == nil {
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
 		// 连接不可用：退回缓冲等待下轮。
 		s.requeue(logs, metrics)
 		s.requeueAudits(audits)
 		s.requeueTraces(traces)
 		return nil
 	}
+
 	// 整批未提交即可重放。冲突时不要先退回缓冲，否则重试会再插一遍已入队的行。
 	err := ducklake.RetryOnConflict(ctx, func() error {
-		tx, err := s.db.BeginTx(ctx, nil)
+		tx, err := sqlDB.BeginTx(ctx, nil)
 		if err != nil {
 			return err
 		}

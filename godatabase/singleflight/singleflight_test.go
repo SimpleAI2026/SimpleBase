@@ -1,3 +1,31 @@
+// 文件说明：singleflight_test.go — godatabase/singleflight 的单元测试（TestDoSharesResultAcrossWaiters、TestDoPropagatesError 等）
+//
+// 用法
+//
+//	go test ./godatabase/singleflight -run 'TestDoSharesResultAcrossWaiters|TestDoPropagatesError|TestTryDoBusyThenIdle|TestLeaderPanicWakesWaiters'
+//
+// 调用架构
+//
+//	[上游] godatabase/lease
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/singleflight/singleflight_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] singleflight.go
+//
+// 主要符号
+//
+//	waitInFlight(t *testing.T, g *Group[int], key string)
+//	TestDoSharesResultAcrossWaiters(t *testing.T)
+//	TestDoPropagatesError(t *testing.T)
+//	TestTryDoBusyThenIdle(t *testing.T)
+//	TestLeaderPanicWakesWaiters(t *testing.T)
+//	TestForgetDoesNotLetOldLeaderEraseNewLeader(t *testing.T)
+//	TestNilGroupRunsDirectly(t *testing.T)
+//	TestZeroValueUsable(t *testing.T)
+
 package singleflight
 
 import (

@@ -97,12 +97,7 @@ func (h *SandboxHandler) TerminalTicket(c echo.Context) error {
 	if row.Source == "agent" {
 		return writeE2BErr(c, NewAPIError(http.StatusConflict, "sandbox_busy", "agent sandboxes are read-only", ""))
 	}
-	principal, _ := PrincipalFromContext(c.Request().Context())
-	owner := principal.UserID
-	if owner == "" {
-		owner = principal.APIKeyID
-	}
-	tok, ok := h.tickets.Issue(terminalTicket{PrincipalID: owner, ProjectID: p, SandboxID: id}, h.now())
+	tok, ok := h.tickets.Issue(terminalTicket{PrincipalID: principalOf(c).Actor(), ProjectID: p, SandboxID: id}, h.now())
 	if !ok {
 		c.Response().Header().Set("Retry-After", "5")
 		return writeE2BErr(c, NewAPIError(http.StatusTooManyRequests, "too_many_tickets", "too many pending terminal tickets", ""))
@@ -360,7 +355,7 @@ func (a *sshAuthenticator) Authenticate(ctx context.Context, username, secret st
 	if err != nil || !auth.CheckProjectAccess(p, row.ProjectID, tenantID, false) {
 		return sshd.Identity{}, errSSHDenied
 	}
-	return sshd.Identity{ProjectID: row.ProjectID, SandboxID: row.ID, Actor: p.APIKeyID}, nil
+	return sshd.Identity{ProjectID: row.ProjectID, SandboxID: row.ID, Actor: p.Actor()}, nil
 }
 
 // ---- 桥接凭据 ----

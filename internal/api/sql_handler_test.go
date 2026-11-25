@@ -1,3 +1,34 @@
+// 文件说明：sql_handler_test.go — internal/api 的单元测试（TestSQLQuery_Success、TestSQLQuery_WriteInReadOnly 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestSQLQuery_Success|TestSQLQuery_WriteInReadOnly|TestSQLQuery_EmptySQL|TestSQLQuery_MultipleStatements'
+//	同包调用：fakeSQLLease → agent_skills_router_e2e_test.go, collection_aggregate_test.go；serviceCallLog → sql_database_gate_test.go；fakeSQLService → agent_skills_router_e2e_test.go, database_handler_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/sql_handler_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] fakeSQLLease ← agent_skills_router_e2e_test.go, collection_aggregate_test.go；serviceCallLog ← sql_database_gate_test.go；fakeSQLService ← agent_skills_router_e2e_test.go, database_handler_test.go
+//
+// 主要符号
+//
+//	type fakeSQLLease struct{…}
+//	(l *fakeSQLLease) Release()
+//	(l *fakeSQLLease) Query(ctx context.Context, stmt godatabase.Statement, maxRows int) (godatabase.QueryResult, ...
+//	(l *fakeSQLLease) Execute(ctx context.Context, stmt godatabase.Statement) (godatabase.QueryResult, error)
+//	(l *fakeSQLLease) Batch(ctx context.Context, stmts []godatabase.Statement, transactional bool) ([]godatabase.Q...
+//	(l *fakeSQLLease) Raw() *sql.DB
+//	(l *fakeSQLLease) NotifyWrite(ctx context.Context)
+//	type serviceCallLog struct{…}
+//	... 另有 30 个顶层符号
+
 package api
 
 import (

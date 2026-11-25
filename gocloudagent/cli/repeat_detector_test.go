@@ -1,3 +1,25 @@
+// 文件说明：repeat_detector_test.go — gocloudagent/cli 的单元测试（TestRepeatDetector、TestRepeatDetectorWindow 等）
+//
+// 用法
+//
+//	go test ./gocloudagent/cli -run 'TestRepeatDetector|TestRepeatDetectorWindow'
+//
+// 调用架构
+//
+//	[上游] gocloudagent
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/cli/repeat_detector_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] agent_loop.go, agent_loop_test.go, budget_test.go, client.go, client_conn_reuse_test.go 等 39 个
+//
+// 主要符号
+//
+//	TestRepeatDetector(t *testing.T)
+//	TestRepeatDetectorWindow(t *testing.T)
+
 package cli
 
 import "testing"

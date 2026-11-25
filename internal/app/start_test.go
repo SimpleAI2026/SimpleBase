@@ -1,3 +1,28 @@
+// 文件说明：start_test.go — internal/app 的单元测试（TestStartThenShutdown、TestStartListenError 等）
+//
+// 用法
+//
+//	go test ./internal/app -run 'TestStartThenShutdown|TestStartListenError|TestSnapshotFromFactory|TestShutdownUnstartedHTTPError'
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/api/perfbench
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/app/start_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_shutdown_test.go, app.go, app_alerts.go, app_lease.go, app_test.go 等 41 个
+//
+// 主要符号
+//
+//	TestStartThenShutdown(t *testing.T)
+//	TestStartListenError(t *testing.T)
+//	TestSnapshotFromFactory(t *testing.T)
+//	TestShutdownUnstartedHTTPError(t *testing.T)
+//	TestRunWithSignalImmediateError(t *testing.T)
+
 package app
 
 import (

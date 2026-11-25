@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { httpApi } from '@/services/http-api'
 
 const http = vi.hoisted(() => ({
   get: vi.fn(),
   post: vi.fn(),
   put: vi.fn(),
   patch: vi.fn(),
-  delete: vi.fn()
+  delete: vi.fn(),
+  request: vi.fn()
 }))
 
 vi.mock('@/services/http', () => ({
@@ -15,11 +17,13 @@ vi.mock('@/services/http', () => ({
   getAccessToken: () => ''
 }))
 
-import { httpApi } from '@/services/http-api'
+function ok(data: unknown) {
+  return Promise.resolve({ data })
+}
 
 const pid = 'proj 1'
-const db = 'db 1'
 
+const db = 'db 1'
 
 describe('httpApi', () => {
   beforeEach(() => {
@@ -586,31 +590,47 @@ describe('httpApi', () => {
     http.get.mockResolvedValueOnce({ data: {} })
     expect(await httpApi.agentThreads.list(pid)).toEqual([])
     http.get.mockResolvedValueOnce({ data: { threads: [{ id: 't', title: 'x', last_message_preview: '预览' }], next_cursor: 't' } })
-    expect((await httpApi.agentThreads.page(pid, 'a1', 1)).threads[0].last_message_preview).toBe('预览')
+    expect((await httpApi.agentThreads.pageBy(pid, { agentId: 'a1', limit: 1 })).threads[0].last_message_preview).toBe('预览')
+    expect(http.get.mock.calls.at(-1)?.[1].params).toEqual({ limit: 1, agent_id: 'a1' })
     http.get.mockResolvedValueOnce({ data: {} })
-    expect((await httpApi.agentThreads.page(pid)).next_cursor).toBe('')
-    // planv6.7 AGC-NAV：分区分页 pageBy 与新字段映射。
+    expect((await httpApi.agentThreads.pageBy(pid)).next_cursor).toBe('')
+    // planv6.7 AGC-NAV：分区分页 pageBy 与新字段映射；群会话只有 collaborative（auto 已下线，读成未知模式）。
     http.get.mockResolvedValueOnce({
-      data: { threads: [{ id: 'tw', title: 'w', tag_id: 'tag-1', dispatch_mode: 'auto', created_at: 'c', updated_at: 'u' }], next_cursor: 'tw' }
+      data: { threads: [
+        { id: 'tw', title: 'w', tag_id: 'tag-1', dispatch_mode: 'collaborative', created_at: 'c', updated_at: 'u' },
+        { id: 'tw-legacy', title: 'w', tag_id: 'tag-1', dispatch_mode: 'auto', created_at: 'c', updated_at: 'u' }
+      ], next_cursor: 'tw' }
     })
     const wp = await httpApi.agentThreads.pageBy(pid, { tagId: 'general', limit: 20, cursor: 'c1' })
-    expect(wp.threads[0]).toMatchObject({ id: 'tw', tag_id: 'tag-1', dispatch_mode: 'auto' })
+    expect(wp.threads[0]).toMatchObject({ id: 'tw', tag_id: 'tag-1', dispatch_mode: 'collaborative' })
+    expect(wp.threads[1].dispatch_mode).toBeUndefined()
     expect(http.get.mock.calls.at(-1)?.[1].params).toMatchObject({ tag_id: 'general', limit: 20, cursor: 'c1' })
     http.get.mockResolvedValueOnce({ data: { threads: [{ id: 'tw2', title: 'w2', created_at: 'c', updated_at: 'u' }] } })
     const wp2 = await httpApi.agentThreads.pageBy(pid, {})
     expect(wp2.threads[0].tag_id).toBeUndefined()
     expect(wp2.threads[0].dispatch_mode).toBeUndefined()
     http.post.mockResolvedValueOnce({ data: { id: 't' } })
-    await httpApi.agentThreads.create(pid, 'title')
+    await httpApi.agentThreads.create(pid, { title: 'title', agentId: 'a1' })
+    expect(http.post.mock.calls.at(-1)?.[1]).toEqual({ title: 'title', agent_id: 'a1' })
     // planv6.7 AGC-NAV：create 的 options 形态（tag/dispatch_mode/source 全透传）。
-    http.post.mockResolvedValueOnce({ data: { id: 't2', tag_id: 'tag-1', dispatch_mode: 'auto' } })
-    const created = await httpApi.agentThreads.create(pid, { tagId: 'tag-1', dispatchMode: 'auto', source: 'workspace' })
-    expect(created).toMatchObject({ id: 't2', tag_id: 'tag-1', dispatch_mode: 'auto' })
-    expect(http.post.mock.calls.at(-1)?.[1]).toEqual({ tag_id: 'tag-1', dispatch_mode: 'auto', source: 'workspace' })
+    http.post.mockResolvedValueOnce({ data: { id: 't2', tag_id: 'tag-1', dispatch_mode: 'collaborative' } })
+    const created = await httpApi.agentThreads.create(pid, { tagId: 'tag-1', dispatchMode: 'collaborative', source: 'workspace' })
+    expect(created).toMatchObject({ id: 't2', tag_id: 'tag-1', dispatch_mode: 'collaborative' })
+    expect(http.post.mock.calls.at(-1)?.[1]).toEqual({ tag_id: 'tag-1', dispatch_mode: 'collaborative', source: 'workspace' })
     // planv6.7 AGC-NAV：单会话详情（深链补齐）。
     http.get.mockResolvedValueOnce({ data: { id: 't3', title: 'x', agent_id: 'a1', created_at: 'c', updated_at: 'u' } })
     expect((await httpApi.agentThreads.get(pid, 't3')).agent_id).toBe('a1')
     expect(http.get.mock.calls.at(-1)?.[0]).toContain('/agent-threads/t3')
+    // 协作能力探测是项目级独立路由（GET /agent-workspace-capabilities），不在 /agent-threads 下；
+    // 拆分 http-api 时曾误写成 agent-threads/capabilities，整页协作控件因 404 全部退化为 protocolVersion=0。
+    http.get.mockResolvedValueOnce({ data: { protocol_version: 3, collaboration: true, max_tasks: 8, max_depth: 3,
+      max_instruction: 2000, confirm_policy: ['auto', 'always'], thread_kinds: ['chat', 'alert'] } })
+    const caps = await httpApi.agentThreads.capabilities(pid)
+    expect(http.get.mock.calls.at(-1)?.[0]).toBe('/v1/projects/proj%201/agent-workspace-capabilities')
+    expect(caps).toEqual({
+      protocolVersion: 3, collaboration: true, maxTasks: 8, maxDepth: 3, maxInstruction: 2000,
+      confirmPolicies: ['auto', 'always'], threadKinds: ['chat', 'alert']
+    })
     http.patch.mockResolvedValueOnce({ data: { id: 't', title: 'new' } })
     expect((await httpApi.agentThreads.rename(pid, 't', 'new')).title).toBe('new')
     http.get.mockResolvedValueOnce({ data: { runs: [{ id: 'r', duration_ms: 20 }] } })
@@ -622,16 +642,8 @@ describe('httpApi', () => {
     http.get.mockResolvedValueOnce({
       data: { messages: [{ id: 'm', role: 'user', content: 'c', mentions: [], tool_calls: [], created_at: 't' }] }
     })
-    expect((await httpApi.agentThreads.messages(pid, 't'))[0].role).toBe('user')
-    // planv6.7 AGC-ROUTE：assistant 消息带 route_kind；非法值归一为 undefined。
-    http.get.mockResolvedValueOnce({
-      data: { messages: [{ id: 'm2', role: 'assistant', content: 'c', route_kind: 'fallback', created_at: 't' }] }
-    })
-    expect((await httpApi.agentThreads.messages(pid, 't'))[0].route_kind).toBe('fallback')
-    http.get.mockResolvedValueOnce({
-      data: { messages: [{ id: 'm3', role: 'assistant', content: 'c', route_kind: 'bogus', created_at: 't' }] }
-    })
-    expect((await httpApi.agentThreads.messages(pid, 't'))[0].route_kind).toBeUndefined()
+    // 历史消息保留服务端 id（气泡 key 与 Plan 引用绑定用）。
+    expect((await httpApi.agentThreads.messages(pid, 't'))[0]).toMatchObject({ id: 'm', role: 'user' })
     http.get.mockResolvedValueOnce({ data: {} })
     expect(await httpApi.agentThreads.messages(pid, 't')).toEqual([])
     http.post.mockResolvedValueOnce({ data: { id: 'r', status: 'canceled' } })
@@ -903,29 +915,21 @@ describe('httpApi', () => {
         getReader: () =>
           makeReader([
             'data: {"type":"run","run_id":"r2"}\n\n',
-            'data: {"type":"route","status":"routing"}\n\n',
-            'data: {"type":"route","status":"done","agent_id":"a-db","route_kind":"fallback"}\n\n',
-            'data: {"type":"run","run_id":"r3","agent_id":"a-kv","route_kind":"mention"}\n\n',
-            'data: {"type":"route","status":"done","route_kind":"bogus"}\n\n',
+            'data: {"type":"route","status":"done","agent_id":"a-db"}\n\n',
+            'data: {"type":"run","run_id":"r3","agent_id":"a-kv"}\n\n',
             'data: {"type":"end","reason":"stop"}\n\n'
           ])
       }
     })
-    const routeLog: string[] = []
+    const runLog: string[] = []
     httpApi.agentThreads.streamRun(pid, 'th', { content: 'x', mentions: [] }, {
-      onRun: (id, agentId, routeKind) => routeLog.push(`run:${id}|${agentId ?? ''}|${routeKind ?? ''}`),
-      onRoute: (e) => routeLog.push(`route:${e.status}|${e.agentId ?? ''}|${e.routeKind ?? ''}`)
+      onRun: (id, agentId) => runLog.push(`run:${id}|${agentId ?? ''}`)
     })
     await vi.waitFor(() =>
-      expect(routeLog).toContain('run:r3|a-kv|mention')
+      expect(runLog).toContain('run:r3|a-kv')
     )
-    expect(routeLog).toEqual([
-      'run:r2||',
-      'route:routing||',
-      'route:done|a-db|fallback',
-      'run:r3|a-kv|mention',
-      'route:done||'
-    ])
+    // 旧 route 帧已随一轮一助手调度下线：解析器忽略它，只上报 run 帧。
+    expect(runLog).toEqual(['run:r2|', 'run:r3|a-kv'])
 
     fetchMock.mockResolvedValueOnce({
       ok: true,
@@ -1077,7 +1081,7 @@ describe('httpApi', () => {
     expect(await httpApi.agentTags.list(pid)).toEqual([
       {
         id: '', builtinKey: undefined, name: '', agentIds: [], prompts: [],
-        unavailableAgentIds: [], routingPrompt: '', fallbackAgentId: undefined,
+        unavailableAgentIds: [], routingPrompt: '', fallbackAgentId: undefined, confirmPolicy: 'auto',
         humanPolicy: undefined, threadKinds: [], version: 0, updatedAt: undefined
       }
     ])
@@ -1539,5 +1543,157 @@ describe('httpApi', () => {
     const putRes = await httpApi.storage.put({ database: 's3', files: 'local', data_dir: './data', confirm_reset: true })
     expect(putRes).toEqual({ ok: true })
     expect(http.put.mock.calls[0][0]).toBe('/v1/system/storage')
+  })
+})
+
+describe('capability gap HTTP mappings', () => {
+  beforeEach(() => Object.values(http).forEach((fn) => fn.mockReset()))
+
+  it('maps collections, schemas, document pages and writes', async () => {
+    http.get.mockResolvedValueOnce(ok({ items: [{ name: 'users', field_count: 2, document_count: 3, registered: true }] }))
+    expect((await httpApi.db.collectionItems('p', 'd'))[0]).toEqual({ name: 'users', schemaMode: 'json', fieldCount: 2, documentCount: 3, registered: true })
+    http.get.mockResolvedValueOnce(ok({ rows: [{ id: 'r1', title: 'A' }], items: [{ id: 'r1', created_at: 'c', updated_at: 'u', data: { title: 'A' } }], next_cursor: 'n', total: 1 }))
+    const page = await httpApi.db.documents('p', 'd', 'users', { filter: 'priority>=2', count: true })
+    expect(page.items[0]).toEqual({ id: 'r1', createdAt: 'c', updatedAt: 'u', data: { title: 'A' } })
+    expect(page.nextCursor).toBe('n')
+    http.get.mockResolvedValueOnce(ok({ id: 'r1', created_at: 'c', data: { title: 'A' } }))
+    expect((await httpApi.db.document('p', 'd', 'users', 'r/1')).updatedAt).toBe('c')
+    http.patch.mockResolvedValueOnce(ok({ id: 'r1' }))
+    await httpApi.db.patch('p', 'd', 'users', 'r1', { title: 'B' })
+    http.post.mockResolvedValueOnce(ok({ items: [{ id: 'r2', created_at: 'c', data: {} }] }))
+    expect((await httpApi.db.batch('p', 'd', 'users', [{}]))[0].id).toBe('r2')
+    http.delete.mockResolvedValueOnce(ok(undefined))
+    await httpApi.db.truncate('p', 'd', 'users')
+
+    const schema = { id: 's', project_id: 'p', name: 'users', fields: [{ name: 'age', type: 'number', required: true, unique: true, options: { min: 1, max: 9, max_select: 2, max_size: 20, only_int: true, only_domains: ['a.com'] } }] }
+    http.get.mockResolvedValueOnce(ok(schema))
+    const mapped = await httpApi.db.getCollectionSchema('p', 'd', 'users')
+    expect(mapped.projectId).toBe('p')
+    expect(mapped.fields[0].options).toMatchObject({ min: 1, max: 9, maxSelect: 2, maxSize: 20, onlyInt: true, onlyDomains: ['a.com'] })
+    http.put.mockResolvedValueOnce(ok({ invalid: [{ id: 'r1', field: 'age', reason: 'x' }], scanned: 1, truncated: true }))
+    const dry = await httpApi.db.putCollectionSchema('p', 'd', { name: 'users', fields: [] }, true)
+    expect(dry).toMatchObject({ scanned: 1, truncated: true })
+    expect(http.put.mock.calls.at(-1)?.[2]?.params).toEqual({ dry_run: 1 })
+    http.put.mockResolvedValueOnce(ok(schema))
+    await httpApi.db.putCollectionSchema('p', 'd', { name: 'users', fields: [] })
+    http.delete.mockResolvedValueOnce(ok(undefined))
+    await httpApi.db.deleteCollectionSchema('p', 'd', 'users')
+  })
+
+  it('maps scoped keys, backups, files and log stats/export', async () => {
+    http.post.mockResolvedValueOnce(ok({ id: 'k', project_id: 'p', permissions: ['database:read'], created_at: 'c', secret: 's' }))
+    await httpApi.apiKeys.create('p', ['database:read'], { resources: ['collection:orders'], actions: ['read'], hiddenFields: ['secret'], readonlyFields: ['owner'], expiresAt: 'e' })
+    expect(http.post.mock.calls[0][1].scope).toEqual({ resources: ['collection:orders'], actions: ['read'], hidden_fields: ['secret'], readonly_fields: ['owner'], expires_at: 'e' })
+
+    const backup = { id: 'b', project_id: 'p', size_bytes: 2, sha256: 'x', engine: 'sqlite', format_version: 1, status: 'ready', created_at: 'c', expires_at: 'e' }
+    http.get.mockResolvedValueOnce(ok({ items: [backup] }))
+    expect((await httpApi.backups.list('p'))[0]).toMatchObject({ id: 'b', projectId: 'p', sizeBytes: 2, formatVersion: 1, expiresAt: 'e' })
+    http.post.mockResolvedValueOnce(ok(backup))
+    await httpApi.backups.create('p')
+    http.post.mockResolvedValueOnce(ok(undefined))
+    await httpApi.backups.restore('p', 'b')
+    http.get.mockResolvedValueOnce(ok(new Blob(['x'])))
+    await httpApi.backups.download('p', 'b')
+    http.delete.mockResolvedValueOnce(ok(undefined))
+    await httpApi.backups.remove('p', 'b')
+
+    http.get.mockResolvedValueOnce(ok({ folders: ['docs/'], objects: [{ key: 'a', size: 1 }] }))
+    expect(await httpApi.s3.listDetailed('p', 'docs/')).toEqual({ folders: ['docs/'], objects: [{ key: 'a', size: 1 }], folderMeta: [] })
+    // planv6.5：站点字段映射
+    http.get.mockResolvedValueOnce(ok({
+      folders: ['blog/'], objects: [],
+      folderMeta: [{ key: 'blog/', public: true, publicUrl: 'https://p.x/blog/' }, {}],
+      site: { enabled: true, baseUrl: 'https://p.x', publishable: true }
+    }))
+    expect(await httpApi.s3.listDetailed('p')).toEqual({
+      folders: ['blog/'], objects: [],
+      folderMeta: [
+        { key: 'blog/', public: true, publicUrl: 'https://p.x/blog/', publicInherited: undefined },
+        { key: '', public: false, publicUrl: undefined, publicInherited: undefined }
+      ],
+      site: { baseUrl: 'https://p.x', publishable: true, reason: undefined }
+    })
+    http.get.mockResolvedValueOnce(ok({ publishable: false, reason: 'site_domain_unconfigured' }))
+    expect(await httpApi.s3.getSite('p')).toEqual({ baseUrl: undefined, publishable: false, reason: 'site_domain_unconfigured' })
+    // planv6.7 §1.6：mode 只接受 path / subdomain
+    http.get.mockResolvedValueOnce(ok({ baseUrl: 'https://h/sites/p', publishable: true, mode: 'path' }))
+    expect(await httpApi.s3.getSite('p')).toMatchObject({ mode: 'path' })
+    http.get.mockResolvedValueOnce(ok({ baseUrl: 'https://p.x', publishable: true, mode: 'subdomain' }))
+    expect(await httpApi.s3.getSite('p')).toMatchObject({ mode: 'subdomain' })
+    http.get.mockResolvedValueOnce(ok({ publishable: true, mode: 'weird' }))
+    expect((await httpApi.s3.getSite('p')).mode).toBeUndefined()
+    http.put.mockResolvedValueOnce(ok({ public: true, publicUrl: 'https://p.x/a', publicInherited: '' }))
+    expect(await httpApi.s3.setPublic('p', 'a', 'file', true)).toEqual({ public: true, publicUrl: 'https://p.x/a', publicInherited: undefined })
+    expect(http.put.mock.calls.at(-1)).toEqual(['/v1/projects/p/s3/public', { key: 'a', kind: 'file', public: true }])
+    http.put.mockResolvedValueOnce(ok(null))
+    expect(await httpApi.s3.setPublic('p', 'f/', 'folder', false)).toEqual({ public: false, publicUrl: undefined, publicInherited: undefined })
+    http.get.mockResolvedValueOnce(ok(new Blob(['x'])))
+    await httpApi.s3.download('p', 'a')
+    http.post.mockResolvedValueOnce(ok({ url: '/files/t', expires_at: 'e' }))
+    expect(await httpApi.s3.createLink('p', 'a')).toEqual({ url: '/files/t', expiresAt: 'e' })
+
+    http.get.mockResolvedValueOnce(ok({ items: [{ key: '2026-01-01T00:00:00Z', count: 2 }] }))
+    expect(await httpApi.logs.stats('p', undefined, 'hour')).toEqual([{ key: '2026-01-01T00:00:00Z', count: 2 }])
+    http.get.mockResolvedValueOnce(ok(new Blob(['id'])))
+    await httpApi.logs.export('p')
+    expect(http.get.mock.calls.at(-1)?.[1]?.responseType).toBe('blob')
+  })
+
+  it('normalizes empty and legacy response shapes', async () => {
+    http.get.mockResolvedValueOnce(ok({}))
+    expect((await httpApi.db.collectionItems('p', 'd')).length).toBe(0)
+    http.get.mockResolvedValueOnce(ok({}))
+    expect(await httpApi.db.documents('p', 'd', 'c')).toEqual({ rows: [], items: [], nextCursor: undefined, total: undefined })
+    http.get.mockResolvedValueOnce(ok({}))
+    expect((await httpApi.db.document('p', 'd', 'c', 'r')).updatedAt).toBe('')
+    http.get.mockResolvedValueOnce(ok({ fields: [{ name: 'x', type: 'custom', options: {} }] }))
+    expect((await httpApi.db.getCollectionSchema('p', 'd', 'c')).fields[0].options).toMatchObject({ maxSelect: undefined, onlyInt: false })
+    http.get.mockResolvedValueOnce(ok({ invalid: [] }))
+    expect(await httpApi.backups.list('p')).toEqual([])
+    http.get.mockResolvedValueOnce(ok({}))
+    expect(await httpApi.s3.listDetailed('p')).toEqual({ folders: [], objects: [], folderMeta: [] })
+    http.get.mockResolvedValueOnce(ok({}))
+    expect(await httpApi.logs.stats('p')).toEqual([])
+    http.put.mockResolvedValueOnce(ok({}))
+    expect(await httpApi.db.putCollectionSchema('p', 'd', { name: 'c', fields: [] })).toMatchObject({ name: '', fields: [] })
+  })
+
+  it('maps missing fields, malformed optional values and empty write results', async () => {
+    http.get.mockResolvedValueOnce(ok({ items: [{}] }))
+    expect(await httpApi.db.collectionItems('p', 'd')).toEqual([{ name: '', schemaMode: 'json', fieldCount: 0, documentCount: 0, registered: false }])
+
+    http.get.mockResolvedValueOnce(ok({ items: [{ created_at: 'c' }], rows: {}, next_cursor: '', total: '1' }))
+    expect(await httpApi.db.documents('p', 'd', 'c')).toEqual({
+      rows: [], items: [{ id: '', createdAt: 'c', updatedAt: 'c', data: {} }], nextCursor: undefined, total: undefined
+    })
+    http.post.mockResolvedValueOnce(ok({}))
+    expect(await httpApi.db.batch('p', 'd', 'c', [])).toEqual([])
+
+    http.get.mockResolvedValueOnce(ok({ fields: [null, {
+      options: { min: true, max: {}, pattern: 'x', values: [1], max_select: '2', max_size: '3', except_domains: ['bad.com'], only_domains: ['good.com'] }
+    }] }))
+    const schema = await httpApi.db.getCollectionSchema('p', 'd', 'c')
+    expect(schema.fields[0]).toMatchObject({ name: '', type: 'text', options: { min: undefined, max: undefined } })
+    expect(schema.fields[1].options).toMatchObject({ maxSelect: 2, maxSize: 3, values: ['1'], exceptDomains: ['bad.com'], onlyDomains: ['good.com'] })
+
+    http.get.mockResolvedValueOnce(ok({ items: [null] }))
+    expect(await httpApi.backups.list('p')).toEqual([{ id: '', projectId: '', sizeBytes: 0, sha256: '', engine: '', formatVersion: 0, status: '', createdAt: '', expiresAt: undefined }])
+    http.post.mockResolvedValueOnce(ok(null))
+    expect((await httpApi.backups.create('p')).id).toBe('')
+    http.post.mockResolvedValueOnce(ok({}))
+    expect(await httpApi.s3.createLink('p', 'a')).toEqual({ url: '', expiresAt: '' })
+    http.get.mockResolvedValueOnce(ok({ items: [{}] }))
+    expect(await httpApi.logs.stats('p')).toEqual([{ key: '', count: 0 }])
+    // planv6.6 DC-5：llm.chat 已删除，改用仍在的 llmSettings.put 做空 payload 兜底断言。
+    http.put.mockResolvedValueOnce(ok(null))
+    expect(await httpApi.llmSettings.put('p', { defaultProvider: 'x' }, 'k')).toEqual({ hasApiKey: false })
+  })
+
+  it('loads OpenAPI and preserves preview response status', async () => {
+    http.get.mockResolvedValueOnce(ok({ openapi: '3.0.3', paths: {} }))
+    expect((await httpApi.preview.document()).openapi).toBe('3.0.3')
+    http.request.mockResolvedValueOnce({ status: 409, data: { error: { code: 'conflict' } } })
+    expect(await httpApi.preview.request('POST', '/v1/test', { value: 1 })).toEqual({ status: 409, body: '{\n  "error": {\n    "code": "conflict"\n  }\n}' })
+    expect(http.request.mock.calls[0][0]).toMatchObject({ method: 'POST', url: '/v1/test', data: { value: 1 } })
   })
 })

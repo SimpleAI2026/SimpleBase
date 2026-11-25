@@ -154,11 +154,11 @@ func writeE2BErr(c echo.Context, err error) error {
 	case errors.Is(err, auth.ErrForbidden), errors.Is(err, catalog.ErrCrossProject):
 		m = e2bMapping{http.StatusForbidden, "forbidden", "access denied", e2bproto.CodePermissionDenied}
 	default:
-		if ae2 := Error(err, RequestIDFromContext(c.Request().Context())); ae2 != nil {
+		if ae2 := Error(err, requestID(c)); ae2 != nil {
 			m = e2bMapping{status: ae2.HTTPStatus, errorCode: ae2.Body.Error.Code, message: ae2.Body.Error.Message, connect: connectFor(ae2.HTTPStatus)}
 			break
 		}
-		logUnhandledError(c, err, RequestIDFromContext(c.Request().Context()))
+		logUnhandledError(c, err, requestID(c))
 		m = e2bMapping{http.StatusInternalServerError, "internal_error", "internal error", e2bproto.CodeInternal}
 	}
 	if m.status == http.StatusTooManyRequests {

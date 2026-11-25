@@ -49,9 +49,7 @@ export const i18n = createI18n({
  */
 export function setI18nLocale(locale: LocaleCode) {
   i18n.global.locale.value = locale
-  if (typeof document !== 'undefined') {
-    document.documentElement.lang = htmlLang(locale)
-  }
+  document.documentElement.lang = htmlLang(locale)
 }
 
 /** 组件外的翻译入口（services / utils / composables / store getter）。 */

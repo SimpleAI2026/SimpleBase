@@ -13,14 +13,13 @@ package api
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
+	"github.com/linkxzhou/SimpleBase/internal/agentrun"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
 
@@ -42,7 +41,8 @@ type agentTagDTO struct {
 	// FallbackAgentID 是路由失败时的唯一兜底助手（必须是成员）；空表示没有兜底。
 	FallbackAgentID string `json:"fallback_agent_id,omitempty"`
 	// HumanPolicy 为空表示允许把任务交给当前人；"disabled" 表示禁止人工任务。
-	HumanPolicy string `json:"human_policy,omitempty"`
+	HumanPolicy   string `json:"human_policy,omitempty"`
+	ConfirmPolicy string `json:"confirm_policy,omitempty"`
 	// ThreadKinds 是该群允许的会话类型（v2 §5.3），前端据此渲染「新建会话」菜单。
 	ThreadKinds []string `json:"thread_kinds,omitempty"`
 	// UnavailableAgentIDs 是配置里已归档/不存在的助手，供编辑器标「助手已不可用」。
@@ -59,59 +59,9 @@ func toAgentTagPromptDTOs(prompts []systemdb.AgentTagPrompt) []agentTagPromptDTO
 	return out
 }
 
-// builtinAgentTagDefaults 返回预置群的内置默认配置（builtin_key 引用助手，
-// 读取时由 resolveAgentTagDefaults 解析为本项目助手 ID）。
+// builtinAgentTagDefaults 返回预置群的内置默认配置；规则归 agentrun（预置群解析与入口共用一份实现）。
 func builtinAgentTagDefaults() map[string]systemdb.AgentTagConfig {
-	return map[string]systemdb.AgentTagConfig{
-		systemdb.AgentTagGeneral: {
-			RoutingPrompt: "根据用户目标选择最合适的助手；需要多个模块时拆分任务并汇总结果。",
-		},
-		systemdb.AgentTagAlerts: {
-			AgentIDs: []string{"logs", "general"},
-			Prompts: []systemdb.AgentTagPrompt{
-				{ID: "alerts-p1", Title: "最近 1 小时有哪些错误日志", Content: "最近 1 小时有哪些错误日志？"},
-				{ID: "alerts-p2", Title: "按级别统计今天的日志", Content: "按级别统计今天的日志。"},
-			},
-			RoutingPrompt: "先让日志助手定位错误，再由通用助手判断影响与处置建议；" +
-				"涉及线上变更或需要人工确认时交给人。",
-		},
-		systemdb.AgentTagStats: {
-			AgentIDs: []string{"database", "kv", "general"},
-			Prompts: []systemdb.AgentTagPrompt{
-				{ID: "stats-p1", Title: "统计各表的行数", Content: "统计各表的行数。"},
-				{ID: "stats-p2", Title: "最近 7 天新增了多少数据", Content: "最近 7 天新增了多少数据？"},
-			},
-			RoutingPrompt: "结构性问题交给数据库助手，KV/对象数据交给 KV 助手，最后由通用助手汇总结论。",
-		},
-		systemdb.AgentTagScheduled: {
-			AgentIDs: []string{"general"},
-			Prompts: []systemdb.AgentTagPrompt{
-				{ID: "sched-p1", Title: "生成今天的运行摘要", Content: "生成今天的运行摘要，列出失败与异常。"},
-			},
-			RoutingPrompt: "定时任务默认交给通用助手；需要多个助手协同时再拆分，不要生成人工任务。",
-			HumanPolicy:   systemdb.HumanPolicyDisabled,
-		},
-	}
-}
-
-// resolveGeneralAgentTag 返回未保存过配置时的 #通用 默认值：项目全部可用助手。
-func resolveGeneralAgentTag(ctx context.Context, store *systemdb.Store, projectID string) (systemdb.AgentTag, error) {
-	agents, err := store.ListCloudAgents(ctx, projectID)
-	if err != nil {
-		return systemdb.AgentTag{}, err
-	}
-	cfg := builtinAgentTagDefaults()[systemdb.AgentTagGeneral]
-	cfg.AgentIDs = make([]string, 0, len(agents))
-	for _, agent := range agents {
-		cfg.AgentIDs = append(cfg.AgentIDs, agent.ID)
-		if agent.BuiltinKey == systemdb.AgentTagGeneral {
-			cfg.FallbackAgentID = agent.ID
-		}
-	}
-	return systemdb.AgentTag{
-		ID: systemdb.AgentTagGeneral, ProjectID: projectID, BuiltinKey: systemdb.AgentTagGeneral,
-		Name: builtinAgentTagName(systemdb.AgentTagGeneral), Config: cfg,
-	}, nil
+	return agentrun.BuiltinAgentTagDefaults()
 }
 
 // builtinAgentTagKeys 是预置群的固定顺序，通用群始终位于首位。
@@ -136,17 +86,7 @@ func threadKindsForTag(tagID string) []string {
 
 // builtinAgentTagName 返回预置群的固定显示名（实际本地化由前端完成）。
 func builtinAgentTagName(key string) string {
-	switch key {
-	case systemdb.AgentTagGeneral:
-		return "通用"
-	case systemdb.AgentTagAlerts:
-		return "告警"
-	case systemdb.AgentTagStats:
-		return "统计"
-	case systemdb.AgentTagScheduled:
-		return "定时"
-	}
-	return key
+	return agentrun.BuiltinAgentTagName(key)
 }
 
 // agentTagDTOFrom 把仓储行转 DTO，并标记不可用助手。
@@ -166,6 +106,7 @@ func agentTagDTOFrom(t systemdb.AgentTag, available map[string]bool) agentTagDTO
 		RoutingPrompt:       t.Config.RoutingPrompt,
 		FallbackAgentID:     t.Config.FallbackAgentID,
 		HumanPolicy:         t.Config.HumanPolicy,
+		ConfirmPolicy:       t.Config.ConfirmPolicy,
 		ThreadKinds:         threadKindsForTag(t.ID),
 		UnavailableAgentIDs: unavailable,
 		Version:             t.Version,
@@ -180,9 +121,9 @@ func agentTagDTOFrom(t systemdb.AgentTag, available map[string]bool) agentTagDTO
 // ListAgentTags 返回预置与自定义标签：内置默认 + 覆盖行 + 自定义，
 // 按「预置（general、alerts、stats、scheduled）→ 自定义（created_at 升序）」排序。
 func (h *cloudAgentHandler) ListAgentTags(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	ctx := c.Request().Context()
 	agents, err := h.store.ListCloudAgents(ctx, pc.ID)
@@ -219,7 +160,7 @@ func (h *cloudAgentHandler) ListAgentTags(c echo.Context) error {
 			continue
 		}
 		if key == systemdb.AgentTagGeneral {
-			tag, err := resolveGeneralAgentTag(ctx, h.store, pc.ID)
+			tag, err := h.resolveAgentTag(ctx, pc.ID, systemdb.AgentTagGeneral)
 			if err != nil {
 				return WriteError(c, err)
 			}
@@ -246,6 +187,7 @@ func (h *cloudAgentHandler) ListAgentTags(c echo.Context) error {
 			Prompts:       toAgentTagPromptDTOs(cfg.Prompts),
 			RoutingPrompt: cfg.RoutingPrompt,
 			HumanPolicy:   cfg.HumanPolicy,
+			ConfirmPolicy: cfg.ConfirmPolicy,
 			ThreadKinds:   threadKindsForTag(key),
 			Version:       0,
 		})
@@ -266,6 +208,7 @@ type agentTagBody struct {
 	RoutingPrompt   *string `json:"routing_prompt"`
 	FallbackAgentID *string `json:"fallback_agent_id"`
 	HumanPolicy     *string `json:"human_policy"`
+	ConfirmPolicy   *string `json:"confirm_policy"`
 }
 
 // normalizeTagBody 校验长度/数量/去重/助手归属；提示词 ID 缺省生成 UUID。
@@ -345,12 +288,23 @@ func (h *cloudAgentHandler) normalizeTagBody(ctx context.Context, projectID stri
 			return "", systemdb.AgentTagConfig{}, echo.NewHTTPError(http.StatusBadRequest, "human_policy must be empty or disabled")
 		}
 	}
+	confirmPolicy := "auto"
+	if body.ConfirmPolicy != nil {
+		confirmPolicy = strings.ToLower(strings.TrimSpace(*body.ConfirmPolicy))
+		if confirmPolicy == "" {
+			confirmPolicy = "auto"
+		}
+		if confirmPolicy != "auto" && confirmPolicy != "always" && confirmPolicy != "never" {
+			return "", systemdb.AgentTagConfig{}, echo.NewHTTPError(http.StatusBadRequest, "confirm_policy must be auto, always or never")
+		}
+	}
 	return name, systemdb.AgentTagConfig{
 		AgentIDs:        agentIDs,
 		Prompts:         prompts,
 		RoutingPrompt:   routingPrompt,
 		FallbackAgentID: fallback,
 		HumanPolicy:     humanPolicy,
+		ConfirmPolicy:   confirmPolicy,
 		SchemaVersion:   2,
 	}, nil
 }
@@ -359,9 +313,9 @@ func (h *cloudAgentHandler) CreateAgentTag(c echo.Context) error {
 	if err := h.denyReadonly(c); err != nil {
 		return err
 	}
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	var body agentTagBody
 	if err := c.Bind(&body); err != nil {
@@ -373,7 +327,7 @@ func (h *cloudAgentHandler) CreateAgentTag(c echo.Context) error {
 	}
 	createdBy := ""
 	if principal, ok := PrincipalFromContext(c.Request().Context()); ok {
-		createdBy = principalIdentity(principal)
+		createdBy = principal.Actor()
 	}
 	tag, err := h.store.CreateAgentTag(c.Request().Context(), systemdb.AgentTag{
 		ProjectID: pc.ID, Name: name, CreatedBy: createdBy, Config: cfg,
@@ -392,46 +346,14 @@ func (h *cloudAgentHandler) CreateAgentTag(c echo.Context) error {
 	return c.JSON(http.StatusCreated, agentTagDTOFrom(tag, available))
 }
 
-// resolveAgentTag 按 ID 取标签：预置群恒存在——无覆盖行时返回内置默认
-// （Persisted=false，Version=0）；自定义标签需存在且未归档。
-func (h *cloudAgentHandler) resolveAgentTag(ctx context.Context, projectID, id string) (systemdb.AgentTag, error) {
-	if id == systemdb.AgentTagGeneral {
-		t, err := h.store.GetAgentTagRow(ctx, projectID, id)
-		if err == nil {
-			return t, nil
-		}
-		if !errors.Is(err, sql.ErrNoRows) {
-			return systemdb.AgentTag{}, err
-		}
-		return resolveGeneralAgentTag(ctx, h.store, projectID)
-	}
-	if systemdb.IsBuiltinAgentTag(id) {
-		if t, err := h.store.GetAgentTagRow(ctx, projectID, id); err == nil {
-			return t, nil
-		} else if !errors.Is(err, sql.ErrNoRows) {
-			return systemdb.AgentTag{}, err
-		}
-		cfg := builtinAgentTagDefaults()[id]
-		return systemdb.AgentTag{
-			ID: id, ProjectID: projectID, BuiltinKey: id,
-			Name: builtinAgentTagName(id), Config: cfg, Version: 0, Persisted: false,
-		}, nil
-	}
-	t, err := h.store.GetAgentTagRow(ctx, projectID, id)
-	if errors.Is(err, sql.ErrNoRows) {
-		return systemdb.AgentTag{}, systemdb.ErrAgentTagNotFound
-	}
-	return t, err
-}
-
 // ArchiveAgentTag 归档群（v2 §9.2）：保留历史会话的群归属，暂停该群的定时绑定。
 func (h *cloudAgentHandler) DeleteAgentTag(c echo.Context) error {
 	if err := h.denyReadonly(c); err != nil {
 		return err
 	}
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	tagID := strings.TrimSpace(c.Param("tagID"))
 	if err := h.store.ArchiveAgentTag(c.Request().Context(), pc.ID, tagID); err != nil {
@@ -448,9 +370,9 @@ func (h *cloudAgentHandler) PatchAgentTag(c echo.Context) error {
 	if err := h.denyReadonly(c); err != nil {
 		return err
 	}
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	tagID := strings.TrimSpace(c.Param("tagID"))
 	ctx := c.Request().Context()

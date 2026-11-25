@@ -1,3 +1,33 @@
+// 文件说明：stats.go — gosandbox/agent 的内部实现（sendStats、ownCgroupDir 等）
+//
+// 用法
+//
+//	同包调用：readKeyedInt() → agent_test.go；relayConn → agent.go
+//
+// 调用架构
+//
+//	[上游] gosandbox/cmd
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/agent/stats.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent.go, agent_test.go, fs.go, loopback_linux.go, loopback_other.go 等 16 个
+//	[关键引用] readKeyedInt ← agent_test.go；relayConn ← agent.go
+//
+// 主要符号
+//
+//	(s *Server) sendStats()
+//	ownCgroupDir() (string, error)
+//	readInt(read func(string) ([]byte, error), dir, name string) int64
+//	readKeyedInt(read func(string) ([]byte, error), dir, name, key string) int64
+//	(s *Server) sendTop(m proto.Msg)
+//	procLine(pid int) (string, bool)
+//	procUID(pid int) string
+//	(s *Server) sendListening(m proto.Msg)
+//	... 另有 10 个顶层符号
+
 package agent
 
 import (

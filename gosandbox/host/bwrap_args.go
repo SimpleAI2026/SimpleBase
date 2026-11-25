@@ -1,3 +1,34 @@
+// 文件说明：bwrap_args.go — gosandbox/host 中 BwrapInput、BwrapArgs 等符号的实现
+//
+// 用法
+//
+//	type BwrapInput struct{…}  // BwrapInput 是生成 bwrap 参数所需的全部输入
+//	BwrapArgs(in BwrapInput) ([]string, error)  // BwrapArgs 生成 bwrap 参数（不含 bwrap 本身）
+//	ScratchDirs(p Policy) []string  // ScratchDirs 返回沙盒内需要 tmpfs 的目录
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/tools, gosandbox/box, gosandbox/vm/box 等 5 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/host/bwrap_args.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] bwrap_args_extra_test.go, cgroup.go, cgroup_linux.go, cgroup_linux_test.go, glob.go 等 36 个
+//	[关键引用] BwrapInput ← bwrap_args_extra_test.go, glob_test.go；BwrapArgs ← glob_test.go, policy_test.go；ScratchDirs ← run_linux.go
+//
+// 主要符号
+//
+//	const InnerPolicyPath
+//	var MaskedPaths
+//	var ReadonlyPaths
+//	type BwrapInput struct{…}
+//	BwrapArgs(in BwrapInput) ([]string, error)
+//	sizeOrZero(supported bool, size int64) int64
+//	tmpfsArgs(target string, size int64) []string
+//	ScratchDirs(p Policy) []string
+
 package host
 
 import (

@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'vue-sonner'
 import { useProjectStore } from '@/stores/project'
 import { api, resetApiMocks } from '@/test/api-mock'
-import { sampleCron, sampleGoFn, uiStubs } from '@/test/helpers'
+import { installJsdomPolyfills, pickSelectOption, sampleCron, sampleGoFn, uiStubs, realSelectStubs, selectTriggers, selectOptions, inDialog, mountDialog, realDialogStubs, dialogEl } from '@/test/helpers'
 import CronJobModal from '@/components/modal/CronJobModal.vue'
 
 vi.mock('@/services/api', async () => {
@@ -12,15 +12,18 @@ vi.mock('@/services/api', async () => {
   return { api: m.api }
 })
 
-function mountModal(props: Record<string, unknown> = {}) {
+async function mountModal(props: Record<string, unknown> = {}) {
   const pinia = createPinia()
   setActivePinia(pinia)
   useProjectStore().setProject('dev-shop')
-  return mount(CronJobModal, {
+  return await mountDialog(CronJobModal, {
+    attachTo: document.body,
     props: { open: true, ...props },
-    global: { plugins: [pinia], stubs: uiStubs }
+    global: { plugins: [pinia], stubs: { ...uiStubs, ...realSelectStubs } }
   })
 }
+
+installJsdomPolyfills()
 
 describe('CronJobModal', () => {
   beforeEach(() => {
@@ -29,34 +32,35 @@ describe('CronJobModal', () => {
   })
 
   it('associates schedule controls with their labels and help text', async () => {
-    const w = mountModal()
+    const w = await mountModal()
     await flushPromises()
-    expect(w.get('.sb-modal').attributes('data-max-width')).toBe('720')
-    expect(w.get('.overflow-y-auto').classes()).toContain('px-2')
-    expect(w.get('label[for="cron-name"]').text()).toBe('任务名')
-    expect(w.get('#cron-name').attributes('aria-describedby')).toContain('cron-name-help')
-    expect(w.get('label[for="cron-expression"]').text()).toBe('cron 表达式')
-    expect(w.get('#cron-expression').attributes('aria-describedby')).toBe('cron-expression-help')
-    expect(w.find('[aria-label="常用 cron 预设"]').exists()).toBe(true)
-    expect(w.find('[aria-labelledby="cron-file-label"]').exists()).toBe(true)
+    // 真实 SbModal：宽度走 CSS 变量；内容滚动区是 SbModal 自带 body 之下的那个
+    expect(dialogEl()!.getAttribute('style')).toContain('--sb-modal-max-w: 720px')
+    expect(inDialog().find('[class*="overflow-y-auto"][class*="px-2"]').exists()).toBe(true)
+    expect(inDialog().get('label[for="cron-name"]').text()).toBe('任务名')
+    expect(inDialog().get('#cron-name').attributes('aria-describedby')).toContain('cron-name-help')
+    expect(inDialog().get('label[for="cron-expression"]').text()).toBe('cron 表达式')
+    expect(inDialog().get('#cron-expression').attributes('aria-describedby')).toBe('cron-expression-help')
+    expect(inDialog().find('[aria-label="常用 cron 预设"]').exists()).toBe(true)
+    expect(inDialog().find('[aria-labelledby="cron-file-label"]').exists()).toBe(true)
     const vm = w.vm as any
     vm.form.name = '1invalid'
     vm.form.inputJson = '{bad'
     await flushPromises()
-    expect(w.get('#cron-name').attributes('aria-describedby')).toContain('cron-name-error')
-    expect(w.get('#cron-input-json').attributes('aria-describedby')).toContain('cron-json-error')
+    expect(inDialog().get('#cron-name').attributes('aria-describedby')).toContain('cron-name-error')
+    expect(inDialog().get('#cron-input-json').attributes('aria-describedby')).toContain('cron-json-error')
     vm.form.scheduleKind = 'interval'
     await flushPromises()
-    expect(w.find('label[for="cron-interval-value"]').exists()).toBe(true)
-    expect(w.find('[aria-label="间隔单位"]').exists()).toBe(true)
+    expect(inDialog().find('label[for="cron-interval-value"]').exists()).toBe(true)
+    expect(inDialog().find('[aria-label="间隔单位"]').exists()).toBe(true)
     vm.form.scheduleKind = 'once'
     await flushPromises()
-    expect(w.find('label[for="cron-run-at"]').exists()).toBe(true)
+    expect(inDialog().find('label[for="cron-run-at"]').exists()).toBe(true)
     w.unmount()
   })
 
   it('covers interval math, validation, create and update', async () => {
-    const w = mountModal()
+    const w = await mountModal()
     await flushPromises()
     const vm = w.vm as any
     vm.intervalUnit = 'day'
@@ -92,7 +96,7 @@ describe('CronJobModal', () => {
     expect(vm.gofunctions).toEqual([])
     w.unmount()
 
-    const createReset = mountModal({ open: false })
+    const createReset = await mountModal({ open: false })
     await createReset.setProps({ open: true })
     await flushPromises()
     expect((createReset.vm as any).form.name).toBe('')
@@ -105,12 +109,12 @@ describe('CronJobModal', () => {
       const pinia = createPinia()
       setActivePinia(pinia)
       useProjectStore().setProject('dev-shop')
-      const e = mount(CronJobModal, {
+      const e = await mountDialog(CronJobModal, {
         props: {
           open: false,
           target: { ...sampleCron, scheduleKind: 'interval', intervalSeconds: seconds, funcFile: 'hello', funcExport: 'Hello' }
         },
-        global: { plugins: [pinia], stubs: uiStubs }
+        global: { plugins: [pinia], stubs: { ...uiStubs, ...realDialogStubs } }
       })
       await e.setProps({ open: true })
       await flushPromises()
@@ -118,7 +122,7 @@ describe('CronJobModal', () => {
       e.unmount()
     }
 
-    const edit = mountModal({ target: { ...sampleCron, funcFile: 'hello', funcExport: 'Hello' } })
+    const edit = await mountModal({ target: { ...sampleCron, funcFile: 'hello', funcExport: 'Hello' } })
     await flushPromises()
     const evm = edit.vm as any
     evm.form.inputJson = '{}'
@@ -138,7 +142,7 @@ describe('CronJobModal', () => {
 
   it('round-trips once schedules between ISO runAt and datetime-local input', async () => {
     const runAt = '2026-01-02T03:04:00.000Z'
-    const w = mountModal({ target: { ...sampleCron, scheduleKind: 'once', runAt, funcFile: 'hello', funcExport: 'Hello' } })
+    const w = await mountModal({ target: { ...sampleCron, scheduleKind: 'once', runAt, funcFile: 'hello', funcExport: 'Hello' } })
     await flushPromises()
     const vm = w.vm as any
     expect(vm.form.runAtLocal).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/)
@@ -147,7 +151,7 @@ describe('CronJobModal', () => {
     expect(api.cronjobs.update.mock.calls[0][2]).toMatchObject({ scheduleKind: 'once', runAt })
     w.unmount()
 
-    const bad = mountModal({ target: { ...sampleCron, scheduleKind: 'once', runAt: 'not-a-date' } })
+    const bad = await mountModal({ target: { ...sampleCron, scheduleKind: 'once', runAt: 'not-a-date' } })
     await flushPromises()
     expect((bad.vm as any).form.runAtLocal).toBe('')
     ;(bad.vm as any).form.runAtLocal = 'garbage'
@@ -167,7 +171,7 @@ describe('CronJobModal', () => {
       exports: ['Draft']
     }
     api.gofunctions.list.mockResolvedValue([sampleGoFn, unpublished])
-    const w = mountModal()
+    const w = await mountModal()
     await flushPromises()
     const vm = w.vm as any
     expect(vm.unpublishedCount).toBe(1)
@@ -193,7 +197,7 @@ describe('CronJobModal', () => {
     expect(vm.nameError).toBe('')
     expect(vm.canSave).toBe(true)
     // 编辑态保留当前目标（即使未发布）
-    const edit = mountModal({
+    const edit = await mountModal({
       target: { ...sampleCron, funcFile: 'draft', funcExport: 'Draft' }
     })
     await flushPromises()
@@ -204,23 +208,35 @@ describe('CronJobModal', () => {
     w.unmount()
   })
   it('CronJobModal radios, selects, inputs, and cancel', async () => {
-    const w = mountModal()
+    const w = await mountModal()
     await flushPromises()
-    const radios = w.findAll('input[type="radio"]')
+    const radios = inDialog().findAll('input[type="radio"]')
+    // 先切到「云函数」目标：此时「选择函数」「间隔单位」这类下拉才存在；再切回「助手」
     await radios[1].setValue()
+    await flushPromises()
+    // 真实 Select：触发器顺序为 [间隔单位, 函数文件, 导出函数]
+    const form = () => (w.vm as unknown as { form: { funcFile: string; funcExport: string } }).form
+    await pickSelectOption(selectTriggers()[0], '小时')
+    expect((w.vm as unknown as { intervalUnit: string }).intervalUnit).toBe('hour')
+    await pickSelectOption(selectTriggers()[1], 'hello.go')
+    expect(form().funcFile).toBe('hello')
+    await pickSelectOption(selectTriggers()[2], 'Ping')
+    expect(form().funcExport).toBe('Ping')
+    // 换文件会清空已选导出函数（避免导出名与新文件不匹配）
+    await pickSelectOption(selectTriggers()[1], 'hello.go')
+    expect(form().funcExport).toBe('')
     await radios[0].setValue()
-    for (const sel of w.findAll('.select-emit')) await sel.trigger('click')
-    const inputs = w.findAll('input')
+    const inputs = inDialog().findAll('input')
     for (const i of inputs) {
       const t = i.attributes('type')
       if (t === 'radio') continue
       if (t === 'number') await i.setValue('2')
       else await i.setValue('job-a')
     }
-    await w.get('textarea').setValue('{"a":1}')
-    const cancel = w.find('.sb-cancel')
+    await inDialog().get('textarea').setValue('{"a":1}')
+    const cancel = inDialog().find('.sb-cancel')
     if (cancel.exists()) await cancel.trigger('click')
-    else await w.findAll('button').find((b) => b.text().includes('取消'))?.trigger('click')
+    else await inDialog().findAll('button').find((b) => b.text().includes('取消'))?.trigger('click')
     w.unmount()
   })
 
@@ -229,18 +245,25 @@ describe('CronJobModal', () => {
     const pinia = createPinia()
     setActivePinia(pinia)
     useProjectStore().setProject('dev-shop')
-    const w = mount(CronJobModal, {
+    // 间隔单位用真实 Select：选项就是「分钟 / 小时 / 天」，选中后表单里的 intervalUnit 跟着变
+    const w = await mountDialog(CronJobModal, {
+      attachTo: document.body,
       props: { open: true },
-      global: { plugins: [pinia], stubs: uiStubs }
+      global: { plugins: [pinia], stubs: { ...uiStubs, teleport: false, Select: false, SelectTrigger: false, SelectValue: false, SelectContent: false, SelectGroup: false, SelectItem: false } }
     })
     await flushPromises()
-    const radios = w.findAll('input[type="radio"]')
+    const radios = inDialog().findAll('input[type="radio"]')
     await radios[1].setValue()
-    const nums = w.findAll('input[type="number"]')
-    if (nums[0]) await nums[0].setValue('2')
-    if (w.find('.select-hour').exists()) await w.get('.select-hour').trigger('click')
-    if (w.find('.select-day').exists()) await w.get('.select-day').trigger('click')
+    const nums = inDialog().findAll('input[type="number"]')
+    expect(nums[0]).toBeDefined()
+    await nums[0].setValue('2')
     const vm = w.vm as Record<string, any>
+    expect(vm.intervalUnit).toBe('minute')
+    const unitTrigger = () => inDialog().get('button[aria-label="间隔单位"]')
+    await pickSelectOption(unitTrigger(), '小时')
+    expect(vm.intervalUnit).toBe('hour')
+    await pickSelectOption(unitTrigger(), '天')
+    expect(vm.intervalUnit).toBe('day')
     vm.form.inputJson = '{bad'
     expect(vm.inputJsonError).toBeTruthy()
     vm.form.inputJson = ''

@@ -1,3 +1,34 @@
+// 文件说明：runtime_test.go — godatabase/ducklake 的单元测试（TestPhase1_DuckDBVersionAndExtensions、TestPhase1_CreateInsertTransactionTimeTravelChangeFeed 等）
+//
+// 用法
+//
+//	go test ./godatabase/ducklake -run 'TestPhase1_DuckDBVersionAndExtensions|TestPhase1_CreateInsertTransactionTimeTravelChangeFeed|TestPhase1_ResourceLimitsAndSingleConn|TestPhase1_AllowedDirectoriesBlocksEscape'
+//	同包调用：openTestLake() → c4_syncer_lease_test.go, c4_syncer_ordering_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app, internal/systemdb
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/ducklake/runtime_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] c4_syncer_lease_test.go, c4_syncer_ordering_test.go, catalog_syncer.go, catalog_syncer_test.go, coverage_test.go 等 35 个
+//	[关键引用] openTestLake ← c4_syncer_lease_test.go, c4_syncer_ordering_test.go
+//
+// 主要符号
+//
+//	openTestLake(t *testing.T) (*sql.DB, Layout)
+//	TestPhase1_DuckDBVersionAndExtensions(t *testing.T)
+//	TestPhase1_CreateInsertTransactionTimeTravelChangeFeed(t *testing.T)
+//	TestPhase1_ResourceLimitsAndSingleConn(t *testing.T)
+//	TestPhase1_AllowedDirectoriesBlocksEscape(t *testing.T)
+//	TestPhase1_DataInliningAndCatalogBackup(t *testing.T)
+//	TestPhase1_QueryExecuteSerializeTypes(t *testing.T)
+//	TestPhase1_CommitMessageAndSnapshots(t *testing.T)
+//	... 另有 1 个顶层符号
+
 package ducklake
 
 import (

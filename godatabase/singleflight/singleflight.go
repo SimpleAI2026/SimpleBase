@@ -1,3 +1,33 @@
+// 文件说明：singleflight.go — godatabase/singleflight 中 Group 等符号的实现
+//
+// 用法
+//
+//	type Group struct{…}  // Group 是按 key 的单飞组
+//
+// 调用架构
+//
+//	[上游] godatabase/lease
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/singleflight/singleflight.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] singleflight_test.go
+//	[关键引用] Group ← singleflight_test.go
+//
+// 主要符号
+//
+//	var ErrInFlight
+//	var errPanicked
+//	type call struct{…}
+//	type Group struct{…}
+//	(g *Group[T]) Do(key string, fn func() (T, error)) (T, error)
+//	(g *Group[T]) TryDo(key string, fn func() (T, error)) (T, error)
+//	(g *Group[T]) Forget(key string)
+//	(g *Group[T]) InFlight(key string) bool
+//	... 另有 2 个顶层符号
+
 package singleflight
 
 import (

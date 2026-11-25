@@ -1,3 +1,28 @@
+// 文件说明：hub_test.go — gosandbox/stream 的单元测试（TestHubReplaysHistoryToLateSubscriber、TestHubSubscribersDoNotStealFromEachOther 等）
+//
+// 用法
+//
+//	go test ./gosandbox/stream -run 'TestHubReplaysHistoryToLateSubscriber|TestHubSubscribersDoNotStealFromEachOther|TestHubEOFAndCloseUnblock|TestHubBoundedReplayDropsOldest'
+//
+// 调用架构
+//
+//	[上游] internal/sandbox
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/stream/hub_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] hub.go
+//
+// 主要符号
+//
+//	readAll(t *testing.T, s *Subscription, want string) string
+//	TestHubReplaysHistoryToLateSubscriber(t *testing.T)
+//	TestHubSubscribersDoNotStealFromEachOther(t *testing.T)
+//	TestHubEOFAndCloseUnblock(t *testing.T)
+//	TestHubBoundedReplayDropsOldest(t *testing.T)
+
 package stream
 
 import (

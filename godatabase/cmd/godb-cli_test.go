@@ -1,3 +1,27 @@
+// 文件说明：godb-cli_test.go — godatabase/cmd 的单元测试（TestSQLReadOnlyRejectsCTEDelete、TestSQLRWRoundtrip 等）
+//
+// 用法
+//
+//	go test ./godatabase/cmd -run 'TestSQLReadOnlyRejectsCTEDelete|TestSQLRWRoundtrip|TestKVRoundtrip|TestSnapshotExport'
+//
+// 调用架构
+//
+//	[上游] 无（可执行入口）
+//	[本文件] godatabase/cmd/godb-cli_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] cli_env.go, cli_output.go, godb-cli.go
+//
+// 主要符号
+//
+//	setupEnv(t *testing.T) env
+//	TestSQLReadOnlyRejectsCTEDelete(t *testing.T)
+//	TestSQLRWRoundtrip(t *testing.T)
+//	TestKVRoundtrip(t *testing.T)
+//	TestSnapshotExport(t *testing.T)
+//	TestInvalidProjectIDSanitized(t *testing.T)
+
 package main
 
 import (

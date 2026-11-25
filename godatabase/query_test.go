@@ -1,3 +1,34 @@
+// 文件说明：query_test.go — godatabase 的单元测试（TestExecute_InsertReturnsRowsAffected、TestQuery_ReturnsRowsAndRespectsMaxRows 等）
+//
+// 用法
+//
+//	go test ./godatabase -run 'TestExecute_InsertReturnsRowsAffected|TestQuery_ReturnsRowsAndRespectsMaxRows|TestBatch_TransactionalRollsBackOnFailure|TestBatch_NonTransactionalStopsAtFailureButKeepsPriorResults'
+//	同包调用：newMemDB() → coverage_test.go
+//
+// 调用架构
+//
+//	[上游] godatabase/cache, godatabase/cmd, godatabase/ducklake, godatabase/filedb 等 16 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/query_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] coverage_test.go, dialect.go, errmatch.go, query.go, runtime.go 等 10 个
+//	[关键引用] newMemDB ← coverage_test.go
+//
+// 主要符号
+//
+//	newMemDB(t *testing.T) *sql.DB
+//	TestExecute_InsertReturnsRowsAffected(t *testing.T)
+//	TestQuery_ReturnsRowsAndRespectsMaxRows(t *testing.T)
+//	TestBatch_TransactionalRollsBackOnFailure(t *testing.T)
+//	TestBatch_NonTransactionalStopsAtFailureButKeepsPriorResults(t *testing.T)
+//	TestAccessModeString(t *testing.T)
+//	TestQuery_EmptyResultSet(t *testing.T)
+//	TestQuery_ContextCanceled(t *testing.T)
+//	... 另有 5 个顶层符号
+
 package godatabase
 
 import (

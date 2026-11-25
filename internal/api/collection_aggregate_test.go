@@ -1,3 +1,34 @@
+// 文件说明：collection_aggregate_test.go — internal/api 的单元测试（TestAggregateRealEngines、TestAggregateRejectsInvalid 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestAggregateRealEngines|TestAggregateRejectsInvalid|TestAggregateScanLimit|TestAggregatePointsRealEngines'
+//	同包调用：aggResult → schema_aggregate_engine_test.go；rowMap() → schema_aggregate_engine_test.go；toStr() → schema_aggregate_engine_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/collection_aggregate_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] aggResult ← schema_aggregate_engine_test.go；rowMap ← schema_aggregate_engine_test.go；toStr ← schema_aggregate_engine_test.go
+//
+// 主要符号
+//
+//	type aggResult struct{…}
+//	aggFixture(t *testing.T, engine string, scan int) func(query string) (int, aggResult, string)
+//	rowMap(res aggResult, key string) map[string][]any
+//	toStr(v any) string
+//	num(v any) float64
+//	TestAggregateRealEngines(t *testing.T)
+//	TestAggregateRejectsInvalid(t *testing.T)
+//	TestAggregateScanLimit(t *testing.T)
+//	... 另有 5 个顶层符号
+
 package api
 
 import (
@@ -14,6 +45,7 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/collection"
+	"github.com/linkxzhou/SimpleBase/internal/collection/query"
 )
 
 type aggResult struct {
@@ -339,12 +371,12 @@ func TestFoldSeriesCapsGroups(t *testing.T) {
 			rows = append(rows, []any{1.0, 2.0, "g" + string(rune('a'+i))})
 		}
 	}
-	foldSeries(rows, 2)
+	query.FoldSeries(rows, 2)
 	groups := map[string]bool{}
 	for _, row := range rows {
 		groups[row[2].(string)] = true
 	}
-	if len(groups) != aggregateSeriesCap || !groups["其他"] {
+	if len(groups) != query.SeriesCap || !groups["其他"] {
 		t.Fatalf("groups=%d %v", len(groups), groups)
 	}
 	// 次数最多的组必须保留。
@@ -353,7 +385,7 @@ func TestFoldSeriesCapsGroups(t *testing.T) {
 	}
 	// 不超过上限时不改动。
 	small := [][]any{{1.0, 2.0, "a"}, {1.0, 2.0, "b"}}
-	foldSeries(small, 2)
+	query.FoldSeries(small, 2)
 	if small[0][2] != "a" || small[1][2] != "b" {
 		t.Fatalf("small mutated: %v", small)
 	}
@@ -362,7 +394,7 @@ func TestFoldSeriesCapsGroups(t *testing.T) {
 // 漂移防护：cloudagent 提示词承诺的度量语法，服务端必须全部接受（planv6.7 §3.4）。
 func TestAggregateMetricKindsAccepted(t *testing.T) {
 	get := aggFixture(t, catalog.EngineSQLite, 0)
-	for _, kind := range aggregateMetricKinds {
+	for _, kind := range query.MetricKinds {
 		metric := kind
 		switch kind {
 		case "count":

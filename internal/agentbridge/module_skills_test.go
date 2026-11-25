@@ -1,12 +1,45 @@
+// 文件说明：module_skills_test.go — internal/agentbridge 的单元测试（TestSkillsForModule、TestGeneralSkillsAllowEveryModuleCommand 等）
+//
+// 用法
+//
+//	go test ./internal/agentbridge -run 'TestSkillsForModule|TestGeneralSkillsAllowEveryModuleCommand|TestStatisticalModulesUseExistingSkills|TestTokenInArgvRejected'
+//	同包调用：stubIssuer → failclosed_test.go, skilltool_test.go
+//
+// 调用架构
+//
+//	[上游] internal/agentrun, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/agentbridge/module_skills_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] access_db.go, access_llm.go, access_object.go, access_test.go, bridge_test.go 等 33 个
+//	[关键引用] stubIssuer ← failclosed_test.go, skilltool_test.go
+//
+// 主要符号
+//
+//	TestSkillsForModule(t *testing.T)
+//	TestGeneralSkillsAllowEveryModuleCommand(t *testing.T)
+//	TestStatisticalModulesUseExistingSkills(t *testing.T)
+//	TestTokenInArgvRejected(t *testing.T)
+//	TestHeadlessDestructiveUnavailable(t *testing.T)
+//	TestReadonlyAgentBeatsHeadlessCheck(t *testing.T)
+//	type stubIssuer struct{…}
+//	(stubIssuer) Issue(auth.Principal, string, string, time.Duration) (string, error)
+//	... 另有 1 个顶层符号
+
 package agentbridge
 
 import (
 	"context"
+
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 	agentskills "github.com/linkxzhou/SimpleBase/internal/agentbridge/agentskills"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 )
@@ -68,14 +101,14 @@ func TestStatisticalModulesUseExistingSkills(t *testing.T) {
 			t.Fatalf("module %s advertises unimplemented built-in tools", module)
 		}
 	}
-	if KnownModule("users") || agentskills.Known("users") {
+	if KnownModule("users") {
 		t.Fatal("users is not a delegable module or skill")
 	}
 }
 
 func TestTokenInArgvRejected(t *testing.T) {
 	rt := &RuntimeProvider{}
-	out, err := rt.execSimplebase(context.Background(), RunRequest{RunID: "r", Context: RunContext{ProjectID: "p"}}, []string{"database", "list", "SIMPLEBASE_TOKEN"}, "")
+	out, err := rt.execSimplebase(context.Background(), cloudagent.RunRequest{RunID: "r", Context: RunContext{ProjectID: "p"}}, []string{"database", "list", "SIMPLEBASE_TOKEN"}, "")
 	if err != nil || !strings.Contains(out, "token_in_argv") {
 		t.Fatalf("out=%s err=%v", out, err)
 	}

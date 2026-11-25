@@ -1,3 +1,34 @@
+// 文件说明：key_test.go — godatabase/kv 的单元测试（TestKeyGetAndDelete、TestKeyCount 等）
+//
+// 用法
+//
+//	go test ./godatabase/kv -run 'TestKeyGetAndDelete|TestKeyCount|TestKeyExpirePersist|TestKeyExpireImmediate'
+//	同包调用：testBaseTime() → k3_batch_test.go, string_test.go
+//
+// 调用架构
+//
+//	[上游] godatabase/cmd, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/kv/key_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] bugfix_test.go, collections_test.go, conn_schema_test.go, core.go, executor.go 等 20 个
+//	[关键引用] testBaseTime ← k3_batch_test.go, string_test.go
+//
+// 主要符号
+//
+//	testBaseTime() time.Time
+//	TestKeyGetAndDelete(t *testing.T)
+//	TestKeyCount(t *testing.T)
+//	TestKeyExpirePersist(t *testing.T)
+//	TestKeyExpireImmediate(t *testing.T)
+//	TestKeyRename(t *testing.T)
+//	TestKeyScan(t *testing.T)
+//	TestHasSchemaLazy(t *testing.T)
+//	... 另有 2 个顶层符号
+
 package kv
 
 import (

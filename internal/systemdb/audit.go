@@ -18,10 +18,11 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/linkxzhou/SimpleBase/godatabase/limit"
+	"github.com/linkxzhou/SimpleBase/internal/auth"
 )
 
 // AuditEvent 是 sys_audit_events 一行。
-// Actor 域分隔：user:<id> | key:<id> | enduser:<id> | system。
+// Actor 域分隔：user:<id> | key:<id> | enduser:<id> | system | system:<name>（见 auth.Principal.Actor / auth.Actor*）。
 type AuditEvent struct {
 	ID         string    `json:"id"`
 	OccurredAt time.Time `json:"occurred_at"`
@@ -55,7 +56,7 @@ func (s *Store) RecordAudit(ev AuditEvent) {
 		ev.OccurredAt = time.Now().UTC()
 	}
 	if ev.Actor == "" {
-		ev.Actor = "system"
+		ev.Actor = auth.ActorSystem
 	}
 	ev.Kind = strings.TrimSpace(ev.Kind)
 	if ev.Kind == "" {
@@ -90,14 +91,16 @@ func (s *Store) RecordAudit(ev AuditEvent) {
 // FlushAudits 将缓冲审计写入 sys_audit_events（同步兜底路径；后台 flusher
 // 走 flushAllAsync 同一事务的 insertAudits）。
 func (s *Store) FlushAudits(ctx context.Context) error {
-	if s == nil || s.db == nil {
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
 		return nil
 	}
+
 	batch := s.drainAudits()
 	if len(batch) == 0 {
 		return nil
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := sqlDB.BeginTx(ctx, nil)
 	if err != nil {
 		s.requeueAudits(batch)
 		return err
@@ -148,9 +151,11 @@ func (s *Store) requeueAudits(batch []AuditEvent) {
 
 // QueryAudits 按条件查询系统审计事件（时间倒序）。
 func (s *Store) QueryAudits(ctx context.Context, q AuditQuery) ([]AuditEvent, error) {
-	if s == nil || s.db == nil {
-		return nil, ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return nil, connErr
 	}
+
 	q.Limit = limit.Normalize(q.Limit, 50, 200)
 	sqlStr := `SELECT id, occurred_at, actor, project_id, kind, detail FROM sys_audit_events WHERE 1=1`
 	args := []any{}
@@ -172,7 +177,7 @@ func (s *Store) QueryAudits(ctx context.Context, q AuditQuery) ([]AuditEvent, er
 	}
 	sqlStr += " ORDER BY occurred_at DESC LIMIT ?"
 	args = append(args, int64(q.Limit))
-	rows, err := s.db.QueryContext(ctx, sqlStr, args...)
+	rows, err := sqlDB.QueryContext(ctx, sqlStr, args...)
 	if err != nil {
 		return nil, err
 	}

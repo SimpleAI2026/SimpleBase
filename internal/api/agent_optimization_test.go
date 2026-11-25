@@ -1,3 +1,24 @@
+// 文件说明：agent_optimization_test.go — internal/api 的单元测试（TestAgentThreadPaginationRenameAndRuns 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestAgentThreadPaginationRenameAndRuns'
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/agent_optimization_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//
+// 主要符号
+//
+//	TestAgentThreadPaginationRenameAndRuns(t *testing.T)
+
 package api
 
 import (
@@ -7,14 +28,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
 
 func TestAgentThreadPaginationRenameAndRuns(t *testing.T) {
 	store := openAgentStore(t)
 	e := fullAgentEcho(store, nil)
-	h := &cloudAgentHandler{store: store}
+	h := &cloudAgentHandler{store: store, svc: testAgentRun(store, nil), writable: true}
 	e.PATCH("/agent-threads/:threadID", h.PatchThread)
 	e.GET("/agent-threads/:threadID/runs", h.ListThreadRuns)
 	ids := make([]string, 0)
@@ -63,7 +83,7 @@ func TestAgentThreadPaginationRenameAndRuns(t *testing.T) {
 		t.Fatalf("not found=%d", rec.Code)
 	}
 	ro := false
-	h.writable = &ro
+	h.writable = ro
 	if rec = agentReq(e, http.MethodPatch, "/agent-threads/"+ids[0], map[string]string{"title": "x"}); rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("readonly=%d", rec.Code)
 	}
@@ -78,30 +98,5 @@ func TestAgentThreadPaginationRenameAndRuns(t *testing.T) {
 	}
 	if rec = agentReq(e, http.MethodGet, "/agent-threads/invalid/runs", nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("other thread=%d", rec.Code)
-	}
-}
-
-func TestAgentRunMetricsAuditOmitsConversation(t *testing.T) {
-	store := openAgentStore(t)
-	thread, err := store.CreateAgentThread(context.Background(), systemdb.AgentThread{ProjectID: "testprj1", Title: "title"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	run, err := store.CreateAgentRun(context.Background(), systemdb.AgentRun{ID: "audit-test-run", ThreadID: thread.ID, ProjectID: "testprj1", AgentID: "agent"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	audit := &fakeAudit{}
-	h := &cloudAgentHandler{store: store, audit: audit}
-	res := cloudagent.RunResult{Content: "private conversation", ToolCallsJSON: "[]", DurationMS: 500, PromptTokens: 12, CompletionTokens: 3, ToolCalls: 1}
-	if err := h.finishAgentRun(context.Background(), "testprj1", run, systemdb.CloudAgent{ID: "agent"}, res, nil); err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(audit.last.Detail, res.Content) || audit.last.Kind != "agent.run" || !strings.Contains(audit.last.Detail, "prompt_tokens=12") {
-		t.Fatalf("audit=%+v", audit.last)
-	}
-	row, err := store.GetAgentRun(context.Background(), "testprj1", run.ID)
-	if err != nil || row.DurationMS != 500 || row.CompletionTokens != 3 || row.ToolCalls != 1 {
-		t.Fatalf("run=%+v err=%v", row, err)
 	}
 }

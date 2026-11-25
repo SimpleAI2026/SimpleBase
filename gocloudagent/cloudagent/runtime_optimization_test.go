@@ -1,3 +1,32 @@
+// 文件说明：runtime_optimization_test.go — gocloudagent/cloudagent 的单元测试（TestAgentStreamForwardsBeforeUpstreamCompletes、TestAgentStreamToolPrefixAndLiteral 等）
+//
+// 用法
+//
+//	go test ./gocloudagent/cloudagent -run 'TestAgentStreamForwardsBeforeUpstreamCompletes|TestAgentStreamToolPrefixAndLiteral|TestAgentHistoryIncludesToolResults|TestAgentRunToolEventsHaveMatchingCallID'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/cloudagent/runtime_optimization_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] callgate.go, callgate_test.go, confirmation.go, confirmation_test.go, errors.go 等 32 个
+//
+// 主要符号
+//
+//	type blockingStream struct{…}
+//	(s *blockingStream) Next() (string, bool, error)
+//	(*blockingStream) Close() error
+//	type blockingChat struct{…}
+//	(*blockingChat) Chat(context.Context, string, ChatRequest) (ChatResponse, error)
+//	(c *blockingChat) Stream(context.Context, string, ChatRequest) (TokenStream, error)
+//	TestAgentStreamForwardsBeforeUpstreamCompletes(t *testing.T)
+//	TestAgentStreamToolPrefixAndLiteral(t *testing.T)
+//	... 另有 3 个顶层符号
+
 package cloudagent
 
 import (

@@ -38,6 +38,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/functionrun"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
@@ -177,7 +178,7 @@ func (d *Dispatcher) execute(item task) {
 			case <-timer.C:
 			}
 		}
-		_, err := d.runner.Run(d.ctx, functionrun.Request{ProjectID: item.trigger.ProjectID, FuncFile: item.trigger.FuncFile, FuncExport: item.trigger.FuncExport, Input: payload, Channel: "trigger", RequestID: item.trigger.ID, Actor: "trigger"})
+		_, err := d.runner.Run(d.ctx, functionrun.Request{ProjectID: item.trigger.ProjectID, FuncFile: item.trigger.FuncFile, FuncExport: item.trigger.FuncExport, Input: payload, Channel: "trigger", RequestID: item.trigger.ID, Actor: auth.ActorTrigger})
 		if err == nil {
 			return
 		}

@@ -1,3 +1,26 @@
+// 文件说明：export_test.go — gofunction/internal/interp 的测试辅助代码
+//
+// 用法
+//
+//	同包调用：runFrame() → gaps_test.go, interp_path_test.go；testLayout() → instruction_test.go
+//
+// 调用架构
+//
+//	[上游] gofunction
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/internal/interp/export_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] bench_test.go, cachetest_test.go, call.go, call_test.go, cheap_test.go 等 40 个
+//	[关键引用] runFrame ← gaps_test.go, interp_path_test.go；testLayout ← instruction_test.go
+//
+// 主要符号
+//
+//	runFrame(fr *frame)
+//	testLayout(vals ...ssa.Value) *funcLayout
+
 package interp
 
 import (

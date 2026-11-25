@@ -1,3 +1,25 @@
+// 文件说明：limit_test.go — godatabase/limit 的单元测试（TestNormalize、TestClamp 等）
+//
+// 用法
+//
+//	go test ./godatabase/limit -run 'TestNormalize|TestClamp'
+//
+// 调用架构
+//
+//	[上游] godatabase/blob, internal/audit, internal/auth, internal/catalog 等 7 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/limit/limit_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] limit.go
+//
+// 主要符号
+//
+//	TestNormalize(t *testing.T)
+//	TestClamp(t *testing.T)
+
 package limit
 
 import "testing"

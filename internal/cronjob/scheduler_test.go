@@ -1,3 +1,34 @@
+// 文件说明：scheduler_test.go — internal/cronjob 的单元测试（TestScheduler_DueClaimExecute、TestScheduler_CronKindAdvance 等）
+//
+// 用法
+//
+//	go test ./internal/cronjob -run 'TestScheduler_DueClaimExecute|TestScheduler_CronKindAdvance|TestScheduler_ClaimConflict|TestScheduler_BadCronDisabled'
+//	同包调用：fakeRunner → agent_target_test.go, scheduler_tick_execute_test.go；fakeStore → scheduler_tick_execute_test.go；newFakeStore() → agent_target_test.go, scheduler_lifecycle_test.go
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/cronjob/scheduler_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_target_test.go, scheduler.go, scheduler_lifecycle_test.go, scheduler_tick_execute_test.go
+//	[关键引用] fakeRunner ← agent_target_test.go, scheduler_tick_execute_test.go；fakeStore ← scheduler_tick_execute_test.go；newFakeStore ← agent_target_test.go, scheduler_lifecycle_test.go
+//
+// 主要符号
+//
+//	type fakeRunner struct{…}
+//	(f *fakeRunner) RunFunction(ctx context.Context, projectID, file, export string, input json.RawMessage) ([]byt...
+//	(f *fakeRunner) callCount() int
+//	type fakeStore struct{…}
+//	newFakeStore(jobs ...systemdb.CronJob) *fakeStore
+//	(f *fakeStore) GetCronJob(ctx context.Context, projectID, id string) (systemdb.CronJob, error)
+//	(f *fakeStore) ListDueCronJobs(ctx context.Context, now time.Time, limit int) ([]systemdb.CronJob, error)
+//	(f *fakeStore) ClaimCronJob(ctx context.Context, id string, expectNext, newNext, lastRun time.Time) (bool, err...
+//	... 另有 14 个顶层符号
+
 package cronjob
 
 import (

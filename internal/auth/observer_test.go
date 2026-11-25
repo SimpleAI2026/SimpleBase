@@ -1,3 +1,32 @@
+// 文件说明：observer_test.go — internal/auth 的单元测试（TestPrincipalFromClaimsObserverStages、TestPrincipalFromClaimsLockWaitObservable 等）
+//
+// 用法
+//
+//	go test ./internal/auth -run 'TestPrincipalFromClaimsObserverStages|TestPrincipalFromClaimsLockWaitObservable|TestRefreshObserverSessionLoad|TestAPIKeyObserverCacheStates'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/api/perfbench 等 9 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/auth/observer_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] api_key_repository.go, authenticate_middleware_test.go, cache.go, cache_test.go, cached_user_test.go 等 31 个
+//
+// 主要符号
+//
+//	type recordingAuthObserver struct{…}
+//	type recordedStage struct{…}
+//	(r *recordingAuthObserver) ObserveAuthStage(_ context.Context, stage AuthStage, d time.Duration)
+//	(r *recordingAuthObserver) ObserveAuthCache(_ context.Context, state AuthCacheState)
+//	(r *recordingAuthObserver) hasStage(s AuthStage) bool
+//	(r *recordingAuthObserver) lastCache() AuthCacheState
+//	type blockingUserRepo struct{…}
+//	(b *blockingUserRepo) GetByID(ctx context.Context, id string) (User, error)
+//	... 另有 4 个顶层符号
+
 // observer_test.go 验证 planv5.0 §4 P0.1 的认证阶段观测：
 // 锁等待/缓存命中/查用户/项目集分段在命中与未命中路径都正确上报。
 package auth

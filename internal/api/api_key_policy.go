@@ -32,6 +32,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/linkxzhou/SimpleBase/internal/collection"
 	"strings"
 	"time"
 
@@ -79,7 +80,7 @@ func validateAPIKeyPolicy(input *apiKeyPolicyInput) error {
 		}
 	}
 	for _, name := range append(append([]string{}, input.HiddenFields...), input.ReadonlyFields...) {
-		if !fieldNamePattern.MatchString(name) {
+		if !collection.FieldNamePattern.MatchString(name) {
 			return fmt.Errorf("invalid field scope")
 		}
 	}

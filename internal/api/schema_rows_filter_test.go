@@ -1,3 +1,29 @@
+// 文件说明：schema_rows_filter_test.go — internal/api 的单元测试（TestTableRowsFilterAppliesToCountAndPage、TestTableRowsWithoutFilterIsUnchanged 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestTableRowsFilterAppliesToCountAndPage|TestTableRowsWithoutFilterIsUnchanged|TestTableRowsFilterRejectsUnknownAndUnsafe|TestTableRowsFilterHidesSensitiveColumnsOnSystemDatabase'
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/schema_rows_filter_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//
+// 主要符号
+//
+//	rowsURL(table string, q url.Values) string
+//	TestTableRowsFilterAppliesToCountAndPage(t *testing.T)
+//	TestTableRowsWithoutFilterIsUnchanged(t *testing.T)
+//	TestTableRowsFilterRejectsUnknownAndUnsafe(t *testing.T)
+//	TestTableRowsFilterHidesSensitiveColumnsOnSystemDatabase(t *testing.T)
+//	TestTableRowsFilterRealEngines(t *testing.T)
+
 package api
 
 import (

@@ -1,3 +1,31 @@
+// 文件说明：facade_test.go — gofunction 的单元测试（TestFacadeRun、TestFacadeBuildProgramAndGlobals 等）
+//
+// 用法
+//
+//	go test ./gofunction -run 'TestFacadeRun|TestFacadeBuildProgramAndGlobals|TestFacadeTypeAliases|TestFacadeParseFuncList'
+//
+// 调用架构
+//
+//	[上游] gofunction/bench, gofunction/cmd, internal/api, internal/app 等 5 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/facade_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] gofunction.go, jsonrun.go
+//
+// 主要符号
+//
+//	const src
+//	TestFacadeRun(t *testing.T)
+//	TestFacadeBuildProgramAndGlobals(t *testing.T)
+//	TestFacadeTypeAliases(t *testing.T)
+//	TestFacadeParseFuncList(t *testing.T)
+//	TestFacadeValidateAndRunJSON(t *testing.T)
+//	TestFacadeErrorSentinels(t *testing.T)
+//	TestFacadeSetLoggerAndDebugOutput(t *testing.T)
+
 package gofunction
 
 import (

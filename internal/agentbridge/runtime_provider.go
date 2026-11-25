@@ -1,3 +1,33 @@
+// 文件说明：runtime_provider.go — internal/agentbridge 中 RuntimeProvider 等符号的实现
+//
+// 用法
+//
+//	type RuntimeProvider struct{…}  // RuntimeProvider adapts SimpleBase resources to the generic agent runtime.
+//
+// 调用架构
+//
+//	[上游] internal/agentrun, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/agentbridge/runtime_provider.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] access_db.go, access_llm.go, access_object.go, access_test.go, bridge_test.go 等 33 个
+//	[关键引用] RuntimeProvider ← failclosed_test.go, module_skills_test.go
+//
+// 主要符号
+//
+//	type RuntimeProvider struct{…}
+//	(p *RuntimeProvider) Prepare(ctx context.Context, req cloudagent.RunRequest, emit func(cloudagent.Event)) (clo...
+//	(p *RuntimeProvider) resolveModelName(ctx context.Context, req cloudagent.RunRequest, rc RunContext) string
+//	(p *RuntimeProvider) buildInstruction(ctx context.Context, req cloudagent.RunRequest, rc RunContext) string
+//	(p *RuntimeProvider) buildSnapshot(ctx context.Context, req cloudagent.RunRequest, rc RunContext) string
+//	(p *RuntimeProvider) trace() cloudagent.Tracer
+//	(p *RuntimeProvider) confirmTimeout() time.Duration
+//	(p *RuntimeProvider) delegationTTL() time.Duration
+//	... 另有 3 个顶层符号
+
 package agentbridge
 
 import (
@@ -35,10 +65,10 @@ type RuntimeProvider struct {
 
 	mu     sync.Mutex
 	tokens map[string]string
-	gate   *callGate
+	gate   cloudagent.ToolCallGate
 }
 
-func (p *RuntimeProvider) Prepare(ctx context.Context, req RunRequest, emit func(Event)) (cloudagent.RunPreparation, error) {
+func (p *RuntimeProvider) Prepare(ctx context.Context, req cloudagent.RunRequest, emit func(cloudagent.Event)) (cloudagent.RunPreparation, error) {
 	rc, err := hostContext(req.Context)
 	prep := cloudagent.RunPreparation{ModelScope: rc.ProjectID, Cleanup: func() {}}
 	if err != nil {
@@ -69,19 +99,20 @@ func (p *RuntimeProvider) Prepare(ctx context.Context, req RunRequest, emit func
 				func() { p.Issuer.RevokeRun(req.RunID) },
 			)
 		}
-		cleanups = append(cleanups, func() { p.ensureGate().dropRun(req.RunID) })
+		cleanups = append(cleanups, func() { p.gate.DropRun(req.RunID) })
 		prep.Tools, err = p.buildSkillTools(req)
-		prep.OnToolCall = func(callID string) { p.ensureGate().release(req.RunID, callID) }
+		prep.OnToolCall = func(callID string) { p.gate.Release(req.RunID, callID) }
 	} else {
 		prep.Tools, err = buildTools(req.Agent.ToolIDs, toolDeps{DB: p.DB, Obj: p.Obj, Logs: p.Logs, Sandbox: p.Sandbox})
 	}
 	if err != nil {
 		return prep, err
 	}
+	prep.Tools = append(prep.Tools, rc.ExtraTools...)
 	return prep, nil
 }
 
-func (p *RuntimeProvider) resolveModelName(ctx context.Context, req RunRequest, rc RunContext) string {
+func (p *RuntimeProvider) resolveModelName(ctx context.Context, req cloudagent.RunRequest, rc RunContext) string {
 	model := strings.TrimSpace(req.Agent.ModelOverride)
 	if model == "" && p.Settings != nil {
 		if settings, err := p.Settings.LLMSettings(ctx, rc.ProjectID); err == nil {
@@ -91,11 +122,8 @@ func (p *RuntimeProvider) resolveModelName(ctx context.Context, req RunRequest, 
 	return model
 }
 
-func (p *RuntimeProvider) buildInstruction(ctx context.Context, req RunRequest, rc RunContext) string {
+func (p *RuntimeProvider) buildInstruction(ctx context.Context, req cloudagent.RunRequest, rc RunContext) string {
 	moduleTemplate := moduleTemplate(req.Agent.Module)
-	if rc.PlanStage != "" {
-		moduleTemplate += "\n\n" + PlanStagePrompt(rc.PlanStage)
-	}
 	parts := PromptParts{
 		ModuleTemplate: moduleTemplate,
 		AgentPrompt:    req.Agent.SystemPrompt,
@@ -110,12 +138,6 @@ func (p *RuntimeProvider) buildInstruction(ctx context.Context, req RunRequest, 
 		if len(rc.Skills) > 0 {
 			parts.ProjectEnv += "\n- skills: " + strings.Join(rc.Skills, ",")
 		}
-		if rc.PlanStage != "" {
-			parts.ProjectEnv += "\n- plan_stage: " + string(rc.PlanStage)
-			if len(rc.ReadOnlySkills) > 0 {
-				parts.ProjectEnv += "\n- readonly_skills: " + strings.Join(rc.ReadOnlySkills, ",")
-			}
-		}
 		if !slices.Contains(rc.Skills, ModuleDatabase) && req.Agent.Module != ModuleDatabase {
 			parts.Snapshot = ""
 		}
@@ -123,7 +145,7 @@ func (p *RuntimeProvider) buildInstruction(ctx context.Context, req RunRequest, 
 	return AssembleInstruction(parts)
 }
 
-func (p *RuntimeProvider) buildSnapshot(ctx context.Context, req RunRequest, rc RunContext) string {
+func (p *RuntimeProvider) buildSnapshot(ctx context.Context, req cloudagent.RunRequest, rc RunContext) string {
 	var b strings.Builder
 	b.WriteString("Readonly snapshot (truncated, no secrets):\n")
 	switch req.Agent.Module {
@@ -180,7 +202,7 @@ func (p *RuntimeProvider) buildSnapshot(ctx context.Context, req RunRequest, rc 
 	return b.String()
 }
 
-func (p *RuntimeProvider) trace() tracer {
+func (p *RuntimeProvider) trace() cloudagent.Tracer {
 	return cloudagent.NewTracer(p.Logger, p.TraceLog)
 }
 

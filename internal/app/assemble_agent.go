@@ -7,7 +7,7 @@ import (
 
 	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
-	"github.com/linkxzhou/SimpleBase/internal/api"
+	"github.com/linkxzhou/SimpleBase/internal/agentrun"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/config"
 	"github.com/linkxzhou/SimpleBase/internal/dbbridge"
@@ -16,10 +16,9 @@ import (
 	"go.uber.org/zap"
 )
 
-// assembleLLMService 装配 LLM Gateway 服务（原 assembleDeps 尾部
-// cfg.LLM.Enabled 连续块，B4 提取；resolver 链构造与优先级保持原样：
+// assembleLLMService 装配 LLM Gateway 服务。resolver 链优先级：
 // 项目动态凭据（sys_llm_settings）→ catalog CredentialRef → 实例 YAML
-// 供应商回退）。仅读取已装配的 a.catalog / a.systemStore / a.usageSvc /
+// 供应商回退。仅读取已装配的 a.catalog / a.systemStore / a.usageSvc /
 // a.logger，不重新创建任何依赖。
 func (a *App) assembleLLMService(cfg config.Config) llmgateway.Service {
 	// 设置页把模型连接（API Key / Base URL）写进 sys_llm_settings。每次请求现读该行，
@@ -33,11 +32,13 @@ func (a *App) assembleLLMService(cfg config.Config) llmgateway.Service {
 		resolver = llmgateway.NewFallbackResolver(resolver, inst)
 	}
 	// trace recorder 从 ctx 解 request_id 后缓冲进 sys_llm_traces（planv6.5）。
-	return llmgateway.NewService(resolver, usage.NewLLMRecorder(a.usageSvc), api.NewLLMTraceRecorder(a.systemStore), a.logger)
+	return llmgateway.NewService(resolver, usage.NewLLMRecorder(a.usageSvc), newLLMTraceRecorder(a.systemStore), a.logger)
 }
 
 // cloudAgentRuntime 装配云 Agent 运行时；沙盒按配置注入（cloud-agent-sandbox-plan §3.1）。
-func (a *App) cloudAgentRuntime() *cloudagent.Runtime {
+// confirms 是工具审批的进程内等待表（app 先构造），这里直接写进运行时与宿主 Provider——
+// router 不再在构造期回写共享运行时（internal-ddd-hexagonal-implementation-plan P3）。
+func (a *App) cloudAgentRuntime(confirms *agentrun.ConfirmHub) *cloudagent.Runtime {
 	if a.systemStore == nil {
 		return nil
 	}
@@ -48,7 +49,7 @@ func (a *App) cloudAgentRuntime() *cloudagent.Runtime {
 		}
 	}
 	if a.cfg.Agent.SkillsCLI && a.logger != nil {
-		if failure := agentbridge.ValidateCLIPath(cliPath); failure != "" {
+		if failure := cloudagent.ValidateExecutable(cliPath); failure != "" {
 			a.logger.Warn("cloud agent CLI unavailable", zap.String("reason", failure))
 		} else {
 			a.logger.Info("cloud agent CLI ready", zap.String("path", cliPath))
@@ -57,8 +58,8 @@ func (a *App) cloudAgentRuntime() *cloudagent.Runtime {
 	reg := auth.NewDelegationRegistry()
 	a.delegations = reg
 	provider := &agentbridge.RuntimeProvider{
-		DB:             api.NewCloudAgentDB(a.catalog, dbbridge.RegistryFrom(a.registry)),
-		Obj:            api.NewCloudAgentObj(a.fileStore, a.systemStore),
+		DB:             agentbridge.NewCloudAgentDB(a.catalog, dbbridge.RegistryFrom(a.registry)),
+		Obj:            agentbridge.NewCloudAgentObj(a.fileStore, a.systemStore),
 		Logs:           agentbridge.NewLogAccess(a.systemStore),
 		Settings:       agentbridge.NewSettingsAccess(a.systemStore),
 		SkillsCLI:      a.cfg.Agent.SkillsCLI,
@@ -72,15 +73,16 @@ func (a *App) cloudAgentRuntime() *cloudagent.Runtime {
 		ToolProtocol:   a.cfg.LLM.EffectiveAgentToolProtocol(),
 		Logger:         a.logger,
 		TraceLog:       a.cfg.Agent.TraceLog,
+		Confirm:        confirms,
 	}
 	if a.sandboxMgr != nil && a.sandboxMgr.Available() {
 		provider.Sandbox = &sandboxAdapter{m: a.sandboxMgr}
 	}
 	rt := &cloudagent.Runtime{
-		LLM: api.NewCloudAgentLLM(api.NewLLMService(a.llmSvc)), Provider: provider,
+		LLM: agentbridge.NewCloudAgentLLM(a.llmSvc), Provider: provider,
 		MaxIterations: a.cfg.LLM.EffectiveAgentMaxIterations(), RunTimeout: a.cfg.LLM.EffectiveAgentRunTimeout(),
 		ToolProtocol: a.cfg.LLM.EffectiveAgentToolProtocol(), ConfirmTimeout: a.cfg.Agent.EffectiveConfirmTimeout(),
-		Logger: a.logger, TraceLog: a.cfg.Agent.TraceLog,
+		Logger: a.logger, TraceLog: a.cfg.Agent.TraceLog, Confirm: confirms,
 	}
 	// MCP（planv6.2 §6-4）：默认关闭；关闭时不装配连接器，
 	// Agent 保存 mcp: 引用会被 api 层拒绝，run 也不会装配 MCP 工具。
@@ -94,6 +96,22 @@ func (a *App) cloudAgentRuntime() *cloudagent.Runtime {
 		rt.MCPPolicy = agentbridge.NewMCPPolicy(a.systemStore)
 	}
 	return rt
+}
+
+// assembleAgentRun 构造 Agent 协作应用服务：固定助手会话的 run、协作群轮次、群定时、审批与事件环。
+// 仓储经窄端口注入（*systemdb.Store 隐式满足）；配额 / 审计端口仅在对应服务存在时注入。
+func (a *App) assembleAgentRun(runtime *cloudagent.Runtime, confirms *agentrun.ConfirmHub) *agentrun.Service {
+	ports := agentrun.FromStore(a.systemStore)
+	if a.usageSvc != nil {
+		ports.Quota = a.usageSvc
+	}
+	if a.auditSvc != nil {
+		ports.Audit = a.auditSvc
+	}
+	return agentrun.NewService(agentrun.Config{
+		SkillsCLI: a.cfg.Agent.SkillsCLI,
+		Sandbox:   a.sandboxMgr != nil && a.sandboxMgr.Available(),
+	}, ports, runtime, confirms)
 }
 
 func instanceLLMProviders(in map[string]config.ProviderConfig) map[string]llmgateway.InstanceProvider {

@@ -1,4 +1,4 @@
-import { i18n, t } from '../locales'
+import { i18n, t } from '@/locales'
 
 /**
  * 当前界面语言对应的 BCP 47 标签，供 toLocaleString 使用。
@@ -32,6 +32,13 @@ export function formatTime(iso?: string, empty = '-'): string {
 export function formatErrorRate(ratio: number | null | undefined): string {
   if (ratio == null || !Number.isFinite(ratio)) return (0).toFixed(4)
   return (ratio * 100).toFixed(4)
+}
+
+/** 结果表单元格：null / undefined 显示 NULL，字符串原样，其余 JSON 序列化。 */
+export function formatCell(v: unknown): string {
+  if (v === null || v === undefined) return 'NULL'
+  if (typeof v === 'string') return v
+  return JSON.stringify(v)
 }
 
 export function errorMessage(error: unknown, fallback: string): string {

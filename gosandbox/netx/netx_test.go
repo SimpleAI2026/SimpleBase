@@ -1,3 +1,27 @@
+// 文件说明：netx_test.go — gosandbox/netx 的单元测试（TestParseMode、TestParseModeRejectsUnknown 等）
+//
+// 用法
+//
+//	go test ./gosandbox/netx -run 'TestParseMode|TestParseModeRejectsUnknown|TestPolicyZeroValueIsNone|TestErrUnsupportedSentinel'
+//
+// 调用架构
+//
+//	[上游] gosandbox/box, gosandbox/vm/box, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/netx/netx_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] netx.go, pasta_linux.go, pasta_other.go
+//
+// 主要符号
+//
+//	TestParseMode(t *testing.T)
+//	TestParseModeRejectsUnknown(t *testing.T)
+//	TestPolicyZeroValueIsNone(t *testing.T)
+//	TestErrUnsupportedSentinel(t *testing.T)
+
 package netx
 
 // netx_test.go：出网档位的解析。

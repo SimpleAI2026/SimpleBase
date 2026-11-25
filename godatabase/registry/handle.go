@@ -1,3 +1,35 @@
+// 文件说明：handle.go — godatabase/registry 中 Handle、Lease 等符号的实现
+//
+// 用法
+//
+//	type Handle struct{…}  // Handle 持有某个 logical database 唯一的 *sql.DB 及其运行时状态
+//	type Lease struct{…}  // Lease 是调用方持有的一次数据库访问租约
+//	同包调用：newHandle() → registry.go
+//
+// 调用架构
+//
+//	[上游] godatabase/cmd, godatabase/kv, internal/agentbridge, internal/api 等 7 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/registry/handle.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] coverage_test.go, evictor.go, registry.go, registry_test.go
+//	[关键引用] Handle ← registry.go；newHandle ← registry.go；Lease ← coverage_test.go, registry.go
+//
+// 主要符号
+//
+//	type handleState uint32
+//	const stateReady / stateClosing / stateClosed
+//	type Handle struct{…}
+//	newHandle(db godatabase.Spec, conn *sql.DB) *Handle
+//	(h *Handle) notifyIdle()
+//	(h *Handle) waitIdle(ctx context.Context) bool
+//	(h *Handle) touch()
+//	(h *Handle) isReady() bool
+//	... 另有 12 个顶层符号
+
 package registry
 
 import (
@@ -30,9 +62,12 @@ type Handle struct {
 	lastUsed  atomic.Int64 // UnixNano
 	closeOnce sync.Once
 
-	// P6：active 归零时关闭 idleDone 通知等待方，
-	// 替代 Remove/Shutdown 的 50ms 轮询。首次归零前为 nil。
-	idleDone atomic.Pointer[chan struct{}]
+	// P6：active 归零时关闭 idleCh 通知等待方，替代 Remove/Shutdown 的
+	// 50ms 轮询。首次归零前为 nil。idleMu 保护注册/发布的交错（B1：旧的
+	// 原子指针方案在 Release 置 nil 与等待者重读之间存在 nil 解引用窗口，
+	// 且多等待者互相覆盖 channel 会导致通知丢失）。
+	idleMu  sync.Mutex
+	idleCh chan struct{}
 
 	// onWrite 在写成功后回调（CatalogSyncer.MarkDirty 等）；只读 Query 不触发。
 	onWrite func(ctx context.Context, h *Handle) error
@@ -50,32 +85,34 @@ func newHandle(db godatabase.Spec, conn *sql.DB) *Handle {
 	return h
 }
 
-// notifyIdleLocked 在 active 变为 0 时（且仅一次）发布空闲通知。
-func (h *Handle) notifyIdleLocked() {
-	if ch := h.idleDone.Load(); ch != nil {
-		close(*ch)
-		h.idleDone.Store(nil)
+// notifyIdle 在 active 变为 0 时（且仅一次）发布空闲通知；幂等。
+func (h *Handle) notifyIdle() {
+	h.idleMu.Lock()
+	defer h.idleMu.Unlock()
+	if h.idleCh != nil {
+		close(h.idleCh)
+		h.idleCh = nil
 	}
 }
 
 // waitIdle 等待活跃引用清零（P6：事件通知，替代轮询）；受 ctx 控制。
+// 多个等待者共享同一 channel；被唤醒后重新检查 active（可能已被再次租用）。
 func (h *Handle) waitIdle(ctx context.Context) bool {
 	for {
+		h.idleMu.Lock()
 		if h.active.Load() == 0 {
+			h.idleMu.Unlock()
 			return true
 		}
-		ch := make(chan struct{})
-		h.idleDone.Store(&ch)
-		// 存储后再检查一次，防止 Release 在 Store 前完成导致永久阻塞。
-		if h.active.Load() == 0 {
-			h.idleDone.Store(nil)
-			return true
+		if h.idleCh == nil {
+			h.idleCh = make(chan struct{})
 		}
+		ch := h.idleCh
+		h.idleMu.Unlock()
 		select {
-		case <-*h.idleDone.Load():
+		case <-ch:
 			continue
 		case <-ctx.Done():
-			h.idleDone.Store(nil)
 			return false
 		}
 	}

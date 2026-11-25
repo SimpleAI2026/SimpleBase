@@ -1,3 +1,26 @@
+// 文件说明：function_trigger_handler_test.go — internal/api 的单元测试（TestFunctionTriggerHTTPAndRecordEndToEnd 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestFunctionTriggerHTTPAndRecordEndToEnd'
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/function_trigger_handler_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//
+// 主要符号
+//
+//	type recordEventPublisherFunc func(event collection.RecordEvent)
+//	(f recordEventPublisherFunc) PublishRecord(event collection.RecordEvent)
+//	TestFunctionTriggerHTTPAndRecordEndToEnd(t *testing.T)
+
 package api
 
 import (
@@ -11,12 +34,18 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
+	"github.com/linkxzhou/SimpleBase/internal/collection"
 	"github.com/linkxzhou/SimpleBase/internal/functionrun"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 	"github.com/linkxzhou/SimpleBase/internal/trigger"
 
 	_ "github.com/uglyer/go-sqlite3"
 )
+
+// recordEventPublisherFunc 把函数适配成 recordEventPublisher（测试用）。
+type recordEventPublisherFunc func(event collection.RecordEvent)
+
+func (f recordEventPublisherFunc) PublishRecord(event collection.RecordEvent) { f(event) }
 
 func TestFunctionTriggerHTTPAndRecordEndToEnd(t *testing.T) {
 	db, err := sql.Open("sqlite3", ":memory:")
@@ -55,7 +84,11 @@ func TestFunctionTriggerHTTPAndRecordEndToEnd(t *testing.T) {
 	})
 	e.POST("/function-triggers", handler.Create)
 	e.POST("/function-triggers/:id/invoke", handler.Invoke)
-	publisher := NewTriggerEventPublisher(dispatcher)
+	// 领域事件 → 触发器的翻译已归 app 私有（internal/app/event_fanout.go）；
+	// 这里用与 trigger.PublishRecord 等价的发布器驱动端到端链路。
+	publisher := recordEventPublisherFunc(func(event collection.RecordEvent) {
+		dispatcher.PublishRecord(trigger.Event{Kind: "record_change", ProjectID: event.ProjectID, Target: event.Collection, Action: event.Action, RecordID: event.RecordID, Changed: event.Changed, Data: event.Data})
+	})
 
 	rec := postJSON(t, e, http.MethodPost, "/function-triggers", `{"kind":"http","func_file":"handler","func_export":"Handle","enabled":true}`)
 	if rec.Code != http.StatusCreated {
@@ -73,8 +106,8 @@ func TestFunctionTriggerHTTPAndRecordEndToEnd(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create record trigger: %d %s", rec.Code, rec.Body.String())
 	}
-	publisher.PublishRecord(RecordEvent{ProjectID: "p1", Collection: "tasks", RecordID: "r1", Action: "create", Data: map[string]any{"status": "open"}})
-	publisher.PublishRecord(RecordEvent{ProjectID: "p1", Collection: "tasks", RecordID: "r2", Action: "create", Data: map[string]any{"status": "closed"}})
+	publisher.PublishRecord(collection.RecordEvent{ProjectID: "p1", Collection: "tasks", RecordID: "r1", Action: "create", Data: map[string]any{"status": "open"}})
+	publisher.PublishRecord(collection.RecordEvent{ProjectID: "p1", Collection: "tasks", RecordID: "r2", Action: "create", Data: map[string]any{"status": "closed"}})
 
 	deadline := time.Now().Add(30 * time.Second)
 	var count int

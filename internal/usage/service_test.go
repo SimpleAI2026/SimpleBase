@@ -1,3 +1,29 @@
+// 文件说明：service_test.go — internal/usage 的单元测试（TestRecordAndCheckQuota、TestQuotaZeroMeansUnlimited 等）
+//
+// 用法
+//
+//	go test ./internal/usage -run 'TestRecordAndCheckQuota|TestQuotaZeroMeansUnlimited|TestGetQuotaReturnsDefault'
+//	同包调用：newTestRepoForUsage() → record_test.go
+//
+// 调用架构
+//
+//	[上游] internal/agentrun, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/usage/service_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, record_test.go, service.go
+//	[关键引用] newTestRepoForUsage ← record_test.go
+//
+// 主要符号
+//
+//	newTestRepoForUsage(t *testing.T) catalog.Repository
+//	TestRecordAndCheckQuota(t *testing.T)
+//	TestQuotaZeroMeansUnlimited(t *testing.T)
+//	TestGetQuotaReturnsDefault(t *testing.T)
+
 package usage
 
 import (

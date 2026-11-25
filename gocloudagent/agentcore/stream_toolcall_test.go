@@ -1,3 +1,34 @@
+// 文件说明：stream_toolcall_test.go — gocloudagent/agentcore 的单元测试（TestStreamPureToolCallIsParsed、TestStreamToolCallWithTrailingNoiseStillRuns 等）
+//
+// 用法
+//
+//	go test ./gocloudagent/agentcore -run 'TestStreamPureToolCallIsParsed|TestStreamToolCallWithTrailingNoiseStillRuns|TestStreamProseBeforeToolCallStaysText'
+//	同包调用：chunkClient → stream_pump_test.go
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/cloudagent, gocloudagent/group, gocloudagent/plan 等 6 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/agentcore/stream_toolcall_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] emit_token_test.go, messages.go, model.go, model_internal_test.go, model_length_test.go 等 13 个
+//	[关键引用] chunkClient ← stream_pump_test.go
+//
+// 主要符号
+//
+//	type chunkStream struct{…}
+//	(s *chunkStream) Next() (string, bool, error)
+//	(s *chunkStream) Close() error
+//	type chunkClient struct{…}
+//	(c *chunkClient) Chat(context.Context, string, ChatRequest) (ChatResponse, error)
+//	(c *chunkClient) Stream(context.Context, string, ChatRequest) (TokenStream, error)
+//	streamOutcome(t *testing.T, chunks []string) (calls []string, text string)
+//	TestStreamPureToolCallIsParsed(t *testing.T)
+//	... 另有 2 个顶层符号
+
 package agentcore
 
 import (

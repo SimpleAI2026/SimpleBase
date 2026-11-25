@@ -1,3 +1,25 @@
+// 文件说明：fsx_test.go — gosandbox/internal/fsx 的单元测试（TestWriteAtomic、TestRemoveAllReadonlyDirectory 等）
+//
+// 用法
+//
+//	go test ./gosandbox/internal/fsx -run 'TestWriteAtomic|TestRemoveAllReadonlyDirectory'
+//
+// 调用架构
+//
+//	[上游] gosandbox/image, gosandbox/snapshot, gosandbox/vm/box, gosandbox/vm/local
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/internal/fsx/fsx_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] fsx.go
+//
+// 主要符号
+//
+//	TestWriteAtomic(t *testing.T)
+//	TestRemoveAllReadonlyDirectory(t *testing.T)
+
 package fsx
 
 import (

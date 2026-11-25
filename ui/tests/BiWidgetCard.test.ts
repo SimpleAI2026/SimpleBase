@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { toast } from 'vue-sonner'
 import BiWidgetCard from '@/components/bi/BiWidgetCard.vue'
 import BiDetailTable from '@/components/bi/BiDetailTable.vue'
-import { uiStubs } from '@/test/helpers'
+import { chooseFromPopover, installJsdomPolyfills, openPopover, popoverEl, realPopoverStubs, uiStubs } from '@/test/helpers'
 import type { AggregateResult, BiWidget } from '@/services/types'
 import type { BiRender } from '@/utils/bi-chart'
 
@@ -17,7 +17,10 @@ vi.mock('@/components/bi/BiChart.vue', () => ({
   }
 }))
 
-const stubs = { ...uiStubs, Button: false, Spinner: false }
+installJsdomPolyfills()
+
+/** 真实 Popover：「更多」菜单与列选择都在弹层里（teleport 到 body），挂到 document 才能找到。 */
+const stubs = { ...uiStubs, ...realPopoverStubs, Spinner: false, Switch: false }
 const widget = (over: Partial<BiWidget> = {}): BiWidget => ({ id: 'w1', title: '状态占比', type: 'pie', metrics: ['count'], groupBy: 'status', span: 6, ...over })
 const result = (rows: unknown[][] = [['a', 1]], over: Partial<AggregateResult> = {}): AggregateResult => ({ columns: ['x', 'count'], rows, truncated: false, scanned: 1200, durationMs: 1, requestId: '', ...over })
 const chartRender: BiRender = { kind: 'chart', option: { series: [] } }
@@ -25,6 +28,7 @@ const chartRender: BiRender = { kind: 'chart', option: { series: [] } }
 function mountCard(props: Record<string, unknown> = {}) {
   return mount(BiWidgetCard, {
     props: { widget: widget(), result: result(), render: chartRender, resolved: 'pie', ...props } as never,
+    attachTo: document.body,
     global: { stubs }
   })
 }
@@ -48,7 +52,9 @@ describe('BiWidgetCard board mode', () => {
 
   it('the more menu emits edit / duplicate / remove', async () => {
     const wrapper = mountCard()
-    for (const action of ['edit', 'duplicate', 'remove']) await wrapper.get(`[data-action="${action}"]`).trigger('click')
+    // 菜单项在真实 Popover 里：每次选完弹层会关闭，下一项要重新打开
+    expect(popoverEl('[data-action="edit"]')).toBeNull()
+    for (const action of ['edit', 'duplicate', 'remove']) await chooseFromPopover(wrapper, `[data-action="${action}"]`)
     expect(wrapper.emitted('edit')).toHaveLength(1)
     expect(wrapper.emitted('duplicate')).toHaveLength(1)
     expect(wrapper.emitted('remove')).toHaveLength(1)
@@ -134,7 +140,8 @@ describe('BiDetailTable', () => {
         loading: false, error: '', page: 1, pageSize: 20, total: 1,
         ...props
       } as never,
-      global: { stubs: { ...uiStubs, Button: false, Switch: false } }
+      attachTo: document.body,
+      global: { stubs: { ...uiStubs, ...realPopoverStubs, Switch: false } }
     })
 
   it('renders the given columns and rows; objects are stringified, missing values are marked as null', () => {
@@ -190,7 +197,9 @@ describe('BiDetailTable', () => {
   it('remembers hidden columns per data source instead of per component lifetime', async () => {
     window.localStorage.clear()
     const first = mountTable({ storageKey: 'sb_bi_cols_v1:p:db:orders' })
-    await first.get('[data-column="extra"]').trigger('click')
+    await openPopover(first)
+    popoverEl('[data-column="extra"]')!.click()
+    await flushPromises()
     expect(first.findAll('th').map((h) => h.text())).not.toContain('extra')
     expect(window.localStorage.getItem('sb_bi_cols_v1:p:db:orders')).toContain('id')
 
@@ -219,14 +228,17 @@ describe('BiDetailTable', () => {
 
   it('toggles column visibility and keeps the choice when the column set changes', async () => {
     const wrapper = mountTable()
-    await wrapper.get('[data-column="title"]').trigger('click')
+    await openPopover(wrapper)
+    popoverEl('[data-column="title"]')!.click()
+    await flushPromises()
     expect(wrapper.findAll('th').map((h) => h.text())).not.toContain('title')
     await wrapper.setProps({ columns: ['id', 'title', 'brandNew'], rows: [{ id: 'r2', title: 'Two', brandNew: 'x' }] })
     const heads = wrapper.findAll('th').map((h) => h.text())
     expect(heads).not.toContain('title')
     // 新出现的列默认显示。
     expect(heads).toContain('brandNew')
-    await wrapper.get('[data-column="title"]').trigger('click')
+    popoverEl('[data-column="title"]')!.click()
+    await flushPromises()
     expect(wrapper.findAll('th').map((h) => h.text())).toContain('title')
   })
 

@@ -32,3 +32,4 @@
 /godatabase/godb-cli
 /godatabase/main
 *.md
+/bench/

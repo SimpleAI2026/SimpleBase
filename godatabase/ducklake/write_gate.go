@@ -1,3 +1,35 @@
+// 文件说明：write_gate.go — godatabase/ducklake 中 IsTransactionConflict、RetryOnConflict 等符号的实现
+//
+// 用法
+//
+//	IsTransactionConflict(err error) bool  // IsTransactionConflict 判断错误是否为 DuckLake 乐观并发冲突
+//	RetryOnConflict(ctx context.Context, fn func() error) error  // RetryOnConflict 在 DuckLake Transaction conflict 上有限次重放 fn
+//	同包调用：writeGate → factory.go, gated_conn.go；writeGateHeld → gated_conn.go；registerDBGate() → factory.go
+//
+// 调用架构
+//
+//	[上游] internal/app, internal/systemdb
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/ducklake/write_gate.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] c4_syncer_lease_test.go, c4_syncer_ordering_test.go, catalog_syncer.go, catalog_syncer_test.go, coverage_test.go 等 35 个
+//	[关键引用] writeGate ← factory.go, gated_conn.go；writeGateHeld ← gated_conn.go；registerDBGate ← factory.go
+//
+// 主要符号
+//
+//	const conflictRetryAttempts
+//	type writeGate struct{…}
+//	type writeGateHeld struct{…}
+//	var dbGates
+//	registerDBGate(db *sql.DB, g *writeGate)
+//	unregisterDBGate(db *sql.DB)
+//	gateFor(db *sql.DB) *writeGate
+//	(g *writeGate) lock()
+//	... 另有 5 个顶层符号
+
 package ducklake
 
 import (

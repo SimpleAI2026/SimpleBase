@@ -1,8 +1,37 @@
+// 文件说明：tools.go — internal/agentbridge 的内部实现（emptyInput、listCollectionsInput 等）
+//
+// 用法
+//
+//	同包调用：toolDeps → runtime_provider.go, skilltool.go；buildTools() → runtime_provider.go, skilltool.go
+//
+// 调用架构
+//
+//	[上游] internal/agentrun, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/agentbridge/tools.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] access_db.go, access_llm.go, access_object.go, access_test.go, bridge_test.go 等 33 个
+//	[关键引用] toolDeps ← runtime_provider.go, skilltool.go；buildTools ← runtime_provider.go, skilltool.go
+//
+// 主要符号
+//
+//	type emptyInput struct{…}
+//	type listCollectionsInput struct{…}
+//	type readonlySQLInput struct{…}
+//	type listObjectsInput struct{…}
+//	type headObjectInput struct{…}
+//	type searchLogsInput struct{…}
+//	type toolDeps struct{…}
+//	type toolBuilder struct{…}
+//	... 另有 9 个顶层符号
+
 package agentbridge
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -93,7 +122,7 @@ func listDatabasesTool(deps toolDeps) (tool.InvokableTool, error) {
 			if err != nil {
 				return "", err
 			}
-			return marshalToolJSON(list)
+			return agentcore.MarshalToolJSON(list)
 		})
 }
 
@@ -114,7 +143,7 @@ func listCollectionsTool(deps toolDeps) (tool.InvokableTool, error) {
 			if err != nil {
 				return "", err
 			}
-			return marshalToolJSON(map[string]any{"collections": names})
+			return agentcore.MarshalToolJSON(map[string]any{"collections": names})
 		})
 }
 
@@ -135,7 +164,7 @@ func readonlySQLTool(deps toolDeps) (tool.InvokableTool, error) {
 			if err != nil {
 				return "", err
 			}
-			return marshalToolJSON(res)
+			return agentcore.MarshalToolJSON(res)
 		})
 }
 
@@ -153,7 +182,7 @@ func listObjectsTool(deps toolDeps) (tool.InvokableTool, error) {
 			if err != nil {
 				return "", err
 			}
-			return marshalToolJSON(list)
+			return agentcore.MarshalToolJSON(list)
 		})
 }
 
@@ -174,7 +203,7 @@ func headObjectTool(deps toolDeps) (tool.InvokableTool, error) {
 			if err != nil {
 				return "", err
 			}
-			return marshalToolJSON(obj)
+			return agentcore.MarshalToolJSON(obj)
 		})
 }
 
@@ -206,7 +235,7 @@ func searchLogsTool(deps toolDeps) (tool.InvokableTool, error) {
 			for _, event := range events {
 				rows = append(rows, row{Level: event.Level, Logger: event.Logger, Message: truncate(event.Message, 500), OccurredAt: event.OccurredAt.UTC().Format(time.RFC3339)})
 			}
-			return marshalToolJSON(rows)
+			return agentcore.MarshalToolJSON(rows)
 		})
 }
 
@@ -224,14 +253,6 @@ func logLevelStatsTool(deps toolDeps) (tool.InvokableTool, error) {
 			if err != nil {
 				return "", err
 			}
-			return marshalToolJSON(stats)
+			return agentcore.MarshalToolJSON(stats)
 		})
-}
-
-func marshalToolJSON(v any) (string, error) {
-	body, err := json.Marshal(v)
-	if err != nil {
-		return "", err
-	}
-	return agentcore.RedactSecrets(string(body)), nil
 }

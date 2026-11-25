@@ -1,3 +1,33 @@
+// 文件说明：runtime_stream_test.go — gocloudagent/cloudagent 的单元测试（TestStreamMultiDeltaWithoutUsage、TestToolFailureResultCard 等）
+//
+// 用法
+//
+//	go test ./gocloudagent/cloudagent -run 'TestStreamMultiDeltaWithoutUsage|TestToolFailureResultCard'
+//	同包调用：c3NoUsageLLM → runtime_prepare_cancel_test.go
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/cloudagent/runtime_stream_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] callgate.go, callgate_test.go, confirmation.go, confirmation_test.go, errors.go 等 32 个
+//	[关键引用] c3NoUsageLLM ← runtime_prepare_cancel_test.go
+//
+// 主要符号
+//
+//	type c3NoUsageLLM struct{…}
+//	(*c3NoUsageLLM) Chat(context.Context, string, ChatRequest) (ChatResponse, error)
+//	(*c3NoUsageLLM) Stream(context.Context, string, ChatRequest) (TokenStream, error)
+//	type c3MultiStream struct{…}
+//	(s *c3MultiStream) Next() (string, bool, error)
+//	(*c3MultiStream) Close() error
+//	TestStreamMultiDeltaWithoutUsage(t *testing.T)
+//	TestToolFailureResultCard(t *testing.T)
+
 package cloudagent
 
 import (

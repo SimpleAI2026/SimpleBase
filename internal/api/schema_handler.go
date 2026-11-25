@@ -5,7 +5,7 @@
 //	NewSchemaHandler(svc DataService, writable bool, limits SQLLimits) *SchemaHandler
 //	(h *SchemaHandler) ListSchema(c echo.Context) error  // ListSchema: GET /v1/projects/:projectID/databases/:databaseID/schema
 //	(h *SchemaHandler) CreateTable(c echo.Context) error  // CreateTable: POST .../schema/tables
-//	同包调用：dialectForDatabase() → db_stats.go, gocloudagent_access.go 等；SchemaHandler → router.go, schema_rows.go；exec() → kv_handler.go
+//	同包调用：dialectForDatabase() → db_stats.go, schema_aggregate.go, schema_rows.go；SchemaHandler → router.go, schema_rows.go；exec() → kv_handler.go
 //
 // 调用架构
 //
@@ -17,7 +17,7 @@
 //	         ▼
 //	[下游] godatabase, godatabase/sqlguard, internal/auth, internal/catalog
 //	[同包] adapter.go, agent_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
-//	[关键引用] dialectForDatabase() ← db_stats.go, gocloudagent_access.go, schema_rows.go
+//	[关键引用] dialectForDatabase() ← db_stats.go, schema_aggregate.go, schema_rows.go
 //
 // 主要符号
 //
@@ -34,13 +34,13 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/linkxzhou/SimpleBase/godatabase"
 	"github.com/linkxzhou/SimpleBase/godatabase/sqlguard"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
+	"github.com/linkxzhou/SimpleBase/internal/dbbridge"
 )
 
 // SchemaHandler 管理 SQL 数据库的表与列。集合库不能走这些路由。
@@ -50,8 +50,7 @@ type SchemaHandler struct {
 	writable bool
 	limits   SQLLimits
 	// 聚合接口的超时与扫描上限；零值走 collection_aggregate.go 的默认值。
-	aggregateTimeout time.Duration
-	aggregateScan    int
+	aggregateLimitConfig
 }
 
 func NewSchemaHandler(svc DataService, writable bool, limits SQLLimits) *SchemaHandler {
@@ -208,9 +207,9 @@ func (h *SchemaHandler) ensureSQL(c echo.Context, write bool) (catalog.Database,
 	if !ok {
 		return catalog.Database{}, auth.ErrMissingCredentials
 	}
-	project, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return catalog.Database{}, ErrProjectMissing
+	project, err := requireProject(c)
+	if err != nil {
+		return catalog.Database{}, err
 	}
 	databaseID := c.Param("databaseID")
 	db, err := h.svc.GetDatabase(c.Request().Context(), principal, project.ID, databaseID)
@@ -221,20 +220,14 @@ func (h *SchemaHandler) ensureSQL(c echo.Context, write bool) (catalog.Database,
 		return catalog.Database{}, catalog.ErrSystemProtected
 	}
 	if !catalog.IsSQLDataModel(db) {
-		return catalog.Database{}, NewAPIError(http.StatusBadRequest, "data_model_mismatch", "只有 SQL 数据库可以管理表结构", RequestIDFromContext(c.Request().Context()))
+		return catalog.Database{}, NewAPIError(http.StatusBadRequest, "data_model_mismatch", "只有 SQL 数据库可以管理表结构", requestID(c))
 	}
 	return db, nil
 }
 
+// dialectForDatabase 按 catalog 行解析 SQL 方言；规则归 dbbridge（宿主与 godatabase 的适配层）。
 func dialectForDatabase(db catalog.Database) (godatabase.Dialect, error) {
-	if catalog.IsSystemDatabase(db) {
-		return godatabase.DialectFor(catalog.EngineDuckDB)
-	}
-	engine, err := catalog.DatabaseEngine(db.DatabasePath)
-	if err != nil {
-		return nil, err
-	}
-	return godatabase.DialectFor(engine)
+	return dbbridge.DialectOf(db)
 }
 
 func schemaInputError(c echo.Context, err error) error {
@@ -248,7 +241,7 @@ func schemaInputError(c echo.Context, err error) error {
 	if err != nil && strings.Contains(err.Error(), "duplicate column") {
 		msg = "列名重复"
 	}
-	return NewAPIError(http.StatusBadRequest, "invalid_request", msg, RequestIDFromContext(c.Request().Context()))
+	return badRequest(c, msg)
 }
 
 func groupSchemaRows(rows [][]any) []schemaTableJSON {

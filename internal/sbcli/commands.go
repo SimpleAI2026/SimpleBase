@@ -23,6 +23,7 @@
 //	CommandReadOnly(resource, action string) bool
 //	CommandReadOnlyWithArgv(argv []string) bool
 //	... 另有 91 个顶层符号
+//	idAction / idResult / sqlCommand / devCommand（单 ID 动作与薄包装命令的公共适配）
 
 package sbcli
 
@@ -42,59 +43,112 @@ import (
 
 type commandFunc func(ctx context.Context, c *gosdk.Client, cfg loadedConfig, args []string, stdin io.Reader) (any, error)
 
-// readOnlyCommands 是「不改变任何服务端状态」的命令集合（planv6.0 v2 §3.4）。
-// 它是助手写权限分级（不可写 Agent 只能执行这里登记的命令）的唯一事实来源：
-// gocloudagent 的 isWriteArgv 直接查 CommandReadOnly，而不是再维护一份会漂移的表。
+// commandSpec 是单条 CLI 命令的全部元数据：处理函数与只读标记放在同一处，
+// 新增命令只改这一张表，不会再出现「已分发但漏标只读」或反向漂移。
 //
+// readOnly 是助手写权限分级（不可写 Agent 只能执行只读命令）的唯一事实来源：
+// gocloudagent 的 isWriteArgv 直接查 CommandReadOnly，而不是再维护一份会漂移的表。
 // 判定口径：只做 GET/查询类读取，或只影响沙盒内临时环境（sandbox exec/run）
 // 而不触碰项目持久数据。凡不在表内的命令一律视为写命令（fail-closed）。
 //
-// 带子动作的命令（function versions / sandbox files / log retention）不在此表，
+// 带子动作的命令（function versions / log retention）在表内按写处理，
 // 由 CommandReadOnlyWithArgv 按第三段细分。
-var readOnlyCommands = map[string]bool{
-	"database list":         true,
-	"database get":          true,
-	"sql query":             true,
-	"schema show":           true,
-	"schema rows":           true,
-	"collection list":       true,
-	"collection schema-get": true,
-	"document list":         true,
-	"document get":          true,
-	"document export":       true,
-	"object list":           true,
-	"object presign":        true,
-	"site status":           true,
-	"function list":         true,
-	"function get":          true,
-	"function test":         true,
-	"cron list":             true,
-	"cron get":              true,
-	"cron runs":             true,
-	"sandbox capabilities":  true,
-	"sandbox list":          true,
-	"sandbox get":           true,
-	"log search":            true,
-	"user list":             true,
-	"user get":              true,
-	"apikey list":           true,
-	"project list":          true,
-	"quota get":             true,
-	"audit list":            true,
-	"backup list":           true,
-	"migrate status":        true,
-	"migrate plan":          true,
-	"settings get":          true,
-	// dev plan/validate/status 只读，但读取宿主工作区文件；助手模式下命令自身拒绝（file_not_allowed）。
-	"dev plan":     true,
-	"dev validate": true,
-	"dev status":   true,
+// dev plan/validate/status 只读，但读取宿主工作区文件；助手模式下命令自身拒绝（file_not_allowed）。
+type commandSpec struct {
+	fn       commandFunc
+	readOnly bool
+}
+
+var commandSpecs = map[string]commandSpec{
+	"database list":         {cmdDatabaseList, true},
+	"database get":          {idResult("id", (*gosdk.Client).GetDatabase), true},
+	"database create":       {cmdDatabaseCreate, false},
+	"database delete":       {idResult("id", (*gosdk.Client).DeleteDatabase), false},
+	"sql query":             {sqlCommand(false), true},
+	"sql exec":              {sqlCommand(true), false},
+	"sql batch":             {cmdSQLBatch, false},
+	"schema show":           {idResult("database", (*gosdk.Client).DatabaseSchema), true},
+	"schema rows":           {cmdSchemaRows, true},
+	"schema create-table":   {cmdSchemaCreate, false},
+	"schema add-column":     {cmdSchemaAddColumn, false},
+	"collection list":       {cmdCollectionList, true},
+	"collection create":     {cmdCollectionCreate, false},
+	"collection truncate":   {cmdCollectionTruncate, false},
+	"collection schema-get": {cmdCollectionSchemaGet, true},
+	"collection schema-put": {cmdCollectionSchemaPut, false},
+	"document list":         {cmdDocumentList, true},
+	"document get":          {cmdDocumentGet, true},
+	"document import":       {cmdDocumentImport, false},
+	"document export":       {cmdDocumentExport, true},
+	"document insert":       {cmdDocumentInsert, false},
+	"document update":       {cmdDocumentUpdate, false},
+	"document patch":        {cmdDocumentPatch, false},
+	"document batch":        {cmdDocumentBatch, false},
+	"document delete":       {cmdDocumentDelete, false},
+	"backup list":           {cmdBackupList, true},
+	"backup create":         {cmdBackupCreate, false},
+	"backup restore":        {cmdBackupRestore, false},
+	"backup delete":         {cmdBackupDelete, false},
+	"migrate status":        {cmdMigrateStatus, true},
+	"migrate plan":          {cmdMigratePlan, true},
+	"kv exec":               {cmdKV, false},
+	"object list":           {cmdObjectList, true},
+	"object upload":         {cmdObjectUpload, false},
+	"object delete":         {idResult("key", (*gosdk.Client).DeleteObject), false},
+	"object presign":        {cmdObjectPresign, true},
+	"site status":           {cmdSiteStatus, true},
+	"site publish":          {cmdSitePublish, false},
+	"function list":         {cmdFunctionList, true},
+	"function get":          {idResult("name", (*gosdk.Client).GetFunction), true},
+	"function create":       {cmdFunctionCreate, false},
+	"function update":       {cmdFunctionUpdate, false},
+	"function delete":       {idAction("name", (*gosdk.Client).DeleteFunction), false},
+	"function version":      {cmdFunctionVersions, false},
+	"function test":         {cmdFunctionTest, true},
+	"function invoke":       {cmdFunctionInvoke, false},
+	"function activate":     {cmdFunctionActivate, false},
+	"cron list":             {cmdCronList, true},
+	"cron get":              {idResult("id", (*gosdk.Client).GetCronJob), true},
+	"cron create":           {cmdCronCreate, false},
+	"cron update":           {cmdCronUpdate, false},
+	"cron delete":           {idAction("id", (*gosdk.Client).DeleteCronJob), false},
+	"cron runs":             {idResult("id", (*gosdk.Client).ListCronRuns), true},
+	"cron trigger":          {idResult("id", (*gosdk.Client).TriggerCronJob), false},
+	"sandbox capabilities":  {cmdSandboxCaps, true},
+	"sandbox list":          {cmdSandboxList, true},
+	"sandbox get":           {cmdSandboxGet, true},
+	"sandbox create":        {cmdSandboxCreate, false},
+	"sandbox delete":        {idAction("id", (*gosdk.Client).DeleteSandbox), false},
+	"sandbox connect":       {cmdSandboxConnect, false},
+	"sandbox pause":         {idAction("id", (*gosdk.Client).PauseSandbox), false},
+	"log search":            {cmdLogSearch, true},
+	"log retention":         {cmdLogRetention, false},
+	"user list":             {cmdUserList, true},
+	"user get":              {idResult("id", (*gosdk.Client).GetUser), true},
+	"user create":           {cmdUserCreate, false},
+	"user update":           {cmdUserUpdate, false},
+	"user disable":          {cmdUserDisable, false},
+	"user delete":           {idAction("id", (*gosdk.Client).DeleteUser), false},
+	"project list":          {cmdProjectList, true},
+	"project create":        {cmdProjectCreate, false},
+	"apikey list":           {cmdAPIKeyList, true},
+	"apikey create":         {cmdAPIKeyCreate, false},
+	"apikey revoke":         {idAction("id", (*gosdk.Client).RevokeAPIKey), false},
+	"settings get":          {cmdSettingsGet, true},
+	"settings set":          {cmdSettingsSet, false},
+	"quota get":             {cmdQuotaGet, true},
+	"audit list":            {cmdAuditList, true},
+	"dev plan":              {devCommand("plan", false), true},
+	"dev apply":             {devCommand("apply", true), false},
+	"dev validate":          {cmdDevValidate, true},
+	"dev status":            {cmdDevStatus, true},
+	"function versions":     {cmdFunctionVersions, false},
 }
 
 // CommandReadOnly 报告命令是否只读（planv6.0 v2 §3.4）。
 // 未知命令返回 false（fail-closed）：新增命令必须显式登记才会被放行。
 func CommandReadOnly(resource, action string) bool {
-	return readOnlyCommands[resource+" "+action]
+	return commandSpecs[resource+" "+action].readOnly
 }
 
 // CommandReadOnlyWithArgv 处理带子动作的命令（planv6.0 v2 §3.4）：
@@ -124,184 +178,9 @@ func CommandReadOnlyWithArgv(argv []string) bool {
 	return CommandReadOnly(resource, action)
 }
 
+// dispatch 按 "resource action" 查命令表，未登记返回 nil。
 func dispatch(resource, action string) commandFunc {
-	switch resource + " " + action {
-	case "database list":
-		return cmdDatabaseList
-	case "database get":
-		return cmdDatabaseGet
-	case "database create":
-		return cmdDatabaseCreate
-	case "database delete":
-		return cmdDatabaseDelete
-	case "sql query":
-		return cmdSQLQuery
-	case "sql exec":
-		return cmdSQLExec
-	case "sql batch":
-		return cmdSQLBatch
-	case "schema show":
-		return cmdSchemaShow
-	case "schema rows":
-		return cmdSchemaRows
-	case "schema create-table":
-		return cmdSchemaCreate
-	case "schema add-column":
-		return cmdSchemaAddColumn
-	case "collection list":
-		return cmdCollectionList
-	case "collection create":
-		return cmdCollectionCreate
-	case "collection truncate":
-		return cmdCollectionTruncate
-	case "collection schema-get":
-		return cmdCollectionSchemaGet
-	case "collection schema-put":
-		return cmdCollectionSchemaPut
-	case "document list":
-		return cmdDocumentList
-	case "document get":
-		return cmdDocumentGet
-	case "document import":
-		return cmdDocumentImport
-	case "document export":
-		return cmdDocumentExport
-	case "document insert":
-		return cmdDocumentInsert
-	case "document update":
-		return cmdDocumentUpdate
-	case "document patch":
-		return cmdDocumentPatch
-	case "document batch":
-		return cmdDocumentBatch
-	case "document delete":
-		return cmdDocumentDelete
-	case "backup list":
-		return cmdBackupList
-	case "backup create":
-		return cmdBackupCreate
-	case "backup restore":
-		return cmdBackupRestore
-	case "backup delete":
-		return cmdBackupDelete
-	case "migrate status":
-		return cmdMigrateStatus
-	case "migrate plan":
-		return cmdMigratePlan
-	case "kv exec":
-		return cmdKV
-	case "object list":
-		return cmdObjectList
-	case "object upload":
-		return cmdObjectUpload
-	case "object delete":
-		return cmdObjectDelete
-	case "object presign":
-		return cmdObjectPresign
-	case "site status":
-		return cmdSiteStatus
-	case "site publish":
-		return cmdSitePublish
-	case "function list":
-		return cmdFunctionList
-	case "function get":
-		return cmdFunctionGet
-	case "function create":
-		return cmdFunctionCreate
-	case "function update":
-		return cmdFunctionUpdate
-	case "function delete":
-		return cmdFunctionDelete
-	case "function version":
-		return cmdFunctionVersions
-	case "function test":
-		return cmdFunctionTest
-	case "function invoke":
-		return cmdFunctionInvoke
-	case "function activate":
-		return cmdFunctionActivate
-	case "cron list":
-		return cmdCronList
-	case "cron get":
-		return cmdCronGet
-	case "cron create":
-		return cmdCronCreate
-	case "cron update":
-		return cmdCronUpdate
-	case "cron delete":
-		return cmdCronDelete
-	case "cron runs":
-		return cmdCronRuns
-	case "cron trigger":
-		return cmdCronTrigger
-	case "sandbox capabilities":
-		return cmdSandboxCaps
-	case "sandbox list":
-		return cmdSandboxList
-	case "sandbox get":
-		return cmdSandboxGet
-	case "sandbox create":
-		return cmdSandboxCreate
-	case "sandbox delete":
-		return cmdSandboxDelete
-	case "sandbox connect":
-		return cmdSandboxConnect
-	case "sandbox pause":
-		return cmdSandboxPause
-	case "log search":
-		return cmdLogSearch
-	case "log retention":
-		return cmdLogRetention
-	case "user list":
-		return cmdUserList
-	case "user get":
-		return cmdUserGet
-	case "user create":
-		return cmdUserCreate
-	case "user update":
-		return cmdUserUpdate
-	case "user disable":
-		return cmdUserDisable
-	case "user delete":
-		return cmdUserDelete
-	case "project list":
-		return cmdProjectList
-	case "project create":
-		return cmdProjectCreate
-	case "apikey list":
-		return cmdAPIKeyList
-	case "apikey create":
-		return cmdAPIKeyCreate
-	case "apikey revoke":
-		return cmdAPIKeyRevoke
-	case "settings get":
-		return cmdSettingsGet
-	case "settings set":
-		return cmdSettingsSet
-	case "quota get":
-		return cmdQuotaGet
-	case "audit list":
-		return cmdAuditList
-	case "dev plan":
-		return cmdDevPlan
-	case "dev apply":
-		return cmdDevApply
-	case "dev validate":
-		return cmdDevValidate
-	case "dev status":
-		return cmdDevStatus
-	default:
-		return dispatchNested(resource, action)
-	}
-}
-
-func dispatchNested(resource, action string) commandFunc {
-	switch resource + " " + action {
-	case "function versions":
-		return cmdFunctionVersions
-	default:
-		return nil
-	}
+	return commandSpecs[resource+" "+action].fn
 }
 
 func mustFlags(args []string, names ...string) (map[string]*string, *flag.FlagSet, error) {
@@ -390,6 +269,39 @@ func one(args []string, name string) (string, error) {
 		return "", err
 	}
 	return need(f, name)
+}
+
+func idAction(name string, fn func(*gosdk.Client, context.Context, string) error) commandFunc {
+	return func(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
+		id, err := one(args, name)
+		if err != nil {
+			return nil, err
+		}
+		if err := fn(c, ctx, id); err != nil {
+			return nil, err
+		}
+		return map[string]any{"ok": true}, nil
+	}
+}
+
+// idResult 取单个 ID（flag 名为 name）后调用 fn，把 SDK 的返回值原样作为命令输出：
+// json.RawMessage 解码成通用 JSON 值，结构体直接交给输出层序列化。
+func idResult[T any](name string, fn func(*gosdk.Client, context.Context, string) (T, error)) commandFunc {
+	return func(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
+		id, err := one(args, name)
+		if err != nil {
+			return nil, err
+		}
+		v, err := fn(c, ctx, id)
+		return resultOf(v), err
+	}
+}
+
+func resultOf(v any) any {
+	if raw, ok := v.(json.RawMessage); ok {
+		return decodeRaw(raw)
+	}
+	return v
 }
 
 // log retention is two actions under one resource word pair: handled here.

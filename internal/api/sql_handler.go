@@ -154,9 +154,9 @@ func (h *SQLHandler) releaseSem() {
 func (h *SQLHandler) Query(c echo.Context) error {
 	ctx, cancel := context.WithTimeout(c.Request().Context(), nanoToDuration(h.limits.QueryTimeout))
 	defer cancel()
-	project, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	project, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	principal, ok := PrincipalFromContext(c.Request().Context())
 	if !ok {
@@ -182,7 +182,7 @@ func (h *SQLHandler) Query(c echo.Context) error {
 	}
 	// 系统库凭证列不允许通过别名或表达式读出。SELECT * 的列名在执行后抹掉。
 	if catalog.IsSystemDatabase(db) && systemSQLReferencesSensitive(req.SQL) {
-		return WriteError(c, NewAPIError(http.StatusForbidden, "system_column_redacted", "system database credential columns are hidden", RequestIDFromContext(c.Request().Context())))
+		return WriteError(c, NewAPIError(http.StatusForbidden, "system_column_redacted", "system database credential columns are hidden", requestID(c)))
 	}
 
 	semScope := timer.StageScope(StageSemaphore)
@@ -212,7 +212,7 @@ func (h *SQLHandler) Query(c echo.Context) error {
 		return WriteError(c, err)
 	}
 
-	rid := RequestIDFromContext(c.Request().Context())
+	rid := requestID(c)
 	resp := QueryResponse{
 		Columns:    result.Columns,
 		Rows:       serializedRows,
@@ -233,9 +233,9 @@ func (h *SQLHandler) Execute(c echo.Context) error {
 	}
 	ctx, cancel := context.WithTimeout(c.Request().Context(), nanoToDuration(h.limits.QueryTimeout))
 	defer cancel()
-	project, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	project, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	principal, ok := PrincipalFromContext(c.Request().Context())
 	if !ok {
@@ -279,7 +279,7 @@ func (h *SQLHandler) Execute(c echo.Context) error {
 		return WriteError(c, err)
 	}
 
-	rid := RequestIDFromContext(c.Request().Context())
+	rid := requestID(c)
 	dur := h.durabilityFor(databaseID)
 	return c.JSON(http.StatusOK, ExecuteResponse{
 		RowsAffected: result.RowsAffected,
@@ -296,9 +296,9 @@ func (h *SQLHandler) Batch(c echo.Context) error {
 	}
 	ctx, cancel := context.WithTimeout(c.Request().Context(), nanoToDuration(h.limits.QueryTimeout))
 	defer cancel()
-	project, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	project, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	principal, ok := PrincipalFromContext(c.Request().Context())
 	if !ok {
@@ -342,7 +342,7 @@ func (h *SQLHandler) Batch(c echo.Context) error {
 	}
 	defer lease.Release()
 
-	rid := RequestIDFromContext(c.Request().Context())
+	rid := requestID(c)
 
 	if req.Transactional {
 		results, err := lease.Batch(ctx, stmts, true)
@@ -391,10 +391,10 @@ func decodeQueryRequest(c echo.Context, limits SQLLimits) (*QueryRequest, error)
 		return nil, err
 	}
 	if req.MaxRows < 0 {
-		return nil, NewAPIError(http.StatusBadRequest, "invalid_request", "max_rows must be non-negative", RequestIDFromContext(c.Request().Context()))
+		return nil, badRequest(c, "max_rows must be non-negative")
 	}
 	if req.MaxRows > limits.MaxQueryRows {
-		return nil, NewAPIError(http.StatusBadRequest, "invalid_request", fmt.Sprintf("max_rows exceeds limit %d", limits.MaxQueryRows), RequestIDFromContext(c.Request().Context()))
+		return nil, badRequest(c, fmt.Sprintf("max_rows exceeds limit %d", limits.MaxQueryRows))
 	}
 	return &req, nil
 }
@@ -418,10 +418,10 @@ func decodeBatchRequest(c echo.Context, limits SQLLimits) (*BatchRequest, error)
 		return nil, err
 	}
 	if len(req.Statements) == 0 {
-		return nil, NewAPIError(http.StatusBadRequest, "invalid_request", "statements must not be empty", RequestIDFromContext(c.Request().Context()))
+		return nil, badRequest(c, "statements must not be empty")
 	}
 	if len(req.Statements) > limits.MaxBatchStatements {
-		return nil, NewAPIError(http.StatusBadRequest, "invalid_request", fmt.Sprintf("statements count exceeds limit %d", limits.MaxBatchStatements), RequestIDFromContext(c.Request().Context()))
+		return nil, badRequest(c, fmt.Sprintf("statements count exceeds limit %d", limits.MaxBatchStatements))
 	}
 	for _, s := range req.Statements {
 		if err := validateSQLStatement(s.SQL, s.Args, limits); err != nil {
@@ -434,13 +434,13 @@ func decodeBatchRequest(c echo.Context, limits SQLLimits) (*BatchRequest, error)
 // validateSQLStatement 校验单条 SQL 的基础约束（长度、args 数量）。
 func validateSQLStatement(sql string, args []any, limits SQLLimits) error {
 	if strings.TrimSpace(sql) == "" {
-		return NewAPIError(http.StatusBadRequest, "invalid_request", "sql must not be empty", "")
+		return badRequestWithID("sql must not be empty", "")
 	}
 	if len(sql) > limits.MaxSQLBytes {
-		return NewAPIError(http.StatusBadRequest, "invalid_request", fmt.Sprintf("sql exceeds max bytes %d", limits.MaxSQLBytes), "")
+		return badRequestWithID(fmt.Sprintf("sql exceeds max bytes %d", limits.MaxSQLBytes), "")
 	}
 	if len(args) > 1000 {
-		return NewAPIError(http.StatusBadRequest, "invalid_request", "too many args", "")
+		return badRequestWithID("too many args", "")
 	}
 	return nil
 }

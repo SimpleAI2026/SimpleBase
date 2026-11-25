@@ -1,3 +1,32 @@
+// 文件说明：helpers_test.go — internal/app 的单元测试（TestHealthLiveAndReady、TestHealthReadyS3Check 等）
+//
+// 用法
+//
+//	go test ./internal/app -run 'TestHealthLiveAndReady|TestHealthReadyS3Check|TestRegisterCloserAndClose|TestDuckLakeOptionsAndFactories'
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/api/perfbench
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/app/helpers_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_shutdown_test.go, app.go, app_alerts.go, app_lease.go, app_test.go 等 41 个
+//
+// 主要符号
+//
+//	type errCloser struct{…}
+//	(c errCloser) Close() error
+//	type fakeStore struct{…}
+//	(f fakeStore) Check(ctx context.Context) error
+//	TestHealthLiveAndReady(t *testing.T)
+//	TestHealthReadyS3Check(t *testing.T)
+//	TestRegisterCloserAndClose(t *testing.T)
+//	TestDuckLakeOptionsAndFactories(t *testing.T)
+//	... 另有 31 个顶层符号
+
 package app
 
 import (
@@ -127,7 +156,7 @@ func TestDuckLakeOptionsAndFactories(t *testing.T) {
 	if sys.Syncer == nil || sys.CacheDir == "" {
 		t.Fatal("system factory")
 	}
-	if a.cloudAgentRuntime() != nil {
+	if a.cloudAgentRuntime(nil) != nil {
 		t.Fatal("no system store")
 	}
 }
@@ -202,7 +231,7 @@ func TestCloudAgentRuntimeWithStore(t *testing.T) {
 		defer cancel()
 		_ = a.Shutdown(ctx)
 	})
-	if a.cloudAgentRuntime() == nil {
+	if a.cloudAgentRuntime(nil) == nil {
 		t.Fatal("runtime")
 	}
 	if a.fileStore == nil {

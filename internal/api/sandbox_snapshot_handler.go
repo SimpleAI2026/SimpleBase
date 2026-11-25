@@ -278,7 +278,7 @@ func (h *SandboxHandler) forkInto(c echo.Context, p string, src sandbox.Sandbox,
 			return sandbox.Sandbox{}, writeE2BErr(c, err)
 		}
 	}
-	principal, _ := PrincipalFromContext(c.Request().Context())
+	principal := principalOf(c)
 	in.Source = sourceFor(principal)
 	id, err := h.svc.Fork(c.Request().Context(), p, snapshotID, p, in)
 	if err != nil {

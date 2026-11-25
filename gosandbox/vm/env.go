@@ -1,3 +1,26 @@
+// 文件说明：env.go — gosandbox/vm 中 ValidateEnv 等符号的实现
+//
+// 用法
+//
+//	ValidateEnv(env map[string]string, reservedPrefixes ...string) error  // ValidateEnv 在环境变量进入沙盒前校验键、数量、长度与保留前缀
+//
+// 调用架构
+//
+//	[上游] gosandbox/vm/box, gosandbox/vm/fake, gosandbox/vm/local, internal/api 等 7 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/vm/env.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] driver.go, env_test.go, errors.go, output.go, output_test.go 等 9 个
+//	[关键引用] ValidateEnv ← env_test.go
+//
+// 主要符号
+//
+//	var envKeyPattern
+//	ValidateEnv(env map[string]string, reservedPrefixes ...string) error
+
 package vm
 
 import (

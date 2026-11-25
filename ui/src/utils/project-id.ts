@@ -1,5 +1,5 @@
 /**
- * 生成「站点发布安全」的 8 位项目 ID（planv6.6 home-starter-prompts §2.2）。
+ * 生成「站点发布安全」的 8 位项目 ID。
  *
  * 后端项目 ID 校验是 `^[A-Za-z0-9-]{8}$`，但站点发布要求 DNS 安全
  * （`project_id_not_dns_safe`：不含大写、首尾不是 `-`）。一键流程只产出
@@ -27,9 +27,4 @@ function defaultRandom(n: number): Uint8Array {
     for (let i = 0; i < n; i++) bytes[i] = Math.floor(Math.random() * 256)
   }
   return bytes
-}
-
-/** 与后端 `config.ProjectIDPublishable` 同口径的本地预检。 */
-export function isDnsSafeProjectId(id: string): boolean {
-  return /^[a-z0-9]{8}$/.test(id)
 }

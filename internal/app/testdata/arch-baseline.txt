@@ -1,0 +1,12 @@
+# internal/app/testdata/arch-baseline.txt — 直接使用 systemdb 的生产文件数（按包）。
+# 由 `go test ./internal/app -run TestArchitectureGate -update` 生成；两列分别为
+# import internal/systemdb 的文件数、直接声明 *systemdb.Store 的文件数（按 AST）。规则：每包只减不增，新包基线为 0。
+# 包<TAB>import_systemdb_files<TAB>store_literal_files
+internal/agentbridge	5	2
+internal/agentrun	9	0
+internal/api	30	13
+internal/app	7	7
+internal/cronjob	1	0
+internal/functionrun	1	0
+internal/llmgateway	1	1
+internal/trigger	1	0

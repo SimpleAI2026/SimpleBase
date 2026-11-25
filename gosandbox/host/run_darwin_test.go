@@ -1,5 +1,36 @@
 //go:build darwin
 
+// 文件说明：run_darwin_test.go — gosandbox/host 的单元测试（TestDarwinWorkspaceWrite、TestDarwinEscapeOutsideWorkspace 等）
+//
+// 用法
+//
+//	go test ./gosandbox/host -run 'TestDarwinWorkspaceWrite|TestDarwinEscapeOutsideWorkspace|TestDarwinReadOnlyBlocksWorkspaceWrite|TestDarwinGitHooksAndConfigReadOnly'
+//	同包调用：darwinPolicy() → start_darwin_test.go
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/tools, gosandbox/box, gosandbox/vm/box 等 5 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/host/run_darwin_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] bwrap_args.go, bwrap_args_extra_test.go, cgroup.go, cgroup_linux.go, cgroup_linux_test.go 等 36 个
+//	[关键引用] darwinPolicy ← start_darwin_test.go
+//
+// 主要符号
+//
+//	darwinPolicy(t *testing.T, mode Mode) (Policy, string)
+//	sh(script string) Command
+//	TestDarwinWorkspaceWrite(t *testing.T)
+//	TestDarwinEscapeOutsideWorkspace(t *testing.T)
+//	TestDarwinReadOnlyBlocksWorkspaceWrite(t *testing.T)
+//	TestDarwinGitHooksAndConfigReadOnly(t *testing.T)
+//	TestDarwinGitInitAndCommit(t *testing.T)
+//	TestDarwinGitHooksProtectedAfterInit(t *testing.T)
+//	... 另有 15 个顶层符号
+
 package host
 
 import (

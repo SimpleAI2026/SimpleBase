@@ -1,3 +1,28 @@
+// 文件说明：web_test.go — internal/web 的单元测试（TestStaticFS、TestRegisterUnbuilt 等）
+//
+// 用法
+//
+//	go test ./internal/web -run 'TestStaticFS|TestRegisterUnbuilt|TestRegisterBuiltSPAAndStatic|TestRegisterOverridesRootFromGroupMiddleware'
+//
+// 调用架构
+//
+//	[上游] internal/api
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/web/web_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] web.go
+//
+// 主要符号
+//
+//	TestStaticFS(t *testing.T)
+//	TestRegisterUnbuilt(t *testing.T)
+//	TestRegisterBuiltSPAAndStatic(t *testing.T)
+//	TestRegisterOverridesRootFromGroupMiddleware(t *testing.T)
+//	TestLoadIndexHTMLAbsent(t *testing.T)
+
 package web
 
 import (

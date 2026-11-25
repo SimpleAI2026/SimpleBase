@@ -1,3 +1,30 @@
+// 文件说明：reference_test.go — gosandbox/image 的单元测试（TestParse、TestParseRejects 等）
+//
+// 用法
+//
+//	go test ./gosandbox/image -run 'TestParse|TestParseRejects|TestParseRegistryWithPort|TestReferenceHelpers'
+//	同包调用：hex64() → manifest_test.go, store_test.go
+//
+// 调用架构
+//
+//	[上游] gosandbox/vm/box, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/image/reference_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] arch.go, import.go, manifest.go, manifest_test.go, pull.go 等 16 个
+//	[关键引用] hex64 ← manifest_test.go, store_test.go
+//
+// 主要符号
+//
+//	TestParse(t *testing.T)
+//	TestParseRejects(t *testing.T)
+//	TestParseRegistryWithPort(t *testing.T)
+//	TestReferenceHelpers(t *testing.T)
+//	hex64(seed string) string
+
 package image
 
 // reference_test.go：引用解析与归一化。

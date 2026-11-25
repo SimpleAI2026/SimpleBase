@@ -1,3 +1,27 @@
+// 文件说明：logger_edge_test.go — internal/observability 的单元测试（TestNewNilWriterPanics、TestLoggerMethodsAndSync 等）
+//
+// 用法
+//
+//	go test ./internal/observability -run 'TestNewNilWriterPanics|TestLoggerMethodsAndSync|TestPanicRecoverable|TestFieldAliases'
+//
+// 调用架构
+//
+//	[上游] internal/alerts, internal/api, internal/app, internal/audit 等 10 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/observability/logger_edge_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] logger.go, metrics.go, observability_test.go, stage_timing_metrics.go, zaplog.go 等 6 个
+//
+// 主要符号
+//
+//	TestNewNilWriterPanics(t *testing.T)
+//	TestLoggerMethodsAndSync(t *testing.T)
+//	TestPanicRecoverable(t *testing.T)
+//	TestFieldAliases(t *testing.T)
+
 package observability
 
 import (

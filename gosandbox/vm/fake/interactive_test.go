@@ -1,3 +1,31 @@
+// 文件说明：interactive_test.go — gosandbox/vm/fake 的单元测试（TestInteractiveShell、TestInteractivePipeRejectsResize 等）
+//
+// 用法
+//
+//	go test ./gosandbox/vm/fake -run 'TestInteractiveShell|TestInteractivePipeRejectsResize|TestInteractiveOneShotCommand|TestInteractiveSignalAndClose'
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/vm/fake/interactive_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] fake.go, interactive.go
+//
+// 主要符号
+//
+//	readUntil(t *testing.T, r io.Reader, want string) string
+//	tgt() sb.Target
+//	TestInteractiveShell(t *testing.T)
+//	TestInteractivePipeRejectsResize(t *testing.T)
+//	TestInteractiveOneShotCommand(t *testing.T)
+//	TestInteractiveSignalAndClose(t *testing.T)
+//	TestInteractiveContextCancelAndFiles(t *testing.T)
+//	TestInteractiveShellBinaryStaysAlive(t *testing.T)
+
 package fake
 
 import (

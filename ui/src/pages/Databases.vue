@@ -18,12 +18,7 @@
         <SbAsyncRegion
           class="p-4 md:hidden"
           block="cards"
-          :pending="pending"
-          :show-skeleton="showSkeleton"
-          :show-empty="showEmpty"
-          :show-error="showError"
-          :refreshing="refreshing"
-          :error="error"
+          :state="loadState"
           :empty-description="isAdmin ? t('pages.databases.emptySystem') : t('pages.databases.empty')"
           :empty-action-text="canWrite ? t('pages.databases.create') : undefined"
           @retry="doLoad"
@@ -40,8 +35,8 @@
                 </div>
                 <Badge class="mt-2" :variant="statusBadgeVariant(record.status)">{{ statusText(record.status) }}</Badge>
               </div>
-              <Button variant="outline" size="sm" :disabled="!isReady(record)" :aria-expanded="expandedRowKeys.includes(record.id)" :aria-controls="`db-mobile-${record.id}`" @click="toggleExpand(record)">
-                {{ expandedRowKeys.includes(record.id) ? t('pages.databases.collapseData') : t('pages.databases.viewData') }}
+              <Button variant="outline" size="sm" :disabled="!isReady(record)" :aria-expanded="expanded.has(record.id)" :aria-controls="`db-mobile-${record.id}`" @click="toggleExpand(record)">
+                {{ expanded.has(record.id) ? t('pages.databases.collapseData') : t('pages.databases.viewData') }}
               </Button>
             </div>
             <div class="mt-4 flex flex-wrap items-center gap-2 border-t border-border/70 pt-3">
@@ -57,7 +52,7 @@
               <span>{{ t('pages.databases.dataVolume') }}</span><span>{{ formatCount(record.documentCount) }}</span>
               <span>{{ t('pages.databases.createdAt') }}</span><span>{{ formatTime(record.createdAt) }}</span>
             </div>
-            <div v-if="expandedRowKeys.includes(record.id)" :id="`db-mobile-${record.id}`" class="mt-4 border-t border-border pt-4">
+            <div v-if="expanded.has(record.id)" :id="`db-mobile-${record.id}`" class="mt-4 border-t border-border pt-4">
               <SchemaPanel v-if="showSqlPanel(record)" :project-id="projectStore.id" :database="record" :readonly="isAdmin" />
               <DataTabs v-else :project-id="projectStore.id" :database="record" :reload-token="collectionReload[record.id] || 0" :readonly="isAdmin" @view-data="(c) => openDocList(record, c)" @add-document="(c) => openKv(record, c)" @create-collection="openCreateCollection(record)" />
             </div>
@@ -80,12 +75,7 @@
           <SbAsyncRegion
             as="tbody"
             :columns="7"
-            :pending="pending"
-            :show-skeleton="showSkeleton"
-            :show-empty="showEmpty"
-            :show-error="showError"
-            :refreshing="refreshing"
-            :error="error"
+            :state="loadState"
             :empty-description="isAdmin ? t('pages.databases.emptySystem') : t('pages.databases.empty')"
             :empty-action-text="canWrite ? t('pages.databases.create') : undefined"
             @retry="doLoad"
@@ -101,16 +91,16 @@
                         size="icon-sm"
                         data-row-expand
                         :disabled="!isReady(record)"
-                        :aria-label="t('pages.databases.viewRecordData', { action: expandedRowKeys.includes(record.id) ? t('pages.databases.collapse') : t('pages.databases.viewData'), name: record.name })"
-                        :aria-expanded="expandedRowKeys.includes(record.id)"
+                        :aria-label="t('pages.databases.viewRecordData', { action: expanded.has(record.id) ? t('pages.databases.collapse') : t('pages.databases.viewData'), name: record.name })"
+                        :aria-expanded="expanded.has(record.id)"
                         :aria-controls="`db-desktop-${record.id}`"
                         @click="toggleExpand(record)"
                       >
-                        <ChevronRightIcon class="transition-transform" :class="expandedRowKeys.includes(record.id) && 'rotate-90'" />
+                        <ChevronRightIcon class="transition-transform" :class="expanded.has(record.id) && 'rotate-90'" />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
-                      {{ isReady(record) ? (expandedRowKeys.includes(record.id) ? t('pages.databases.collapse') : t('pages.databases.viewData')) : t('pages.databases.dbNotReady') }}
+                      {{ isReady(record) ? (expanded.has(record.id) ? t('pages.databases.collapse') : t('pages.databases.viewData')) : t('pages.databases.dbNotReady') }}
                     </TooltipContent>
                   </Tooltip>
                 </TableCell>
@@ -187,7 +177,7 @@
                   </div>
                 </TableCell>
               </TableRow>
-              <TableRow v-if="expandedRowKeys.includes(record.id)" class="bg-muted/20 hover:bg-muted/20">
+              <TableRow v-if="expanded.has(record.id)" class="bg-muted/20 hover:bg-muted/20">
                 <TableCell colspan="7" class="border-b-0 p-0 text-left">
                   <div :id="`db-desktop-${record.id}`" class="border-y border-border/70 bg-muted/25 px-6 py-4">
                     <SchemaPanel
@@ -255,15 +245,15 @@
       </FieldGroup>
     </SbModal>
 
-    <SqlWorkModal v-model:open="sqlOpen" :project-id="projectStore.id" :database="activeDb" :readonly="isAdmin" />
+    <SqlWorkModal v-model:open="dialogOpen.sql" :project-id="projectStore.id" :database="activeDb" :readonly="isAdmin" />
     <CreateCollectionModal
-      v-model:open="createCollectionOpen"
+      v-model:open="dialogOpen.createCollection"
       :project-id="projectStore.id"
       :database="activeDb"
       @created="onCollectionCreated"
     />
     <DocumentListModal
-      v-model:open="docListOpen"
+      v-model:open="dialogOpen.docList"
       :project-id="projectStore.id"
       :database-id="activeDb?.id || ''"
       :collection="activeCollection"
@@ -301,34 +291,33 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { api } from '../services/api'
-import type { DatabaseItem } from '../services/api'
-import { useProjectStore } from '../stores/project'
-import { useAuthStore } from '../stores/auth'
+import { api } from '@/services/api'
+import type { DatabaseItem } from '@/services/api'
+import { useProjectStore } from '@/stores/project'
 import { storeToRefs } from 'pinia'
-import { useLoadState } from '../composables/useLoadState'
-import { usePagination } from '../composables/usePagination'
-import { statusBadgeVariant, statusText } from '@/lib/status'
-import { formatCount, formatTime } from '../utils/format'
-import PageContainer from '../components/PageContainer.vue'
-import ProjectScope from '../components/ProjectScope.vue'
-import SbAsyncRegion from '../components/SbAsyncRegion.vue'
-import SbRefreshButton from '../components/SbRefreshButton.vue'
-import SbListCard from '../components/SbListCard.vue'
-import ConfirmAction from '../components/ConfirmAction.vue'
-import SbModal from '../components/modal/SbModal.vue'
-import SqlWorkModal from '../components/modal/SqlWorkModal.vue'
-import CreateCollectionModal from '../components/modal/CreateCollectionModal.vue'
-import DocumentListModal from '../components/modal/DocumentListModal.vue'
-import DocumentKvModal from '../components/modal/DocumentKvModal.vue'
-import DataTabs from '../components/databases/DataTabs.vue'
-import SchemaPanel from '../components/databases/SchemaPanel.vue'
+import { useLoadState } from '@/composables/useLoadState'
+import { useCanWrite } from '@/composables/useCanWrite'
+import { useProjectReload } from '@/composables/useProjectReload'
+import { usePagination } from '@/composables/usePagination'
+import { statusBadgeVariant, statusText } from '@/utils/status'
+import { formatCount, formatTime } from '@/utils/format'
+import PageContainer from '@/components/PageContainer.vue'
+import ProjectScope from '@/components/ProjectScope.vue'
+import SbAsyncRegion from '@/components/SbAsyncRegion.vue'
+import SbRefreshButton from '@/components/SbRefreshButton.vue'
+import SbListCard from '@/components/SbListCard.vue'
+import ConfirmAction from '@/components/ConfirmAction.vue'
+import SbModal from '@/components/modal/SbModal.vue'
+import SqlWorkModal from '@/components/modal/SqlWorkModal.vue'
+import CreateCollectionModal from '@/components/modal/CreateCollectionModal.vue'
+import DocumentListModal from '@/components/modal/DocumentListModal.vue'
+import DocumentKvModal from '@/components/modal/DocumentKvModal.vue'
+import DataTabs from '@/components/databases/DataTabs.vue'
+import SchemaPanel from '@/components/databases/SchemaPanel.vue'
 
 const projectStore = useProjectStore()
 const { isAdmin } = storeToRefs(projectStore)
-const auth = useAuthStore()
-/** 写入口（新建 / 建集合 / 删除）：系统项目与只读角色都隐藏（planv6.7 ui-simplify-ux-plan B11）。 */
-const canWrite = computed(() => !isAdmin.value && auth.canWrite)
+const canWrite = useCanWrite()
 const { t } = useI18n()
 const databases = ref<DatabaseItem[]>([])
 const { page, pageSize, total, pageCount, items: paged } = usePagination(databases)
@@ -339,20 +328,33 @@ const createError = ref('')
 const newName = ref('')
 const dataModel = ref<'collection' | 'sql'>('collection')
 const initSql = ref('')
-const expandedRowKeys = ref<string[]>([])
+/** 已展开的数据库 id（Set 的增删收敛在 toggleExpand / expand）。 */
+const expanded = ref(new Set<string>())
 const collectionReload = reactive<Record<string, number>>({})
 
-const sqlOpen = ref(false)
-const createCollectionOpen = ref(false)
-const docListOpen = ref(false)
+/**
+ * 互斥弹窗：SQL 工作台 / 新建集合 / 文档列表同一时间只开一个（一个 `dialog` 值 + 三个 v-model 视图）。
+ * 文档列表与「新增文档」会叠开（列表在下、新增在上），所以 kvOpen 不在此列。
+ */
+type DialogKind = 'sql' | 'createCollection' | 'docList'
+const dialog = ref<DialogKind | ''>('')
+const dialogOpen = reactive(
+  Object.fromEntries(
+    (['sql', 'createCollection', 'docList'] as const).map((kind) => [
+      kind,
+      computed({ get: () => dialog.value === kind, set: (open: boolean) => { dialog.value = open ? kind : '' } })
+    ])
+  ) as Record<DialogKind, boolean>
+)
 const kvOpen = ref(false)
 const activeDb = ref<DatabaseItem | null>(null)
 const activeCollection = ref('')
 const docReload = ref(0)
 
-const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
+const loadState = useLoadState({
   fallback: 'pages.databases.loadFailed'
 })
+const { pending, run } = loadState
 
 function doLoad() {
   return run(async () => {
@@ -384,11 +386,9 @@ function showSqlPanel(db: DatabaseItem) {
 
 function toggleExpand(db: DatabaseItem) {
   if (!isReady(db)) return
-  if (expandedRowKeys.value.includes(db.id)) {
-    expandedRowKeys.value = expandedRowKeys.value.filter((id) => id !== db.id)
-  } else {
-    expandedRowKeys.value = [...expandedRowKeys.value, db.id]
-  }
+  const next = new Set(expanded.value)
+  if (!next.delete(db.id)) next.add(db.id)
+  expanded.value = next
 }
 
 function openCreate() {
@@ -399,21 +399,16 @@ function openCreate() {
   createVisible.value = true
 }
 
-function openSql(db: DatabaseItem) {
+/** 设置当前操作对象并打开对应弹窗（collection 缺省保持上次值）。 */
+function openDialog(kind: DialogKind, db: DatabaseItem, collection?: string) {
   activeDb.value = db
-  sqlOpen.value = true
+  if (collection !== undefined) activeCollection.value = collection
+  dialog.value = kind
 }
 
-function openCreateCollection(db: DatabaseItem) {
-  activeDb.value = db
-  createCollectionOpen.value = true
-}
-
-function openDocList(db: DatabaseItem, collection: string) {
-  activeDb.value = db
-  activeCollection.value = collection
-  docListOpen.value = true
-}
+const openSql = (db: DatabaseItem) => openDialog('sql', db)
+const openCreateCollection = (db: DatabaseItem) => openDialog('createCollection', db)
+const openDocList = (db: DatabaseItem, collection: string) => openDialog('docList', db, collection)
 
 function openKv(db: DatabaseItem, collection: string) {
   activeDb.value = db
@@ -425,9 +420,7 @@ function onCollectionCreated() {
   if (!activeDb.value) return
   const id = activeDb.value.id
   collectionReload[id] = (collectionReload[id] || 0) + 1
-  if (!expandedRowKeys.value.includes(id)) {
-    expandedRowKeys.value = [...expandedRowKeys.value, id]
-  }
+  if (!expanded.value.has(id)) expanded.value = new Set(expanded.value).add(id)
 }
 
 function onAddDocumentFromList() {
@@ -438,8 +431,8 @@ function onAddDocumentFromList() {
 
 function onDocumentCreated() {
   docReload.value += 1
-  if (!docListOpen.value && activeDb.value && activeCollection.value) {
-    docListOpen.value = true
+  if (dialog.value !== 'docList' && activeDb.value && activeCollection.value) {
+    dialog.value = 'docList'
   }
 }
 
@@ -485,15 +478,8 @@ async function removeDb(db: DatabaseItem) {
 
 watch(databases, (list) => {
   const ready = new Set(list.filter(isReady).map((d) => d.id))
-  expandedRowKeys.value = expandedRowKeys.value.filter((id) => ready.has(id))
+  expanded.value = new Set([...expanded.value].filter((id) => ready.has(id)))
 })
 
-void doLoad()
-watch(
-  () => projectStore.id,
-  () => {
-    expandedRowKeys.value = []
-    void doLoad()
-  }
-)
+useProjectReload(() => projectStore.id, doLoad, { onSwitch: () => { expanded.value = new Set() } })
 </script>

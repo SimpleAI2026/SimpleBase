@@ -1,3 +1,24 @@
+// 文件说明：hub_test.go — internal/realtime 的单元测试（TestHubScopeReplayGapAndBackpressure 等）
+//
+// 用法
+//
+//	go test ./internal/realtime -run 'TestHubScopeReplayGapAndBackpressure'
+//
+// 调用架构
+//
+//	[上游] internal/api
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/realtime/hub_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] hub.go
+//
+// 主要符号
+//
+//	TestHubScopeReplayGapAndBackpressure(t *testing.T)
+
 package realtime
 
 import (

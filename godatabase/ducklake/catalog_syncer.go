@@ -1,3 +1,30 @@
+// 文件说明：catalog_syncer.go — godatabase/ducklake 中 CatalogSyncer、NewCatalogSyncer 等符号的实现
+//
+// 用法
+//
+//	type CatalogSyncer struct{…}  // CatalogSyncer 把本地 catalog.sqlite 同步到 S3（§4.4）
+//	NewCatalogSyncer(store blob.Store, remote RemoteStorage, cacheDir string, opts CatalogSyncOptions, engine stri...  // NewCatalogSyncer 构造 Phase 2 同步器
+//	同包调用：boundDB → syncer_schedule.go
+//
+// 调用架构
+//
+//	[上游] internal/app, internal/systemdb
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/ducklake/catalog_syncer.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] c4_syncer_lease_test.go, c4_syncer_ordering_test.go, catalog_syncer_test.go, coverage_test.go, edge_test.go 等 35 个
+//	[关键引用] boundDB ← syncer_schedule.go；CatalogSyncer ← coverage_test.go, factory.go；NewCatalogSyncer ← c4_syncer_lease_test.go, c4_syncer_ordering_test.go
+//
+// 主要符号
+//
+//	const DurabilityCommittedLocal / DurabilitySyncedS3
+//	type boundDB struct{…}
+//	type CatalogSyncer struct{…}
+//	NewCatalogSyncer(store blob.Store, remote RemoteStorage, cacheDir string, opts CatalogSyncOptions, engine stri...
+
 package ducklake
 
 import (
@@ -55,7 +82,7 @@ type CatalogSyncer struct {
 	dirty       map[string]int64     // pending max snapshot
 	dirtySince  map[string]time.Time // 最旧尚未由成功 manifest 覆盖的本地提交时间（进程内估计）
 	bound       map[string]*boundDB
-	timers      map[string]*time.Timer
+	timers      map[string]any // *syncTimer：回调身份比对用（B10）
 	inflight    map[string]bool
 	closed      bool
 	splitIDs    map[string]bool        // split-brain 已标记的库（需人工按 §9 流程恢复）
@@ -84,7 +111,7 @@ func NewCatalogSyncer(store blob.Store, remote RemoteStorage, cacheDir string, o
 		dirty:       map[string]int64{},
 		dirtySince:  map[string]time.Time{},
 		bound:       map[string]*boundDB{},
-		timers:      map[string]*time.Timer{},
+		timers:      map[string]any{},
 		inflight:    map[string]bool{},
 		splitIDs:    map[string]bool{},
 		lostLease:   map[string]bool{},

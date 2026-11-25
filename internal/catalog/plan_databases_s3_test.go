@@ -1,3 +1,34 @@
+// 文件说明：plan_databases_s3_test.go — internal/catalog 的单元测试（TestPlan_CreateDatabaseBecomesReady、TestPlan_DeleteDatabaseSyncPurgesPlaneBOnly 等）
+//
+// 用法
+//
+//	go test ./internal/catalog -run 'TestPlan_CreateDatabaseBecomesReady|TestPlan_DeleteDatabaseSyncPurgesPlaneBOnly|TestPlan_DeleteFromCreatingAllowed|TestPlan_DeleteWithoutPurgerStillMarksDeleted'
+//	同包调用：newRecordingPurger() → always_open_test.go；recordingProjectPurger → service_paths_test.go
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app 等 10 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/catalog/plan_databases_s3_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] always_open_test.go, cache.go, cache_test.go, create_invalidate_test.go, data_model.go 等 20 个
+//	[关键引用] newRecordingPurger ← always_open_test.go；recordingProjectPurger ← service_paths_test.go
+//
+// 主要符号
+//
+//	type recordingDescriptorWriter struct{…}
+//	(f *recordingDescriptorWriter) PutJSON(ctx context.Context, key string, value any, opts objectstore.PutOptions...
+//	type recordingPurger struct{…}
+//	newRecordingPurger(keys ...string) *recordingPurger
+//	(p *recordingPurger) DeletePrefix(ctx context.Context, prefix string) error
+//	type recordingProjectPurger struct{…}
+//	(p *recordingProjectPurger) PurgeProject(ctx context.Context, projectID string) error
+//	(p *recordingProjectPurger) DeletePrefix(context.Context, string) error
+//	... 另有 5 个顶层符号
+
 package catalog
 
 import (

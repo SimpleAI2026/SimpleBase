@@ -1,3 +1,36 @@
+// 文件说明：keys.go — godatabase/blob 中 KeyBuilder、ValidateProjectID 等符号的实现
+//
+// 用法
+//
+//	type KeyBuilder struct{…}  // KeyBuilder 生成数据库运行时在对象存储上的键
+//	ValidateProjectID(id string) error  // ValidateProjectID 校验项目 ID：恰好 8 位 [A-Za-z0-9-]，且无路径穿越
+//	NewProjectID() string  // NewProjectID 生成随机 8 位项目 ID（[a-z0-9]）
+//	CatalogFileExt(engine string) (string, error)  // CatalogFileExt 返回 catalog 引擎对应的文件后缀（含点）
+//
+// 调用架构
+//
+//	[上游] godatabase, godatabase/cmd, godatabase/ducklake, godatabase/filedb 等 6 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/blob/keys.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] blob.go, blob_test.go
+//	[关键引用] KeyBuilder ← blob_test.go；ValidateProjectID ← blob_test.go；NewProjectID ← blob_test.go
+//
+// 主要符号
+//
+//	type KeyBuilder struct{…}
+//	const uuidPatternLen
+//	const ProjectIDLen
+//	const SystemPrefix
+//	const projectIDAlphabet
+//	(k KeyBuilder) ProjectPrefix(projectID string) (string, error)
+//	(k KeyBuilder) DatabasePrefix(projectID, databaseID string) (string, error)
+//	(k KeyBuilder) DataPrefix(projectID, databaseID string) (string, error)
+//	... 另有 17 个顶层符号
+
 package blob
 
 import (

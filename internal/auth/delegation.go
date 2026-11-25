@@ -141,13 +141,9 @@ func IssueDelegation(secret string, p Principal, projectID, runID string, ttl ti
 	if ttl > 30*time.Minute {
 		ttl = 30 * time.Minute
 	}
-	subject := p.UserID
+	subject := p.Actor()
 	if subject == "" {
-		if p.APIKeyID != "" {
-			subject = "apikey:" + p.APIKeyID
-		} else {
-			subject = "agent"
-		}
+		subject = ActorSystem
 	}
 	perms := make([]string, 0, len(p.Permissions))
 	for perm := range p.Permissions {

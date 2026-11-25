@@ -1,3 +1,27 @@
+// 文件说明：syncer_observe.go — godatabase/ducklake 的内部实现（recordSyncStage、classifySyncError 等）
+//
+// 用法
+//
+//	同包调用：classifySyncError() → sync_stage_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app, internal/systemdb
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/ducklake/syncer_observe.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] c4_syncer_lease_test.go, c4_syncer_ordering_test.go, catalog_syncer.go, catalog_syncer_test.go, coverage_test.go 等 35 个
+//	[关键引用] classifySyncError ← sync_stage_test.go
+//
+// 主要符号
+//
+//	(s *CatalogSyncer) recordSyncStage(dbID, stage string, d time.Duration, err error)
+//	classifySyncError(err error) string
+//	(s *CatalogSyncer) recordSync(err error, d time.Duration, dbID string)
+
 package ducklake
 
 import (

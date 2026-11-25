@@ -1,3 +1,32 @@
+// 文件说明：budget_test.go — gocloudagent/cli 的单元测试（TestMaxRunSecondsConfig、TestRunDeadlineFiredIgnoresNestedClientTimeout 等）
+//
+// 用法
+//
+//	go test ./gocloudagent/cli -run 'TestMaxRunSecondsConfig|TestRunDeadlineFiredIgnoresNestedClientTimeout|TestRunLimitPrecedence|TestMaxRunSecondsConfigKey'
+//
+// 调用架构
+//
+//	[上游] gocloudagent
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/cli/budget_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_loop.go, agent_loop_test.go, client.go, client_conn_reuse_test.go, client_http_status_test.go 等 39 个
+//
+// 主要符号
+//
+//	TestMaxRunSecondsConfig(t *testing.T)
+//	TestRunDeadlineFiredIgnoresNestedClientTimeout(t *testing.T)
+//	TestRunLimitPrecedence(t *testing.T)
+//	TestMaxRunSecondsConfigKey(t *testing.T)
+//	TestRunReturnsWhenModelHangsPastBudget(t *testing.T)
+//	TestRunReportsTimeoutCode(t *testing.T)
+//	type hangingClient struct{…}
+//	(hangingClient) Chat(ctx context.Context, _ string, _ agentcore.ChatRequest) (agentcore.ChatResponse, error)
+//	... 另有 2 个顶层符号
+
 package cli
 
 import (

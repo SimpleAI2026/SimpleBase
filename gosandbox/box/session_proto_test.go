@@ -1,3 +1,28 @@
+// 文件说明：session_proto_test.go — gosandbox/box 的单元测试（TestSessionFileOpsOverAgent、TestSessionListeningOverAgent 等）
+//
+// 用法
+//
+//	go test ./gosandbox/box -run 'TestSessionFileOpsOverAgent|TestSessionListeningOverAgent|TestDialPortRelayOverAgent|TestDialPortReportsConnectFailure'
+//
+// 调用架构
+//
+//	[上游] gosandbox/cmd, gosandbox/vm/box
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/box/session_proto_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] backpressure_test.go, copytree.go, deadline.go, egress_e2e_test.go, files.go 等 26 个
+//
+// 主要符号
+//
+//	newAgentSession(t *testing.T) *Session
+//	TestSessionFileOpsOverAgent(t *testing.T)
+//	TestSessionListeningOverAgent(t *testing.T)
+//	TestDialPortRelayOverAgent(t *testing.T)
+//	TestDialPortReportsConnectFailure(t *testing.T)
+
 package box
 
 // session_proto_test.go：宿主 Session 与进程内 agent 的协议闭环。
@@ -117,7 +142,7 @@ func TestDialPortRelayOverAgent(t *testing.T) {
 	}()
 
 	port := uint16(ln.Addr().(*net.TCPAddr).Port)
-	conn, err := s.DialPort(port)
+	conn, err := s.DialPort(context.Background(), port)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
@@ -152,7 +177,7 @@ func TestDialPortReportsConnectFailure(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		conn, derr := s.DialPort(port)
+		conn, derr := s.DialPort(context.Background(), port)
 		if derr == nil {
 			_ = conn.Close()
 		}

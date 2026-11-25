@@ -1,3 +1,33 @@
+// 文件说明：mcp_config.go — gocloudagent/cli 的内部实现（mcpEnvPrefix、mcpEnvSuffix 等）
+//
+// 用法
+//
+//	同包调用：expandEnvValue() → mcp_config_test.go；mcpChildEnv() → mcp_config_test.go；mcpServerEnv → mcp_adapter.go, mcp_adapter_test.go
+//
+// 调用架构
+//
+//	[上游] gocloudagent
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/cli/mcp_config.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_loop.go, agent_loop_test.go, budget_test.go, client.go, client_conn_reuse_test.go 等 39 个
+//	[关键引用] expandEnvValue ← mcp_config_test.go；mcpChildEnv ← mcp_config_test.go；mcpServerEnv ← mcp_adapter.go, mcp_adapter_test.go
+//
+// 主要符号
+//
+//	const mcpEnvPrefix
+//	const mcpEnvSuffix
+//	expandEnvValue(v string, env []string) string
+//	mcpChildEnv(configured map[string]string, env []string) []string
+//	isSensitiveEnvKey(k string) bool
+//	type mcpServerEnv struct{…}
+//	(e mcpServerEnv) warn(msg string, fields ...zap.Field)
+//	const mcpStartupTimeout
+//	... 另有 4 个顶层符号
+
 // mcp_config.go — CLI 侧 MCP 集成（planv6.2 §5）。
 //
 // 与云端的分工差异：
@@ -102,8 +132,11 @@ func isSensitiveEnvKey(k string) bool {
 
 // mcpServerEnv 是建立连接所需的最小上下文。
 type mcpServerEnv struct {
-	// Workspace 提供确认与隔离策略（nil 表示非交互，一律拒绝破坏性调用）。
+	// Workspace 提供确认（nil 表示非交互，一律拒绝破坏性调用）。
 	Workspace *tools.Workspace
+	// IsolationEnabled 为真时拒绝 stdio 传输（fail-closed）。独立于 Workspace：
+	// 非交互入口（如 `mcp tools`）没有 Workspace，也必须遵守隔离配置。
+	IsolationEnabled bool
 	// Env 是进程环境（用于 ${VAR} 展开与子进程环境构造）。
 	Env []string
 	// Cwd 是 stdio 子进程的工作目录。
@@ -117,6 +150,9 @@ func (e mcpServerEnv) warn(msg string, fields ...zap.Field) {
 		e.Warn(msg, fields...)
 	}
 }
+
+// mcpStartupTimeout 是 CLI 启动期连接全部 MCP Server 的总时限。
+const mcpStartupTimeout = 30 * time.Second
 
 // connectMCPServers 按配置建立会话，返回可用工具与关闭钩子。
 //
@@ -163,12 +199,7 @@ func connectMCPServers(ctx context.Context, cfg Config, env mcpServerEnv) ([]too
 				env.warn("mcp: tool limit reached, remaining tools skipped")
 				break
 			}
-			t := newMCPLocalTool(name, srv, sess, info, env)
-			if _, merr := t.Info(ctx); merr != nil {
-				env.warn("mcp: tool skipped", zap.String("server", name), zap.String("tool", info.Name))
-				continue
-			}
-			out = append(out, t)
+			out = append(out, newMCPLocalTool(name, srv, sess, info, env))
 		}
 	}
 	return out, closeAll, nil
@@ -179,18 +210,11 @@ func connectOne(ctx context.Context, name string, srv MCPServerConfig, env mcpSe
 	if srv.IsStdio() {
 		return connectStdioSession(ctx, name, srv, env)
 	}
-	client, err := mcpHTTPClient(name, srv)
+	client, err := mcpHTTPClient(name, srv, env.Env)
 	if err != nil {
 		return nil, err
 	}
-	timeout := time.Duration(srv.TimeoutSeconds) * time.Second
-	if timeout <= 0 {
-		timeout = mcp.DefaultConnectTimeout
-	}
-	if timeout > mcp.DefaultCallTimeout {
-		// 连接超时单独算：Server 的 timeout 是调用超时，不是连接超时。
-		timeout = mcp.DefaultConnectTimeout
-	}
+	// 连接超时固定：Server 的 timeout 是调用超时，不是连接超时。
 	return mcp.ConnectHTTP(ctx, name, mcp.HTTPOptions{
 		Endpoint:       strings.TrimSpace(srv.URL),
 		HTTPClient:     client,
@@ -202,7 +226,7 @@ func connectOne(ctx context.Context, name string, srv MCPServerConfig, env mcpSe
 //
 // 隔离不可用时 fail-closed：不退回裸执行（§5.1）。
 func connectStdioSession(ctx context.Context, name string, srv MCPServerConfig, env mcpServerEnv) (mcp.Session, error) {
-	if env.Workspace != nil && env.Workspace.Isolation.Enabled {
+	if env.IsolationEnabled {
 		// 启用了隔离：当前 SDK 的 CommandTransport 自己 Start 子进程，
 		// 无法把已包装的 *exec.Cmd 交给它（planv6.2 §5.1 路径 1 尚未落地），
 		// 因此对 stdio 一律拒绝，只放行 HTTP Server。
@@ -218,43 +242,17 @@ func connectStdioSession(ctx context.Context, name string, srv MCPServerConfig, 
 //
 // CLI 是本机工具，用户自己的网络环境，不做云端的私网封锁（否则无法连
 // 局域网内的自建 Server）；但仍要求传入非 nil 客户端（mcp 包的硬约束）。
-func mcpHTTPClient(name string, srv MCPServerConfig) (*http.Client, error) {
+func mcpHTTPClient(name string, srv MCPServerConfig, env []string) (*http.Client, error) {
 	if strings.TrimSpace(srv.URL) == "" {
 		return nil, fmt.Errorf("mcp: %s has no url", name)
 	}
 	headers := make(http.Header, len(srv.Headers))
 	for k, v := range srv.Headers {
-		// Header 值支持 ${VAR} 展开（凭据不落配置文件明文）。
-		headers.Set(k, v)
-	}
-	timeout := time.Duration(srv.TimeoutSeconds) * time.Second
-	if timeout <= 0 {
-		timeout = mcp.DefaultCallTimeout
-	}
-	if timeout > mcp.MaxCallTimeout {
-		timeout = mcp.MaxCallTimeout
+		// Header 值支持 ${VAR} 展开（凭据不落配置文件明文）；展开结果只存在于传输层。
+		headers.Set(k, expandEnvValue(v, env))
 	}
 	return &http.Client{
-		Timeout:   timeout,
-		Transport: &mcpHeaderTransport{base: http.DefaultTransport, headers: headers},
+		Timeout:   mcpCallTimeout(srv),
+		Transport: &mcp.HeaderTransport{Base: http.DefaultTransport, Headers: headers},
 	}, nil
-}
-
-// mcpHeaderTransport 注入静态 Header。
-type mcpHeaderTransport struct {
-	base    http.RoundTripper
-	headers http.Header
-}
-
-func (t *mcpHeaderTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if len(t.headers) > 0 {
-		clone := req.Clone(req.Context())
-		for k, vs := range t.headers {
-			for _, v := range vs {
-				clone.Header.Set(k, v)
-			}
-		}
-		req = clone
-	}
-	return t.base.RoundTrip(req)
 }

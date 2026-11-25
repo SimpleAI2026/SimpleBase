@@ -2,7 +2,7 @@ import { flushPromises } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'vue-sonner'
 import { api, resetApiMocks } from '@/test/api-mock'
-import { clickText, mountWithApp } from '@/test/helpers'
+import { clickText, mountWithApp, installJsdomPolyfills, pickSelectOption, realSelectStubs, selectTriggers } from '@/test/helpers'
 import { useAuthStore } from '@/stores/auth'
 
 vi.mock('@/services/api', async () => {
@@ -39,6 +39,8 @@ const formStub = {
   }
 }
 
+installJsdomPolyfills()
+
 describe('Users page', () => {
   beforeEach(() => resetApiMocks())
 
@@ -46,7 +48,7 @@ describe('Users page', () => {
     api.users.list
       .mockResolvedValueOnce({ users: [{ ...rows[0] }], nextCursor: 'c-page2' })
       .mockResolvedValueOnce({ users: [{ ...rows[1] }], nextCursor: '' })
-    const { wrapper } = await mountWithApp(Users, { stubs: formStub })
+    const { wrapper } = await mountWithApp(Users, { stubs: { ...formStub, ...realSelectStubs }, attachTo: document.body })
     await flushPromises()
     expect(api.users.list).toHaveBeenNthCalledWith(1, 20, undefined)
     expect(wrapper.text()).toContain('root')
@@ -59,7 +61,7 @@ describe('Users page', () => {
 
   it('filters roles and toggles accounts without dropping the list', async () => {
     api.users.list.mockResolvedValue({ users: rows, nextCursor: '' })
-    const { wrapper, pinia } = await mountWithApp(Users, { stubs: formStub })
+    const { wrapper, pinia } = await mountWithApp(Users, { stubs: { ...formStub, ...realSelectStubs }, attachTo: document.body })
     useAuthStore(pinia).applyTokens({
       accessToken: 'a',
       refreshToken: 'r',
@@ -127,16 +129,19 @@ describe('Users page', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('ada')
     await wrapper.get('input').setValue('ada')
-    const selects = wrapper.findAll('.select-emit')
-    await selects[0].trigger('click')
-    await selects[1].trigger('click')
-    await flushPromises()
+    // 真实 Select：先按角色「管理员」过滤，再按状态「禁用」过滤；两个筛选叠加
+    const triggers = () => selectTriggers()
+    expect(triggers()).toHaveLength(2)
+    await pickSelectOption(triggers()[0], '管理员')
+    expect((wrapper.vm as unknown as { roleFilter: string }).roleFilter).toBe('admin')
+    await pickSelectOption(triggers()[1], '禁用')
+    expect((wrapper.vm as unknown as { statusFilter: string }).statusFilter).toBe('disabled')
     wrapper.unmount()
   })
 
   it('offers create from the empty list and retries a failed load', async () => {
     api.users.list.mockResolvedValueOnce({ users: [], nextCursor: '' })
-    const { wrapper, pinia } = await mountWithApp(Users, { stubs: formStub })
+    const { wrapper, pinia } = await mountWithApp(Users, { stubs: { ...formStub, ...realSelectStubs }, attachTo: document.body })
     useAuthStore(pinia).applyTokens({
       accessToken: 'a',
       refreshToken: 'r',

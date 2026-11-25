@@ -1,9 +1,32 @@
+// 文件说明：record_test.go — internal/audit 的单元测试（TestRecordDefaultsDetailAndListLimits 等）
+//
+// 用法
+//
+//	go test ./internal/audit -run 'TestRecordDefaultsDetailAndListLimits'
+//
+// 调用架构
+//
+//	[上游] internal/agentrun, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/audit/record_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] service.go, service_test.go
+//
+// 主要符号
+//
+//	TestRecordDefaultsDetailAndListLimits(t *testing.T)
+
 package audit
 
 import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/linkxzhou/SimpleBase/internal/auth"
 )
 
 func TestRecordDefaultsDetailAndListLimits(t *testing.T) {
@@ -28,7 +51,7 @@ func TestRecordDefaultsDetailAndListLimits(t *testing.T) {
 	if len(ops) != 1 {
 		t.Fatalf("ops=%d", len(ops))
 	}
-	if ops[0].PrincipalID != "system" {
+	if ops[0].PrincipalID != auth.ActorSystem {
 		t.Fatalf("default principal=%q", ops[0].PrincipalID)
 	}
 	if ops[0].Status != "ok: rotated" {

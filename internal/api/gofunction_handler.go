@@ -1,14 +1,44 @@
+// 文件说明：gofunction_handler.go — internal/api 中 GoFunctionHandler、NewGoFunctionHandler 等符号的实现
+//
+// 用法
+//
+//	type GoFunctionHandler struct{…}  // GoFunctionHandler 依赖系统库；writable=false 时写/测试返回 503
+//	NewGoFunctionHandler(store *systemdb.Store, writable bool, audit AuditService, maxConcurrentRuns int) *GoFunct...  // NewGoFunctionHandler 构造 handler
+//	同包调用：parseVersionParam() → gofunction_invoke.go；goFuncTestResponse → gofunction_invoke.go；bindGoFunctionBody() → gofunction_invoke.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/gofunction_handler.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] GoFunctionHandler ← gofunction_errors.go, gofunction_invoke.go；NewGoFunctionHandler ← gofunction_gate_test.go, gofunction_handler_test.go；parseVersionParam ← gofunction_invoke.go
+//
+// 主要符号
+//
+//	type GoFunctionHandler struct{…}
+//	var gofunctionNameRe / gofunctionExportNameRe
+//	const gofunctionMaxSourceBytes / gofunctionMaxPerProject
+//	NewGoFunctionHandler(store *systemdb.Store, writable bool, audit AuditService, maxConcurrentRuns int) *GoFunct...
+//	(h *GoFunctionHandler) WithRunner(runner *functionrun.Runner) *GoFunctionHandler
+//	type goFuncVersionSummary struct{…}
+//	type goFuncDTO struct{…}
+//	toVersionSummary(v systemdb.GoFuncVersion, activeVersion int64) goFuncVersionSummary
+//	... 另有 24 个顶层符号
+
 package api
 
 import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"regexp"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -16,7 +46,6 @@ import (
 	"github.com/linkxzhou/SimpleBase/gofunction"
 	"github.com/linkxzhou/SimpleBase/internal/functionrun"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
-	"github.com/linkxzhou/SimpleBase/internal/utils/strutil"
 )
 
 // GoFunctionHandler 依赖系统库；writable=false 时写/测试返回 503。
@@ -53,32 +82,6 @@ func NewGoFunctionHandler(store *systemdb.Store, writable bool, audit AuditServi
 func (h *GoFunctionHandler) WithRunner(runner *functionrun.Runner) *GoFunctionHandler {
 	h.runner = runner
 	return h
-}
-
-// acquireRunSlot 非阻塞获取执行槽位；满载返回 false（GF-RUN-04 → 503）。
-func (h *GoFunctionHandler) acquireRunSlot() bool {
-	if h.runner != nil {
-		return h.runner.Acquire()
-	}
-	if h.runSem == nil {
-		return true
-	}
-	select {
-	case h.runSem <- struct{}{}:
-		return true
-	default:
-		return false
-	}
-}
-
-func (h *GoFunctionHandler) releaseRunSlot() {
-	if h.runner != nil {
-		h.runner.Release()
-		return
-	}
-	if h.runSem != nil {
-		<-h.runSem
-	}
 }
 
 // ---------- DTO ----------
@@ -169,9 +172,9 @@ func (h *GoFunctionHandler) toDTO(f systemdb.GoFunc, vers []systemdb.GoFuncVersi
 // ---------- 管理面 ----------
 
 func (h *GoFunctionHandler) requireReadStore(c echo.Context) (ProjectContext, error) {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return ProjectContext{}, ErrProjectMissing
+	pc, err := requireProject(c)
+	if err != nil {
+		return ProjectContext{}, err
 	}
 	if h.store == nil {
 		return ProjectContext{}, systemdb.ErrUnavailable
@@ -180,11 +183,11 @@ func (h *GoFunctionHandler) requireReadStore(c echo.Context) (ProjectContext, er
 }
 
 func (h *GoFunctionHandler) requireWriteStore(c echo.Context, forbidAdmin bool) (ProjectContext, string, error) {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return ProjectContext{}, "", ErrProjectMissing
+	pc, err := requireProject(c)
+	if err != nil {
+		return ProjectContext{}, "", err
 	}
-	rid := RequestIDFromContext(c.Request().Context())
+	rid := requestID(c)
 	if !h.writable {
 		return ProjectContext{}, "", godatabase.ErrWriterUnavailable
 	}
@@ -215,7 +218,7 @@ func shouldActivate(flag *bool) bool {
 func parseVersionParam(c echo.Context, rid string) (int64, error) {
 	ver, err := strconv.ParseInt(c.Param("ver"), 10, 64)
 	if err != nil || ver <= 0 {
-		return 0, NewAPIError(http.StatusBadRequest, "invalid_request", "invalid version", rid)
+		return 0, badRequest(c, "invalid version")
 	}
 	return ver, nil
 }
@@ -286,14 +289,14 @@ func (h *GoFunctionHandler) Create(c echo.Context) error {
 
 	f, err := h.store.CreateGoFunc(c.Request().Context(), systemdb.GoFunc{
 		ProjectID: pc.ID, Name: req.Name, Description: req.Description,
-		CreatedBy: actorID(c),
+		CreatedBy: principalOf(c).Actor(),
 	})
 	if err != nil {
 		return WriteError(c, err)
 	}
 	v, err := h.store.AppendGoFuncVersion(c.Request().Context(), systemdb.GoFuncVersion{
 		FuncID: f.ID, ProjectID: pc.ID, Name: req.Name,
-		Source: req.Source, Exports: exports, Note: req.Note, CreatedBy: actorID(c),
+		Source: req.Source, Exports: exports, Note: req.Note, CreatedBy: principalOf(c).Actor(),
 	})
 	if err != nil {
 		return WriteError(c, err)
@@ -406,7 +409,7 @@ func (h *GoFunctionHandler) ListVersions(c echo.Context) error {
 	name := c.Param("name")
 	f, err := h.store.GetGoFunc(c.Request().Context(), pc.ID, name)
 	if errors.Is(err, sql.ErrNoRows) {
-		return WriteError(c, NewAPIError(http.StatusNotFound, "gofunction_not_found", "go function not found", RequestIDFromContext(c.Request().Context())))
+		return WriteError(c, NewAPIError(http.StatusNotFound, "gofunction_not_found", "go function not found", requestID(c)))
 	}
 	if err != nil {
 		return WriteError(c, err)
@@ -449,7 +452,7 @@ func (h *GoFunctionHandler) CreateVersion(c echo.Context) error {
 	}
 	v, err := h.store.AppendGoFuncVersion(c.Request().Context(), systemdb.GoFuncVersion{
 		FuncID: f.ID, ProjectID: pc.ID, Name: name,
-		Source: req.Source, Exports: exports, Note: req.Note, CreatedBy: actorID(c),
+		Source: req.Source, Exports: exports, Note: req.Note, CreatedBy: principalOf(c).Actor(),
 	})
 	if err != nil {
 		if errors.Is(err, systemdb.ErrVersionLimit) {
@@ -488,7 +491,7 @@ func (h *GoFunctionHandler) GetVersion(c echo.Context) error {
 		return WriteError(c, err)
 	}
 	name := c.Param("name")
-	ver, err := parseVersionParam(c, RequestIDFromContext(c.Request().Context()))
+	ver, err := parseVersionParam(c, requestID(c))
 	if err != nil {
 		return WriteError(c, err)
 	}
@@ -540,202 +543,17 @@ type goFuncTestResponse struct {
 	Error         string          `json:"error,omitempty"`
 }
 
-// TestVersion: POST /gofunctions/:name/versions/:ver/test（plan §5.3）
-func (h *GoFunctionHandler) TestVersion(c echo.Context) error {
-	pc, rid, err := h.requireWriteStore(c, true)
-	if err != nil {
-		return WriteError(c, err)
-	}
-	name := c.Param("name")
-	ver, err := parseVersionParam(c, rid)
-	if err != nil {
-		return WriteError(c, err)
-	}
-	var req goFuncTestRequest
-	if err := bindGoFunctionBody(c, &req); err != nil {
-		return WriteError(c, err)
-	}
-	if !gofunctionExportNameRe.MatchString(req.FunctionName) {
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "invalid function_name", rid))
-	}
-	f, err := h.store.GetGoFunc(c.Request().Context(), pc.ID, name)
-	if err != nil {
-		return WriteError(c, mapNotFound(err))
-	}
-	v, err := h.store.GetGoFuncVersion(c.Request().Context(), pc.ID, name, ver)
-	if err != nil {
-		return WriteError(c, mapNotFound(err))
-	}
-	body := req.Body
-	if len(body) == 0 {
-		body = json.RawMessage(`{}`)
-	}
-	// GF-RUN-04：与 /go 调用共享全局并发上限，满载 503。
-	if !h.acquireRunSlot() {
-		return WriteError(c, NewAPIError(http.StatusServiceUnavailable, "too_many_go_runs", "go function run concurrency limit reached", rid))
-	}
-	defer h.releaseRunSlot()
-	start := time.Now()
-	out, runErr := gofunction.RunJSON(c.Request().Context(), rid, name, v.Source, req.FunctionName, body)
-	dur := time.Since(start)
-	resp := goFuncTestResponse{
-		OK:            runErr == nil,
-		StatusCode:    http.StatusOK,
-		DurationMs:    dur.Milliseconds(),
-		Version:       ver,
-		ActiveVersion: f.ActiveVersion,
-		FunctionName:  req.FunctionName,
-	}
-	if runErr != nil {
-		ae := mapGoFunctionRunError(runErr, rid)
-		var he *APIError
-		if errors.As(ae, &he) {
-			resp.StatusCode = he.HTTPStatus
-			resp.Error = he.Body.Error.Message
-		} else {
-			resp.StatusCode = http.StatusInternalServerError
-			resp.Error = runErr.Error()
-		}
-	} else {
-		resp.Data = out
-	}
-	h.store.RecordGoFuncInvoke(c.Request().Context(), pc.ID, name, req.FunctionName, ver, "test",
-		resp.StatusCode, dur.Milliseconds(), rid, actorID(c))
-	h.recordInvokeMetrics(pc.ID, dur, runErr)
-	h.recordAudit(c, pc.ID, "test "+name+".go v"+strconv.FormatInt(ver, 10))
-	return c.JSON(http.StatusOK, resp)
-}
-
 // ---------- /go 调用面（只跑 active） ----------
-
-// Invoke: POST /go/:projectID/:name/:functionName
-func (h *GoFunctionHandler) Invoke(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
-	}
-	if h.store == nil {
-		return WriteError(c, systemdb.ErrUnavailable)
-	}
-	start := time.Now()
-	var invokeErr error
-	defer func() { h.recordInvokeMetrics(pc.ID, time.Since(start), invokeErr) }()
-	fail := func(err error) error {
-		invokeErr = err
-		return WriteError(c, err)
-	}
-
-	name := c.Param("name")
-	fnName := c.Param("functionName")
-	rid := RequestIDFromContext(c.Request().Context())
-	if !gofunctionNameRe.MatchString(name) {
-		return fail(NewAPIError(http.StatusBadRequest, "invalid_gofunction_name", "invalid go function name", rid))
-	}
-	if !gofunctionExportNameRe.MatchString(fnName) {
-		return fail(NewAPIError(http.StatusNotFound, "function_not_found", "function not found", rid))
-	}
-	if h.runner != nil {
-		body, readErr := io.ReadAll(c.Request().Body)
-		if readErr != nil {
-			return fail(NewAPIError(http.StatusBadRequest, "invalid_request", "cannot read request body", rid))
-		}
-		result, runErr := h.runner.Run(c.Request().Context(), functionrun.Request{ProjectID: pc.ID, FuncFile: name, FuncExport: fnName, Input: body, Channel: "go", RequestID: rid, Actor: actorID(c)})
-		if runErr != nil {
-			if errors.Is(runErr, functionrun.ErrTooManyRuns) {
-				return fail(NewAPIError(http.StatusServiceUnavailable, "too_many_go_runs", "go function run concurrency limit reached", rid))
-			}
-			if errors.Is(runErr, sql.ErrNoRows) {
-				return fail(NewAPIError(http.StatusNotFound, "gofunction_not_found", "go function not found", rid))
-			}
-			if errors.Is(runErr, systemdb.ErrNoActiveVersion) {
-				return fail(NewAPIError(http.StatusConflict, "no_active_version", "go function has no active version", rid))
-			}
-			return fail(mapGoFunctionRunError(runErr, rid))
-		}
-		return c.Blob(http.StatusOK, "application/json", result.Output)
-	}
-	// D8：只跑 active_version
-	v, err := h.store.ResolveActiveSource(c.Request().Context(), pc.ID, name)
-	if errors.Is(err, sql.ErrNoRows) {
-		return fail(NewAPIError(http.StatusNotFound, "gofunction_not_found", "go function not found", rid))
-	}
-	if errors.Is(err, systemdb.ErrNoActiveVersion) {
-		return fail(NewAPIError(http.StatusConflict, "no_active_version", "go function has no active version", rid))
-	}
-	if err != nil {
-		return fail(err)
-	}
-
-	body, err := io.ReadAll(c.Request().Body)
-	if err != nil {
-		return fail(NewAPIError(http.StatusBadRequest, "invalid_request", "cannot read request body", rid))
-	}
-	// GF-RUN-04：编译执行有全局并发上限，满载立即 503（不排队，
-	// 避免高频调用把请求队列也打满）。
-	if !h.acquireRunSlot() {
-		return fail(NewAPIError(http.StatusServiceUnavailable, "too_many_go_runs", "go function run concurrency limit reached", rid))
-	}
-	defer h.releaseRunSlot()
-	out, runErr := gofunction.RunJSON(c.Request().Context(), rid, name, v.Source, fnName, body)
-	dur := time.Since(start)
-	status := http.StatusOK
-	if runErr != nil {
-		ae := mapGoFunctionRunError(runErr, rid)
-		var he *APIError
-		if errors.As(ae, &he) {
-			status = he.HTTPStatus
-		} else {
-			status = http.StatusInternalServerError
-		}
-		h.store.RecordGoFuncInvoke(c.Request().Context(), pc.ID, name, fnName, v.Version, "go",
-			status, dur.Milliseconds(), rid, actorID(c))
-		return fail(ae)
-	}
-	h.store.RecordGoFuncInvoke(c.Request().Context(), pc.ID, name, fnName, v.Version, "go",
-		status, dur.Milliseconds(), rid, actorID(c))
-	return c.Blob(http.StatusOK, "application/json", out)
-}
 
 // MethodNotAllowed 返回 405 JSON。
 func (h *GoFunctionHandler) MethodNotAllowed(c echo.Context) error {
 	return c.JSON(http.StatusMethodNotAllowed, APIErrorBody{Error: APIErrorDetail{
 		Code: "method_not_allowed", Message: "use POST with JSON body",
-		RequestID: RequestIDFromContext(c.Request().Context()),
+		RequestID: requestID(c),
 	}})
 }
 
 // ---------- helpers ----------
-
-func (h *GoFunctionHandler) loadFunc(c echo.Context, projectID, name string) (systemdb.GoFunc, []systemdb.GoFuncVersion, error) {
-	rid := RequestIDFromContext(c.Request().Context())
-	f, err := h.store.GetGoFunc(c.Request().Context(), projectID, name)
-	if err != nil {
-		return systemdb.GoFunc{}, nil, mapNotFound(err)
-	}
-	vers, err := h.store.ListGoFuncVersions(c.Request().Context(), projectID, name)
-	if err != nil {
-		_ = rid
-		return systemdb.GoFunc{}, nil, err
-	}
-	return f, vers, nil
-}
-
-func (h *GoFunctionHandler) pickSource(c echo.Context, projectID, name string, f systemdb.GoFunc) (string, error) {
-	if f.ActiveVersion > 0 {
-		v, err := h.store.GetGoFuncVersion(c.Request().Context(), projectID, name, f.ActiveVersion)
-		if err == nil {
-			return v.Source, nil
-		}
-	}
-	v, err := h.store.LatestGoFuncVersion(c.Request().Context(), projectID, name)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", nil
-	}
-	if err != nil {
-		return "", err
-	}
-	return v.Source, nil
-}
 
 func funcNames(infos []gofunction.FuncInfo) []string {
 	out := make([]string, 0, len(infos))
@@ -745,126 +563,14 @@ func funcNames(infos []gofunction.FuncInfo) []string {
 	return out
 }
 
-func mapNotFound(err error) error {
-	rid := "" // filled by WriteError via Error()
-	if errors.Is(err, sql.ErrNoRows) {
-		return NewAPIError(http.StatusNotFound, "not_found", "resource not found", rid)
-	}
-	return err
-}
-
-func actorID(c echo.Context) string {
-	p, ok := PrincipalFromContext(c.Request().Context())
-	if !ok {
-		return ""
-	}
-	if p.UserID != "" {
-		return p.UserID
-	}
-	return p.APIKeyID
-}
-
-func (h *GoFunctionHandler) validateSource(c echo.Context, source string) ([]gofunction.FuncInfo, error) {
-	start := time.Now()
-	infos, err := gofunction.ValidateHTTPFuncs(source)
-	if h.store != nil {
-		pc, _ := ProjectFromContext(c.Request().Context())
-		if pc.ID != "" && !systemdb.IsAdminProject(pc.ID) {
-			h.store.RecordMetric(systemdb.MetricSample{
-				ProjectID: pc.ID, Name: "gofunction_compile_ms", Value: float64(time.Since(start).Milliseconds()),
-			})
-		}
-	}
-	return infos, err
-}
-
-func (h *GoFunctionHandler) recordInvokeMetrics(projectID string, dur time.Duration, runErr error) {
-	if h.store == nil || projectID == "" || systemdb.IsAdminProject(projectID) {
-		return
-	}
-	h.store.RecordMetric(systemdb.MetricSample{ProjectID: projectID, Name: "gofunction_invokes", Value: 1})
-	h.store.RecordMetric(systemdb.MetricSample{
-		ProjectID: projectID, Name: "gofunction_invoke_duration_ms", Value: float64(dur.Milliseconds()),
-	})
-	if runErr != nil {
-		h.store.RecordMetric(systemdb.MetricSample{ProjectID: projectID, Name: "gofunction_invoke_errors", Value: 1})
-	}
-}
-
 func (h *GoFunctionHandler) recordAudit(c echo.Context, projectID, detail string) {
-	if h.audit == nil {
-		return
-	}
-	principal, ok := PrincipalFromContext(c.Request().Context())
-	pID := ""
-	if ok {
-		pID = string(principal.APIKeyID)
-		if principal.UserID != "" {
-			pID = principal.UserID
-		}
-	}
-	_ = h.audit.Record(c.Request().Context(), AuditEvent{
-		ProjectID:   projectID,
-		PrincipalID: pID,
-		Kind:        "gofunction",
-		RequestID:   RequestIDFromContext(c.Request().Context()),
-		Status:      "ok",
-		Detail:      detail,
-	})
+	recordAudit(c, h.audit, "gofunction", projectID, "ok", detail)
 }
 
 // bindGoFunctionBody 解析 JSON body。
 func bindGoFunctionBody(c echo.Context, req any) error {
 	if err := c.Bind(req); err != nil {
-		return NewAPIError(http.StatusBadRequest, "invalid_request", "malformed JSON body", RequestIDFromContext(c.Request().Context()))
+		return badRequest(c, "malformed JSON body")
 	}
 	return nil
-}
-
-// validateGoFunctionSource 校验源码非空与体积上限。
-func validateGoFunctionSource(source string) error {
-	rid := ""
-	if source == "" {
-		return NewAPIError(http.StatusBadRequest, "invalid_request", "source is required", rid)
-	}
-	if len(source) > gofunctionMaxSourceBytes {
-		return NewAPIError(http.StatusRequestEntityTooLarge, "request_too_large", "source exceeds 256KB limit", rid)
-	}
-	return nil
-}
-
-// mapGoFunctionValidationError 映射 ValidateHTTPFuncs 错误。
-// 约定/签名问题 → gofunction_signature_invalid；编译错误 → gofunction_compile_error。
-func mapGoFunctionValidationError(err error, rid string) error {
-	if err == nil {
-		return nil
-	}
-	msg := strutil.TruncateEllipsis(err.Error(), 512)
-	// 编译/语法错误才用 compile_error；签名与导出约定问题统一 signature_invalid
-	if strings.Contains(err.Error(), "syntax error") ||
-		strings.Contains(err.Error(), "expected") ||
-		strings.Contains(err.Error(), "解析失败") {
-		return NewAPIError(http.StatusBadRequest, "gofunction_compile_error", msg, rid)
-	}
-	return NewAPIError(http.StatusBadRequest, "gofunction_signature_invalid", msg, rid)
-}
-
-// mapGoFunctionRunError 映射 RunJSON 错误。
-func mapGoFunctionRunError(err error, rid string) error {
-	if err == nil {
-		return nil
-	}
-	if errors.Is(err, gofunction.ErrFunctionNotFound) {
-		return NewAPIError(http.StatusNotFound, "function_not_found", "function not found", rid)
-	}
-	if errors.Is(err, gofunction.ErrTimeout) {
-		return NewAPIError(http.StatusGatewayTimeout, "request_timeout", "go function execution timed out", rid)
-	}
-	if errors.Is(err, gofunction.ErrBind) {
-		return NewAPIError(http.StatusBadRequest, "invalid_request", strutil.TruncateEllipsis(err.Error(), 512), rid)
-	}
-	if errors.Is(err, gofunction.ErrCompile) {
-		return NewAPIError(http.StatusInternalServerError, "gofunction_compile_error", strutil.TruncateEllipsis(err.Error(), 512), rid)
-	}
-	return NewAPIError(http.StatusInternalServerError, "gofunction_runtime_error", strutil.TruncateEllipsis(err.Error(), 512), rid)
 }

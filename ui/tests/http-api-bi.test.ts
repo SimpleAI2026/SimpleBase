@@ -16,7 +16,7 @@ vi.mock('@/services/http', () => ({
 }))
 
 import { httpApi } from '@/services/http-api'
-import { toAggregateParams, toAggregateResult } from '@/services/http-api-converters'
+import { toAggregateParams, toAggregateResult } from '@/services/converters/data'
 
 const pid = 'proj 1'
 
@@ -145,7 +145,7 @@ describe('httpApi.databases.tableRows filter', () => {
 
 describe('aggregate with_total and total mapping', () => {
   it('sends with_total only when asked, and maps the returned total', async () => {
-    const { toAggregateParams, toAggregateResult } = await import('@/services/http-api-converters')
+    const { toAggregateParams, toAggregateResult } = await import('@/services/converters/data')
     expect(toAggregateParams({ metrics: ['count'], groupBy: 'status', withTotal: true })).toMatchObject({ with_total: 1 })
     expect(toAggregateParams({ metrics: ['count'], groupBy: 'status' })).not.toHaveProperty('with_total')
     const mapped = toAggregateResult({ columns: ['x', 'count'], rows: [['a', 1]], total: 42, truncated: true, scanned: 1 })

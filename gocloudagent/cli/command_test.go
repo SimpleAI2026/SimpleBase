@@ -1,3 +1,34 @@
+// 文件说明：command_test.go — gocloudagent/cli 的单元测试（TestRunCommandHelpAndVersion、TestRunCommandFailsWithoutConfig 等）
+//
+// 用法
+//
+//	go test ./gocloudagent/cli -run 'TestRunCommandHelpAndVersion|TestRunCommandFailsWithoutConfig|TestConfigSetGetAndPath|TestConfigRejectsUnknownKey'
+//	同包调用：captureStdio() → group_test.go, mcp_adapter_test.go
+//
+// 调用架构
+//
+//	[上游] gocloudagent
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/cli/command_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] agent_loop.go, agent_loop_test.go, budget_test.go, client.go, client_conn_reuse_test.go 等 39 个
+//	[关键引用] captureStdio ← group_test.go, mcp_adapter_test.go
+//
+// 主要符号
+//
+//	captureStdio(t *testing.T) (func() (string, string), *os.File, *os.File)
+//	TestRunCommandHelpAndVersion(t *testing.T)
+//	TestRunCommandFailsWithoutConfig(t *testing.T)
+//	TestConfigSetGetAndPath(t *testing.T)
+//	TestConfigRejectsUnknownKey(t *testing.T)
+//	TestConfigMasksToken(t *testing.T)
+//	TestConfigRejectsInsecureFileOnRead(t *testing.T)
+//	TestSessionsListShowRemove(t *testing.T)
+//	... 另有 6 个顶层符号
+
 package cli
 
 import (

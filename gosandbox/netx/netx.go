@@ -1,3 +1,31 @@
+// 文件说明：netx.go — gosandbox/netx 中 Mode、ParseMode 等符号的实现
+//
+// 用法
+//
+//	type Mode string  // Mode 是出网档位
+//	ParseMode(s string) (Mode, error)  // ParseMode 解析档位字符串
+//	type Policy struct{…}  // Policy 是出网策略
+//
+// 调用架构
+//
+//	[上游] gosandbox/box, gosandbox/vm/box, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/netx/netx.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] netx_test.go, pasta_linux.go, pasta_other.go
+//	[关键引用] Mode ← netx_test.go, pasta_linux.go；ParseMode ← netx_test.go
+//
+// 主要符号
+//
+//	type Mode string
+//	const ModeNone / ModeEgress
+//	var ErrUnsupported
+//	ParseMode(s string) (Mode, error)
+//	type Policy struct{…}
+
 package netx
 
 import (

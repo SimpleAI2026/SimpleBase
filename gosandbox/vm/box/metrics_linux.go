@@ -1,5 +1,32 @@
 //go:build linux
 
+// 文件说明：metrics_linux.go — gosandbox/vm/box 中 Driver.Metrics、Driver.Pause 等符号的实现
+//
+// 用法
+//
+//	(d *Driver) Metrics(ctx context.Context, name string) (vm.Metrics, error)  // Metrics 读沙盒用量
+//	(d *Driver) Pause(_ context.Context, name string) error  // Pause 冻结沙盒内全部进程（cgroup.freeze）
+//	(d *Driver) Resume(_ context.Context, t vm.Target) error  // Resume 解冻
+//	(d *Driver) CanFreeze() bool  // CanFreeze 报告 cgroup 是否已委派（冻结需要 cgroup v2）
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/vm/box/metrics_linux.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] capabilities.go, contracts_linux_test.go, diskuse_linux.go, driver_linux.go, driver_other.go 等 15 个
+//
+// 主要符号
+//
+//	(d *Driver) Metrics(ctx context.Context, name string) (vm.Metrics, error)
+//	(d *Driver) Pause(_ context.Context, name string) error
+//	(d *Driver) Resume(_ context.Context, t vm.Target) error
+//	(d *Driver) CanFreeze() bool
+
 package box
 
 import (

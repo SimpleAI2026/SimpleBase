@@ -1,3 +1,32 @@
+// 文件说明：scheduler_lifecycle_test.go — internal/cronjob 的单元测试（TestScheduler_StopCancelsManualTrigger、TestScheduler_TriggerAfterStop 等）
+//
+// 用法
+//
+//	go test ./internal/cronjob -run 'TestScheduler_StopCancelsManualTrigger|TestScheduler_TriggerAfterStop|TestScheduler_StopTriggerConcurrent'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/cronjob/scheduler_lifecycle_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_target_test.go, scheduler.go, scheduler_test.go, scheduler_tick_execute_test.go
+//
+// 主要符号
+//
+//	TestScheduler_StopCancelsManualTrigger(t *testing.T)
+//	TestScheduler_TriggerAfterStop(t *testing.T)
+//	TestScheduler_StopTriggerConcurrent(t *testing.T)
+//	type quickRunner struct{…}
+//	(r *quickRunner) RunFunction(ctx context.Context, projectID, funcFile, funcExport string, input json.RawMessag...
+//	jobRow(id string) systemdb.CronJob
+//	type blockingRunner struct{…}
+//	newBlockingRunner() *blockingRunner
+//	... 另有 1 个顶层符号
+
 package cronjob
 
 import (

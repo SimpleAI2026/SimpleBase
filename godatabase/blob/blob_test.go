@@ -1,3 +1,32 @@
+// 文件说明：blob_test.go — godatabase/blob 的单元测试（TestDuckLakeCatalogKeys、TestKeyBuilderRejectsBadIDs 等）
+//
+// 用法
+//
+//	go test ./godatabase/blob -run 'TestDuckLakeCatalogKeys|TestKeyBuilderRejectsBadIDs|TestProjectDatabaseKeys|TestValidateProjectID'
+//
+// 调用架构
+//
+//	[上游] godatabase, godatabase/cmd, godatabase/ducklake, godatabase/filedb 等 6 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/blob/blob_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] blob.go, keys.go
+//
+// 主要符号
+//
+//	const testProject / testDB
+//	TestDuckLakeCatalogKeys(t *testing.T)
+//	TestKeyBuilderRejectsBadIDs(t *testing.T)
+//	TestProjectDatabaseKeys(t *testing.T)
+//	TestValidateProjectID(t *testing.T)
+//	TestNewProjectIDIsValid(t *testing.T)
+//	TestMemoryRoundTrip(t *testing.T)
+//	TestMemoryPutIfAbsent(t *testing.T)
+//	... 另有 1 个顶层符号
+
 package blob
 
 import (

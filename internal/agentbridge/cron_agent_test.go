@@ -1,3 +1,32 @@
+// 文件说明：cron_agent_test.go — internal/agentbridge 的单元测试（TestRunAgentSuccess、TestRunAgentQuotaExceeded 等）
+//
+// 用法
+//
+//	go test ./internal/agentbridge -run 'TestRunAgentSuccess|TestRunAgentQuotaExceeded|TestRunAgentMissingAgentDisablesJob|TestRunAgentThreadRecreatedAndRebound'
+//
+// 调用架构
+//
+//	[上游] internal/agentrun, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/agentbridge/cron_agent_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] access_db.go, access_llm.go, access_object.go, access_test.go, bridge_test.go 等 33 个
+//
+// 主要符号
+//
+//	type fakeStore struct{…}
+//	newFakeStore() *fakeStore
+//	(f *fakeStore) GetCloudAgent(_ context.Context, _, id string) (systemdb.CloudAgent, error)
+//	(f *fakeStore) GetAgentThread(_ context.Context, _, id string) (systemdb.AgentThread, error)
+//	(f *fakeStore) CreateAgentThread(_ context.Context, t systemdb.AgentThread) (systemdb.AgentThread, error)
+//	(f *fakeStore) AppendAgentMessage(_ context.Context, m systemdb.AgentMessage) (systemdb.AgentMessage, error)
+//	(f *fakeStore) ListAgentMessages(_ context.Context, _, _ string, _ int) ([]systemdb.AgentMessage, error)
+//	(f *fakeStore) CreateAgentRun(_ context.Context, r systemdb.AgentRun) (systemdb.AgentRun, error)
+//	... 另有 30 个顶层符号
+
 package agentbridge
 
 import (
@@ -125,6 +154,42 @@ func (f *fakeStore) UpdateAgentRunMetrics(context.Context, string, string, syste
 
 func (f *fakeStore) RecordAgentToolSpans(string, string, string) error { return nil }
 
+// fakeFinalizer 记录收尾输入，并按与应用服务相同的状态推导写回假仓储，便于用例断言落库结果。
+type fakeFinalizer struct {
+	store *fakeStore
+	mu    sync.Mutex
+	last  RunFinish
+	calls int
+}
+
+func newFakeFinalizer(store *fakeStore) *fakeFinalizer { return &fakeFinalizer{store: store} }
+
+func (f *fakeFinalizer) Finish(_ context.Context, in RunFinish) error {
+	f.mu.Lock()
+	f.calls++
+	f.last = in
+	f.mu.Unlock()
+	status, code := systemdb.AgentRunCompleted, ""
+	switch {
+	case in.Err == nil:
+	case errors.Is(in.Err, context.Canceled):
+		status = systemdb.AgentRunCanceled
+	default:
+		status, code = systemdb.AgentRunFailed, ClassifyError(in.Err).Code
+	}
+	// 与 agentrun.finishRun 同序：assistant 消息 → run 状态（→ 指标 / span / 审计，假仓储不模拟）。
+	if in.Err == nil && in.Result.Content != "" {
+		if _, err := f.store.AppendAgentMessage(context.Background(), systemdb.AgentMessage{
+			ThreadID: in.Run.ThreadID, ProjectID: in.Run.ProjectID, Role: "assistant", Content: in.Result.Content,
+			AgentID: in.Agent.ID, RunID: in.Run.ID,
+		}); err != nil {
+			return err
+		}
+	}
+	now := time.Now().UTC()
+	return f.store.UpdateAgentRunStatus(context.Background(), in.Run.ProjectID, in.Run.ID, status, code, nil, &now)
+}
+
 func (f *fakeStore) GetAgentGroupCron(context.Context, string, string) (systemdb.AgentGroupCron, error) {
 	return systemdb.AgentGroupCron{}, nil
 }
@@ -222,7 +287,7 @@ func seeded(t *testing.T) (*fakeStore, systemdb.CronJob) {
 func TestRunAgentSuccess(t *testing.T) {
 	store, j := seeded(t)
 	runner := &fakeRunner{}
-	e := NewCronAgentExecutor(store, runner, fakeQuota{})
+	e := NewCronAgentExecutor(store, runner, fakeQuota{}, newFakeFinalizer(store))
 
 	res, err := e.RunAgent(context.Background(), j, "scheduled")
 	if err != nil {
@@ -242,7 +307,7 @@ func TestRunAgentSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rc.Principal.APIKeyID != CronAgentPrincipalID {
+	if rc.Principal.APIKeyID != auth.ActorScheduler {
 		t.Fatalf("principal = %q", rc.Principal.APIKeyID)
 	}
 	if _, ok := rc.Principal.Permissions[auth.DatabaseRead]; !ok || len(rc.Principal.Permissions) != 1 {
@@ -263,6 +328,11 @@ func TestRunAgentSuccess(t *testing.T) {
 	if got := store.onlyRun(t).Status; got != systemdb.AgentRunCompleted {
 		t.Fatalf("run status = %q", got)
 	}
+	// 收尾经 RunFinalizer 端口交给应用服务：成功路径传入运行结果与 nil 错误，恰好调用一次。
+	fin := e.Finalizer.(*fakeFinalizer)
+	if fin.calls != 1 || fin.last.Err != nil || fin.last.Result.Content != "ok" || fin.last.Run.ID != store.onlyRun(t).ID || fin.last.Agent.ID != j.AgentID {
+		t.Fatalf("finalizer calls=%d last=%+v", fin.calls, fin.last)
+	}
 	// 历史里不能包含刚插入的这条用户消息（否则 prompt 会重复）。
 	if len(req.History) != 0 {
 		t.Fatalf("history should exclude the just-inserted user message: %+v", req.History)
@@ -273,7 +343,7 @@ func TestRunAgentSuccess(t *testing.T) {
 func TestRunAgentQuotaExceeded(t *testing.T) {
 	store, j := seeded(t)
 	runner := &fakeRunner{}
-	e := NewCronAgentExecutor(store, runner, fakeQuota{err: errors.New("quota exceeded")})
+	e := NewCronAgentExecutor(store, runner, fakeQuota{err: errors.New("quota exceeded")}, newFakeFinalizer(store))
 
 	_, err := e.RunAgent(context.Background(), j, "scheduled")
 	if err == nil || err.Error() != "llm quota exceeded" {
@@ -289,7 +359,7 @@ func TestRunAgentMissingAgentDisablesJob(t *testing.T) {
 	store, j := seeded(t)
 	delete(store.agents, "a1")
 	runner := &fakeRunner{}
-	e := NewCronAgentExecutor(store, runner, nil)
+	e := NewCronAgentExecutor(store, runner, nil, newFakeFinalizer(store))
 
 	_, err := e.RunAgent(context.Background(), j, "scheduled")
 	if err == nil || err.Error() != "agent not found" {
@@ -313,7 +383,7 @@ func TestRunAgentThreadRecreatedAndRebound(t *testing.T) {
 	advanced.NextRunAt = j.NextRunAt.Add(time.Hour)
 	store.jobs[j.ID] = advanced
 	runner := &fakeRunner{}
-	e := NewCronAgentExecutor(store, runner, nil)
+	e := NewCronAgentExecutor(store, runner, nil, newFakeFinalizer(store))
 
 	if _, err := e.RunAgent(context.Background(), j, "scheduled"); err != nil {
 		t.Fatal(err)
@@ -328,7 +398,7 @@ func TestRunAgentThreadRecreatedAndRebound(t *testing.T) {
 	if !got.NextRunAt.Equal(advanced.NextRunAt) {
 		t.Fatal("rebind must not clobber the scheduler-advanced next_run_at")
 	}
-	if store.threads["thread-new"].AgentID != "a1" || store.threads["thread-new"].CreatedBy != CronAgentPrincipalID {
+	if store.threads["thread-new"].AgentID != "a1" || store.threads["thread-new"].CreatedBy != auth.ActorScheduler {
 		t.Fatalf("recreated thread = %+v", store.threads["thread-new"])
 	}
 }
@@ -338,7 +408,7 @@ func TestRunAgentRejectsCrossAgentThread(t *testing.T) {
 	store, j := seeded(t)
 	store.threads["t1"] = systemdb.AgentThread{ID: "t1", ProjectID: "p1", AgentID: "other"}
 	runner := &fakeRunner{}
-	e := NewCronAgentExecutor(store, runner, nil)
+	e := NewCronAgentExecutor(store, runner, nil, newFakeFinalizer(store))
 
 	_, err := e.RunAgent(context.Background(), j, "scheduled")
 	if err == nil || err.Error() != "schedule thread belongs to another agent" {
@@ -353,7 +423,7 @@ func TestRunAgentRejectsCrossAgentThread(t *testing.T) {
 func TestRunAgentRunnerFailure(t *testing.T) {
 	store, j := seeded(t)
 	runner := &fakeRunner{err: errors.New(strings.Repeat("x", 500))}
-	e := NewCronAgentExecutor(store, runner, nil)
+	e := NewCronAgentExecutor(store, runner, nil, newFakeFinalizer(store))
 
 	res, err := e.RunAgent(context.Background(), j, "manual")
 	if err == nil || len(err.Error()) != cronAgentErrorLimit {
@@ -362,8 +432,9 @@ func TestRunAgentRunnerFailure(t *testing.T) {
 	if res.Response != "" {
 		t.Fatal("no response on failure")
 	}
+	// 统一收尾后 run 行记分类码（与 HTTP 触发的 run 一致）；调度器拿到的错误文本仍截断到上限。
 	run := store.onlyRun(t)
-	if run.Status != systemdb.AgentRunFailed || len(run.Error) != cronAgentErrorLimit {
+	if run.Status != systemdb.AgentRunFailed || run.Error != ClassifyError(errors.New(strings.Repeat("x", 500))).Code {
 		t.Fatalf("run = %+v", run)
 	}
 	// 失败时不追加 assistant 消息。
@@ -377,7 +448,7 @@ func TestRunAgentRunnerFailure(t *testing.T) {
 // context canceled 落 canceled，而不是 failed。
 func TestRunAgentCanceled(t *testing.T) {
 	store, j := seeded(t)
-	e := NewCronAgentExecutor(store, &fakeRunner{err: errors.New("context canceled")}, nil)
+	e := NewCronAgentExecutor(store, &fakeRunner{err: context.Canceled}, nil, newFakeFinalizer(store))
 
 	if _, err := e.RunAgent(context.Background(), j, "scheduled"); err == nil {
 		t.Fatal("want error")
@@ -406,7 +477,7 @@ func TestRunAgentInfraFailures(t *testing.T) {
 			store, j := seeded(t)
 			tc.mut(store)
 			runner := &fakeRunner{}
-			_, err := NewCronAgentExecutor(store, runner, nil).RunAgent(context.Background(), j, "scheduled")
+			_, err := NewCronAgentExecutor(store, runner, nil, newFakeFinalizer(store)).RunAgent(context.Background(), j, "scheduled")
 			if err == nil || err.Error() != tc.want {
 				t.Fatalf("err = %v, want %q", err, tc.want)
 			}
@@ -422,7 +493,7 @@ func TestRunAgentListMessagesErrorStillRuns(t *testing.T) {
 	store, j := seeded(t)
 	store.listMessagesErr = errors.New("db")
 	runner := &fakeRunner{}
-	if _, err := NewCronAgentExecutor(store, runner, nil).RunAgent(context.Background(), j, "scheduled"); err != nil {
+	if _, err := NewCronAgentExecutor(store, runner, nil, newFakeFinalizer(store)).RunAgent(context.Background(), j, "scheduled"); err != nil {
 		t.Fatal(err)
 	}
 	if runner.callCount() != 1 {
@@ -436,7 +507,7 @@ func TestRunAgentRebindFailureIsNonFatal(t *testing.T) {
 	delete(store.threads, "t1")
 	store.updateJobErr = errors.New("db")
 	runner := &fakeRunner{}
-	if _, err := NewCronAgentExecutor(store, runner, nil).RunAgent(context.Background(), j, "scheduled"); err != nil {
+	if _, err := NewCronAgentExecutor(store, runner, nil, newFakeFinalizer(store)).RunAgent(context.Background(), j, "scheduled"); err != nil {
 		t.Fatal(err)
 	}
 	if len(store.logs) == 0 {
@@ -450,7 +521,7 @@ func TestRunAgentNotConfigured(t *testing.T) {
 	if _, err := nilExec.RunAgent(context.Background(), testJob(), "manual"); err == nil {
 		t.Fatal("nil executor must error")
 	}
-	if _, err := NewCronAgentExecutor(nil, nil, nil).RunAgent(context.Background(), testJob(), "manual"); err == nil {
+	if _, err := NewCronAgentExecutor(nil, nil, nil, nil).RunAgent(context.Background(), testJob(), "manual"); err == nil {
 		t.Fatal("unconfigured executor must error")
 	}
 }

@@ -1,3 +1,28 @@
+// 文件说明：bench_test.go — gofunction/bench 的单元测试（BenchmarkNativeFib22、BenchmarkScriptFib22 等）
+//
+// 用法
+//
+//	go test ./gofunction/bench -run 'BenchmarkNativeFib22|BenchmarkScriptFib22|BenchmarkRunJSONFib22|BenchmarkNativeJSON'
+//
+// 调用架构
+//
+//	[上游] 无（可执行入口）
+//	[本文件] gofunction/bench/bench_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] cache_bench_test.go, main.go
+//
+// 主要符号
+//
+//	BenchmarkNativeFib22(b *testing.B)
+//	BenchmarkScriptFib22(b *testing.B)
+//	BenchmarkRunJSONFib22(b *testing.B)
+//	BenchmarkNativeJSON(b *testing.B)
+//	BenchmarkScriptJSON(b *testing.B)
+//	BenchmarkNativeText(b *testing.B)
+//	BenchmarkScriptText(b *testing.B)
+
 package main
 
 // 进程内三路径基准：native / 预编译解释执行 / RunJSON 全链路。

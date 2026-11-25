@@ -1,3 +1,34 @@
+// 文件说明：s3_handler_test.go — internal/api 的单元测试（TestS3_UploadAndList、TestS3_ListEmpty 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestS3_UploadAndList|TestS3_ListEmpty|TestS3_UploadAndDelete|TestS3_Presign'
+//	同包调用：setupS3TestRouter() → handler_validation_test.go, s3_index_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/s3_handler_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] setupS3TestRouter ← handler_validation_test.go, s3_index_test.go
+//
+// 主要符号
+//
+//	setupS3TestRouter(t *testing.T) *echo.Echo
+//	TestS3_UploadAndList(t *testing.T)
+//	TestS3_ListEmpty(t *testing.T)
+//	TestS3_UploadAndDelete(t *testing.T)
+//	TestS3_Presign(t *testing.T)
+//	TestS3_Upload_InvalidKey(t *testing.T)
+//	TestS3_Upload_MissingKey(t *testing.T)
+//	TestS3_Delete_MissingKey(t *testing.T)
+//	... 另有 2 个顶层符号
+
 package api
 
 import (
@@ -22,7 +53,7 @@ func setupS3TestRouter(t *testing.T) *echo.Echo {
 	e := echo.New()
 	e.HideBanner = true
 
-	h := &S3Handler{store: objectstore.NewMemoryFileStore()}
+	h := &S3Handler{store: objectstore.NewMemoryFileStore(), writable: true}
 
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
@@ -239,7 +270,7 @@ func TestS3_ProjectIsolation(t *testing.T) {
 	store := objectstore.NewMemoryFileStore()
 	// 手动写入 proj-1 前缀的对象
 	store.Put(context.Background(), "proj-1/secret.txt", strings.NewReader("secret"), 6, "")
-	h2 := &S3Handler{store: store}
+	h2 := &S3Handler{store: store, writable: true}
 	e2.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			ctx := WithPrincipal(c.Request().Context(), auth.Principal{

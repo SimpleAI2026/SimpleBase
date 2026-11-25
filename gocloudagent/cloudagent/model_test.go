@@ -1,3 +1,26 @@
+// 文件说明：model_test.go — gocloudagent/cloudagent 的单元测试（TestGatewayChatModelGenerateAndOptions、TestGatewayChatModelStreamPaths 等）
+//
+// 用法
+//
+//	go test ./gocloudagent/cloudagent -run 'TestGatewayChatModelGenerateAndOptions|TestGatewayChatModelStreamPaths|TestExtractToolCallBranches'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/cloudagent/model_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] callgate.go, callgate_test.go, confirmation.go, confirmation_test.go, errors.go 等 32 个
+//
+// 主要符号
+//
+//	TestGatewayChatModelGenerateAndOptions(t *testing.T)
+//	TestGatewayChatModelStreamPaths(t *testing.T)
+//	TestExtractToolCallBranches(t *testing.T)
+
 package cloudagent
 
 import (

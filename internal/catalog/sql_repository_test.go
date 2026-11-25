@@ -1,3 +1,27 @@
+// 文件说明：sql_repository_test.go — internal/catalog 的单元测试（TestSQLRepository_TenantsProjectsAndTouch、TestSQLRepository_DatabasesPaginationAndStates 等）
+//
+// 用法
+//
+//	go test ./internal/catalog -run 'TestSQLRepository_TenantsProjectsAndTouch|TestSQLRepository_DatabasesPaginationAndStates|TestSQLRepository_ProvidersUsageQuotaOperations|TestSQLRepository_QueryErrorsOnClosedDB'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app 等 10 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/catalog/sql_repository_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] always_open_test.go, cache.go, cache_test.go, create_invalidate_test.go, data_model.go 等 20 个
+//
+// 主要符号
+//
+//	TestSQLRepository_TenantsProjectsAndTouch(t *testing.T)
+//	TestSQLRepository_DatabasesPaginationAndStates(t *testing.T)
+//	TestSQLRepository_ProvidersUsageQuotaOperations(t *testing.T)
+//	TestSQLRepository_QueryErrorsOnClosedDB(t *testing.T)
+
 package catalog
 
 import (

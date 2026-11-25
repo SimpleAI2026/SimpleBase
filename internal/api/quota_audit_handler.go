@@ -25,7 +25,6 @@
 //	type AuditHandler struct {…}
 //	(h *AuditHandler) ListOperations(c echo.Context) error
 //	... 另有 3 个顶层符号
-//	handlers_plan79.go 实现 Plan 7-9 的配额查询与审计查询 handler。
 
 package api
 
@@ -62,9 +61,9 @@ type quotaCall struct {
 
 // GetQuota 返回当前 project 的配额可用状态。
 func (h *QuotaHandler) GetQuota(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	llmOK, dbOK := h.quotaFor(c.Request().Context(), pc.ID)
 	return c.JSON(http.StatusOK, map[string]bool{
@@ -112,9 +111,9 @@ type AuditHandler struct {
 
 // ListOperations 返回当前 project 的审计事件列表（读 sys_operations）。
 func (h *AuditHandler) ListOperations(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	limit := queryLimit(c, 50, 0)
 	ops, err := h.svc.ListOperations(c.Request().Context(), pc.ID, c.QueryParam("database_id"), limit)

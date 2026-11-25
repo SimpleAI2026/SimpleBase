@@ -1,3 +1,27 @@
+// 文件说明：atomicfile_test.go — godatabase/atomicfile 的单元测试（TestWriteReplacesAndCleansTmp、TestWriteRenameFailureCleansTmp 等）
+//
+// 用法
+//
+//	go test ./godatabase/atomicfile -run 'TestWriteReplacesAndCleansTmp|TestWriteRenameFailureCleansTmp|TestWriteMissingDirFails|TestWriteEnsureDir'
+//
+// 调用架构
+//
+//	[上游] godatabase/blob, godatabase/ducklake, godatabase/filedb, internal/app 等 8 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/atomicfile/atomicfile_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] atomicfile.go
+//
+// 主要符号
+//
+//	TestWriteReplacesAndCleansTmp(t *testing.T)
+//	TestWriteRenameFailureCleansTmp(t *testing.T)
+//	TestWriteMissingDirFails(t *testing.T)
+//	TestWriteEnsureDir(t *testing.T)
+
 package atomicfile
 
 import (

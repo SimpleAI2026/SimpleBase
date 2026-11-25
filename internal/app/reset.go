@@ -80,16 +80,7 @@ type resetLock struct {
 func Reset(ctx context.Context, cfg config.Config, opts ResetOptions) (ResetSummary, error) {
 	var store objectstore.BlobStore
 	if needRemoteReset(cfg, opts) {
-		c, err := objectstore.NewClient(ctx, objectstore.Config{
-			Endpoint:       cfg.S3.Endpoint,
-			Region:         cfg.S3.Region,
-			Bucket:         cfg.S3.Bucket,
-			Prefix:         cfg.S3.Prefix,
-			AccessKey:      cfg.S3.AccessKey,
-			SecretKey:      cfg.S3.SecretKey,
-			KMSKeyID:       cfg.S3.KMSKeyID,
-			ForcePathStyle: cfg.S3.ForcePathStyle,
-		}, nil, nil)
+		c, err := objectstore.NewClient(ctx, s3ConfigFrom(cfg), nil, nil)
 		if err != nil {
 			return ResetSummary{}, fmt.Errorf("reset: create objectstore client: %w", err)
 		}

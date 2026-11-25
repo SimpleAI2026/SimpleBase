@@ -10,7 +10,7 @@
         <AlertDialogDescription>{{ resolvedDescription }}</AlertDialogDescription>
       </AlertDialogHeader>
       <AlertDialogFooter>
-        <AlertDialogCancel @click="emit('cancel')">{{ t('common.cancel') }}</AlertDialogCancel>
+        <AlertDialogCancel>{{ t('common.cancel') }}</AlertDialogCancel>
         <AlertDialogAction @click="onConfirm">{{ t('common.ok') }}</AlertDialogAction>
       </AlertDialogFooter>
     </AlertDialogContent>
@@ -74,13 +74,23 @@ let confirmed = false
 function onConfirm() {
   confirmed = true
   emit('confirm')
-  if (props.controlled) emit('update:open', false)
 }
 
 function onOpenChange(value: boolean) {
-  emit('update:open', value)
-  if (!value && !confirmed) emit('cancel')
-  if (value) confirmed = false
+  // 触发器模式下开合由 reka 自己维护，只把变化转给父组件（页面对齐 SbModal 的 update:open 语义）；
+  // 受控模式由父级回写 open。
+  if (value) {
+    confirmed = false
+    emit('update:open', true)
+    return
+  }
+  // 「确定」按钮同时是 reka 的 DialogClose：它的内部 onClick 先于我们的 @click 触发 onOpenChange(false)。
+  // 若此处立刻 emit('update:open', false)，受控的父组件会在 confirm 之前就清空要确认的目标（确认失效）。
+  // 延后到微任务：此时 onConfirm 已置位 confirmed，并且 confirm 已经先于关闭发出。
+  queueMicrotask(() => {
+    emit('update:open', false)
+    if (!confirmed) emit('cancel')
+  })
 }
 
 onMounted(() => {

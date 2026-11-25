@@ -1,5 +1,36 @@
 //go:build linux
 
+// 文件说明：snapshots.go — gosandbox/vm/box 中 Driver.Snapshot、Driver.Snapshots 等符号的实现
+//
+// 用法
+//
+//	(d *Driver) Snapshot(ctx context.Context, t vm.Target, label string) (vm.SnapshotInfo, error)  // Snapshot 给一个沙盒拍文件系统快照
+//	(d *Driver) Snapshots(context.Context) ([]vm.SnapshotInfo, error)  // Snapshots 列出全部快照
+//	(d *Driver) RemoveSnapshot(_ context.Context, id string) error  // RemoveSnapshot 删一个快照
+//	(d *Driver) Fork(ctx context.Context, snapshotID string, t vm.Target) (vm.SnapshotInfo, error)  // Fork 从快照建一个新沙盒
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/vm/box/snapshots.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] capabilities.go, contracts_linux_test.go, diskuse_linux.go, driver_linux.go, driver_other.go 等 15 个
+//
+// 主要符号
+//
+//	type boxMeta struct{…}
+//	(d *Driver) snapshotStore() (*snapshot.Store, error)
+//	(d *Driver) Snapshot(ctx context.Context, t vm.Target, label string) (vm.SnapshotInfo, error)
+//	(d *Driver) Snapshots(context.Context) ([]vm.SnapshotInfo, error)
+//	(d *Driver) RemoveSnapshot(_ context.Context, id string) error
+//	(d *Driver) Fork(ctx context.Context, snapshotID string, t vm.Target) (vm.SnapshotInfo, error)
+//	(d *Driver) boxMeta(name string) (boxMeta, error)
+//	toVMSnapshot(it snapshot.Info) vm.SnapshotInfo
+
 package box
 
 import (

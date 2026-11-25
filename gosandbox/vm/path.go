@@ -1,3 +1,26 @@
+// 文件说明：path.go — gosandbox/vm 中 CleanPath 等符号的实现
+//
+// 用法
+//
+//	CleanPath(workdir, p string, allowRoot bool) (string, error)  // CleanPath 校验 p 落在 workdir 之下，返回清理后的逻辑绝对路径； allowRoot=false 时拒绝 workdir 本身
+//
+// 调用架构
+//
+//	[上游] gosandbox/vm/box, gosandbox/vm/fake, gosandbox/vm/local, internal/api 等 7 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/vm/path.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] driver.go, env.go, env_test.go, errors.go, output.go 等 9 个
+//	[关键引用] CleanPath ← path_test.go
+//
+// 主要符号
+//
+//	var ErrInvalidPath
+//	CleanPath(workdir, p string, allowRoot bool) (string, error)
+
 package vm
 
 import (

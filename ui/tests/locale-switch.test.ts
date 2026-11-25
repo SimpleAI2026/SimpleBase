@@ -7,7 +7,7 @@ import { i18n, setI18nLocale, t } from '@/locales'
 import { useSettingsStore } from '@/stores/settings'
 import { localeOptions, useLocale } from '@/composables/useLocale'
 import { resetApiMocks } from '@/test/api-mock'
-import { mountWithApp, uiStubs } from '@/test/helpers'
+import { closeSelect, installJsdomPolyfills, mountWithApp, openSelect, realSelectStubs, uiStubs } from '@/test/helpers'
 import { setTokens } from '@/services/http'
 import LocaleSelect from '@/components/LocaleSelect.vue'
 
@@ -39,6 +39,8 @@ function mountUseLocale() {
   const wrapper = mount(Host, { global: { plugins: [i18n] } })
   return { api: api!, wrapper }
 }
+
+installJsdomPolyfills()
 
 describe('useLocale', () => {
   beforeEach(() => {
@@ -100,10 +102,14 @@ describe('LocaleSelect', () => {
     w.unmount()
   })
 
-  it('选项为「中 / EN」文字图标，语言名仅以 sr-only 提供', () => {
-    const w = mount(LocaleSelect, { global: { stubs: uiStubs } })
-    expect(w.findAll('[data-locale]').map((n) => n.text())).toEqual(['中', 'EN'])
-    expect(w.findAll('.sr-only').map((n) => n.text())).toEqual(['简体中文', 'English'])
+  it('选项为「中 / EN」文字图标，语言名仅以 sr-only 提供', async () => {
+    // 真实 Select：触发器显示当前语言徽标；打开后列出两个选项
+    const w = mount(LocaleSelect, { attachTo: document.body, global: { stubs: { ...uiStubs, ...realSelectStubs } } })
+    expect(w.findAll('[data-locale]').map((n) => n.text())).toEqual(['中'])
+    const options = await openSelect(w.get('button[role="combobox"]').element as HTMLElement)
+    expect(options.map((o) => o.querySelector('[data-locale]')?.textContent)).toEqual(['中', 'EN'])
+    expect(options.map((o) => o.querySelector('.sr-only')?.textContent)).toEqual(['简体中文', 'English'])
+    await closeSelect()
     w.unmount()
   })
 })

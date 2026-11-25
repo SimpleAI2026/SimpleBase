@@ -1,3 +1,34 @@
+// 文件说明：agent_skills_router_e2e_test.go — internal/api 的单元测试（TestAgentSkillsRouterE2E_16_GoFunctionCreateInvoke、TestAgentSkillsRouterE2E_17_DelegationCannotCallAgentRoutes 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestAgentSkillsRouterE2E_16_GoFunctionCreateInvoke|TestAgentSkillsRouterE2E_17_DelegationCannotCallAgentRoutes|TestAgentSkillsRouterE2E_18_HostFileForbiddenInAgentMode|TestAgentSkillsRouterE2E_19_InitiatorCheck'
+//	同包调用：skillRouterEnv → delegation_route_table_test.go；newSkillRouterEnv() → agent_routes_test.go, agent_stream_debug_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/agent_skills_router_e2e_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] skillRouterEnv ← delegation_route_table_test.go；newSkillRouterEnv ← agent_routes_test.go, agent_stream_debug_test.go
+//
+// 主要符号
+//
+//	type skillRouterEnv struct{…}
+//	type skillHitCounter struct{…}
+//	(s *skillHitCounter) record(method, path string, status int)
+//	(s *skillHitCounter) count(method, pathPart string, only2xx bool) int
+//	(s *skillHitCounter) total() int
+//	(s *skillHitCounter) reset()
+//	newSkillRouterEnv(t *testing.T) *skillRouterEnv
+//	seedWritableAgents(t *testing.T, e *echo.Echo, store *systemdb.Store, projectID string)
+//	... 另有 20 个顶层符号
+
 package api
 
 // agent_skills_router_e2e_test.go：云助手 Skill 样例集（planv6.0 §3.7）。
@@ -26,6 +57,7 @@ import (
 	"github.com/linkxzhou/SimpleBase/godatabase"
 	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
 	agentskills "github.com/linkxzhou/SimpleBase/internal/agentbridge/agentskills"
+	"github.com/linkxzhou/SimpleBase/internal/agentrun"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/config"
@@ -158,6 +190,11 @@ func newSkillRouterEnv(t *testing.T) *skillRouterEnv {
 		ToolProtocol: "native", RunTimeout: 2 * time.Minute, MaxIterations: 8,
 	}
 	deps.CloudAgent = rt
+	// 与 app 装配一致：确认表先构造并注入运行时与宿主 Provider，应用服务持有同一个实例。
+	confirms := agentrun.NewConfirmHub()
+	rt.Confirm = confirms
+	provider.Confirm = confirms
+	deps.AgentRun = agentrun.NewServiceWithStore(agentrun.Config{SkillsCLI: true}, deps.System, rt, confirms)
 	// CloudAgent 在 NewRouter 内被引用；重新构造以挂载 agent 路由。
 	e2 := NewRouter(deps)
 	counterSrv.inner = e2

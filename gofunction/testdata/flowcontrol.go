@@ -1,3 +1,37 @@
+// 文件说明：flowcontrol.go — gofunction/testdata 中 __testSet.For、__testSet.For2 等符号的实现
+//
+// 用法
+//
+//	(__testSet) For() interface{}  // For 循环
+//	(__testSet) For2() interface{}  // For2 循环
+//	(__testSet) If() interface{}  // If 条件
+//	(__testSet) IfWithShortStatement() interface{}  // IfWithShortStatement if的简短语句
+//	(__testSet) IfElse() interface{}  // IfElse if 和 else
+//	(__testSet) Switch() interface{}  // Switch switch
+//
+// 调用架构
+//
+//	[上游] 仅测试引用：gofunction/internal/interp
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/testdata/flowcontrol.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] basic.go, basics.go, controlflow.go, funclist.go, globals.go 等 13 个
+//
+// 主要符号
+//
+//	(__testSet) For() interface{}
+//	(__testSet) For2() interface{}
+//	sqrt(x float64) string
+//	(__testSet) If() interface{}
+//	pow(x, n, lim float64) float64
+//	(__testSet) IfWithShortStatement() interface{}
+//	pow2(x, n, lim float64) float64
+//	(__testSet) IfElse() interface{}
+//	... 另有 7 个顶层符号
+
 package testdata
 
 import (

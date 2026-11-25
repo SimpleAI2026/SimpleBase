@@ -1,4 +1,4 @@
-// useAgentCollaboration：协作轮次的状态索引（planv6.7 v2 §6）。
+// useAgentCollaboration：协作轮次的状态索引。
 //
 // 为什么单独一个 composable：
 //   一轮会产生多个任务、多个子 run、可能还有人任务。旧的 useAgentConversation
@@ -11,8 +11,12 @@
 //   - 事件按 seq 去重（重连会重放），保证任务状态单调前进。
 import { computed, reactive, ref } from 'vue'
 import { api } from '@/services/api'
+import { applyToolConfirmation, applyToolDelta, applyToolResult, applyToolStart } from '@/utils/tool-cards'
 import type {
   AgentMentionTarget,
+  AgentPlanDecision,
+  AgentPlanEdit,
+  AgentPlanEvent,
   AgentTask,
   AgentTaskEvent,
   AgentStreamHandlers,
@@ -42,6 +46,11 @@ export interface PendingConfirmation {
   message: string
 }
 
+export interface PendingPlan {
+  turnId: string
+  decision: AgentPlanDecision
+}
+
 export interface UseAgentCollaborationOptions {
   projectId: () => string
   /** 现有会话消息（由页面持有）：工具卡与正文仍写回这里。 */
@@ -54,11 +63,13 @@ export interface UseAgentCollaborationOptions {
 export function useAgentCollaboration(opts: UseAgentCollaborationOptions) {
   /** 当前轮次快照（null 表示没有活动轮次）。 */
   const turn = ref<AgentTurn | null>(null)
+  const pendingPlan = ref<PendingPlan | null>(null)
+  const confirmingPlan = ref(false)
   /** 任务运行态（key = taskId）。 */
   const runtimes = reactive<Record<string, TaskRuntime>>({})
   /** 待确认（key = `${runId}:${callId}`）。 */
   const confirmations = reactive<Record<string, PendingConfirmation>>({})
-  /** 本轮是否正在跑（含路由期）。 */
+  /** 本轮是否正在跑（含 Plan 决策期）。 */
   const running = ref(false)
   /** 已处理的最大事件序号（重连去重）。 */
   let lastSeq = 0
@@ -71,6 +82,8 @@ export function useAgentCollaboration(opts: UseAgentCollaborationOptions) {
   let currentAgentId = ''
 
   const tasks = computed(() => turn.value?.tasks ?? [])
+  /** Plan 栅栏决策中（输入区状态条显示「Plan 决策中…」）。 */
+  const planning = computed(() => turn.value?.status === 'planning' && running.value)
   const waitingHuman = computed(() => tasks.value.some((t) => t.status === 'waiting_human'))
   const confirmationList = computed(() => Object.values(confirmations))
   const progress = computed(() => {
@@ -151,7 +164,7 @@ export function useAgentCollaboration(opts: UseAgentCollaborationOptions) {
       ? upsertTask({
           id: ev.taskId,
           seq: ev.index,
-          targetKind: 'agent',
+          targetKind: ev.targetKind ?? 'agent',
           targetId: ev.agentId ?? '',
           instruction: ev.message ?? '',
           status: ev.status
@@ -159,28 +172,17 @@ export function useAgentCollaboration(opts: UseAgentCollaborationOptions) {
       : tasks.value.find((t) => t.seq === ev.index)
     if (!target) return
     if (ev.agentId && !target.targetId) target.targetId = ev.agentId
+    if (ev.ref) target.ref = ev.ref
+    if (ev.dependsOn) target.dependsOn = ev.dependsOn
+    if (ev.result) target.result = ev.result
+    if (ev.runId) target.runId = ev.runId
     target.status = ev.status as AgentTask['status']
-    ensureRuntime(target).task = target
-    if (ev.status === 'completed' || ev.status === 'failed') {
-      flushTaskToMessage(target)
-    }
-  }
-
-  /** 把任务流式结果落到会话消息里（刷新后仍以服务端消息为准）。 */
-  function flushTaskToMessage(task: AgentTask): void {
-    const rt = runtimes[task.id]
-    if (!rt || (!rt.content && !rt.toolCalls.length)) return
-    const list = opts.messages()
-    const idx = list.findIndex((m) => m.agentId === task.targetId && m.routing === false && m.content === rt.content)
-    if (idx >= 0) return
-    list.push({
-      role: 'assistant',
-      content: rt.content,
-      toolCalls: rt.toolCalls,
-      module: undefined,
-      agentId: task.targetId,
-      routeKind: undefined
-    })
+    const runtime = ensureRuntime(target)
+    runtime.task = target
+    if (ev.runId) runtime.runId = ev.runId
+    // 气泡在任务出现时即按 taskId 建好（applyPlan / 这里），token 实时写入；
+    // 任务结束不再另插一条「结果气泡」（修复 CB-FE-04 的重复气泡）。
+    if (target.targetKind === 'agent' && ev.status !== 'pending') ensureBubble(target)
   }
 
   /**
@@ -197,6 +199,7 @@ export function useAgentCollaboration(opts: UseAgentCollaborationOptions) {
     running.value = true
     lastSeq = 0
     turn.value = null
+    pendingPlan.value = null
     currentRunId = ''
     currentAgentId = ''
     clearRuntimes()
@@ -212,6 +215,53 @@ export function useAgentCollaboration(opts: UseAgentCollaborationOptions) {
     connection = api.agentThreads.streamTurn(projectId, threadId, req, buildHandlers())
   }
 
+  function applyPlan(ev: AgentPlanEvent): void {
+    ensureTurnContainer(ev.turnId)
+    const current = turn.value!
+    if (!current.id) current.id = ev.turnId
+    const previous = current.tasks
+    current.plan = {
+      version: current.plan?.version ?? 0,
+      decision: ev.decision,
+      confirmState: ev.confirmRequired ? 'required' : '',
+      replans: current.plan?.replans ?? 0
+    }
+    if (ev.confirmRequired) {
+      current.status = 'awaiting_plan_confirm'
+      pendingPlan.value = { turnId: current.id, decision: ev.decision }
+      running.value = false
+    } else {
+      pendingPlan.value = null
+      if (current.status === 'awaiting_plan_confirm') current.status = 'running'
+    }
+    if (!ev.decision.dispatches.length && (ev.decision.action === 'update' || ev.decision.action === 'complete')) return
+    current.tasks = ev.decision.dispatches.map((dispatch, index) => {
+      const old = previous.find((task) => task.ref === dispatch.ref)
+      if (old?.status === 'completed') return old
+      const task: AgentTask = {
+        id: `${current.id}-${dispatch.ref}`,
+        turnId: current.id,
+        seq: index + 1,
+        ref: dispatch.ref,
+        targetKind: dispatch.targetKind,
+        targetId: dispatch.targetId,
+        instruction: dispatch.message,
+        status: 'pending',
+        attempt: 0,
+        dependsOn: dispatch.dependsOn,
+        contextFrom: dispatch.contextFrom,
+        stepId: dispatch.stepId,
+        risk: dispatch.risk,
+        expectedOutput: dispatch.expectedOutput,
+        version: 0,
+        createdAt: new Date().toISOString()
+      }
+      ensureRuntime(task)
+      if (task.targetKind === 'agent') ensureBubble(task)
+      return task
+    })
+  }
+
   /** buildHandlers 把 SSE 帧映射到「轮次 / 任务 / 子 run」三层状态。 */
   function buildHandlers(): AgentStreamHandlers {
     return {
@@ -220,25 +270,22 @@ export function useAgentCollaboration(opts: UseAgentCollaborationOptions) {
         if (ctx.runId) currentRunId = ctx.runId
         if (ctx.agentId) currentAgentId = ctx.agentId
       },
-      onRoute: (ev) => {
-        if (ev.status === 'routing') {
-          running.value = true
-          return
+      onPlan: (ev) => applyPlan(ev),
+      onPlanConfirmation: (ev) => {
+        if (ev.turnId) ensureTurnContainer(ev.turnId)
+        if (ev.state === 'required') {
+          running.value = false
+          if (turn.value) {
+            turn.value.status = 'awaiting_plan_confirm'
+            if (turn.value.plan) {
+              turn.value.plan.confirmState = 'required'
+              pendingPlan.value = { turnId: turn.value.id, decision: turn.value.plan.decision }
+            }
+          }
+        } else {
+          pendingPlan.value = null
+          if (turn.value?.plan) turn.value.plan.confirmState = ev.state
         }
-        // done：按帧里的 task_id 立刻建立任务与气泡（不依赖事后拉快照）。
-        const steps = ev.steps ?? []
-        steps.forEach((step, i) => {
-          const task = upsertTask({
-            id: step.taskId ?? `seq-${i + 1}`,
-            seq: i + 1,
-            targetKind: step.kind === 'human' ? 'human' : 'agent',
-            targetId: step.agentId ?? '',
-            instruction: step.instruction,
-            status: 'pending'
-          })
-          // 人任务没有助手气泡；助手任务先建空气泡，token 会写进去。
-          if (task.targetKind === 'agent') ensureBubble(task)
-        })
       },
       onTask: (ev) => applyTaskEvent(ev),
       onHuman: (ev) => {
@@ -254,7 +301,13 @@ export function useAgentCollaboration(opts: UseAgentCollaborationOptions) {
         running.value = false
       },
       onTurn: (ev) => {
-        if (ev.status === 'waiting_human') running.value = false
+        if (ev.turnId) ensureTurnContainer(ev.turnId)
+        if (!turn.value) return
+        turn.value.status = ev.status as AgentTurn['status']
+        running.value = ev.status === 'running' || ev.status === 'planning'
+        if (ev.status === 'awaiting_plan_confirm' && turn.value.plan) {
+          pendingPlan.value = { turnId: turn.value.id, decision: turn.value.plan.decision }
+        }
       },
       onThinking: (_ms, text) => {
         const rt = activeRuntime()
@@ -270,35 +323,19 @@ export function useAgentCollaboration(opts: UseAgentCollaborationOptions) {
       onToolCallDelta: (name, argsDelta, callId) => {
         const rt = activeRuntime()
         if (!rt) return
-        const card = rt.toolCalls.find((c) => c.call_id === callId)
-        if (card) {
-          card.arguments = (card.arguments || '') + argsDelta
-        } else {
-          rt.toolCalls.push({ call_id: callId, name, arguments: argsDelta, status: 'generating' })
-        }
+        rt.toolCalls = applyToolDelta(rt.toolCalls, name, argsDelta, callId)
         syncToolCards(rt)
       },
       onToolStart: (name, callId) => {
         const rt = activeRuntime()
         if (!rt) return
-        const card = rt.toolCalls.find((c) => c.call_id === callId)
-        if (card) card.status = 'running'
-        else rt.toolCalls.push({ call_id: callId, name, status: 'running' })
+        rt.toolCalls = applyToolStart(rt.toolCalls, name, callId)
         syncToolCards(rt)
       },
       onToolResult: (name, content, callId, durationMs, isError, truncated) => {
         const rt = activeRuntime()
         if (!rt) return
-        const card = rt.toolCalls.find((c) => c.call_id === callId) ?? rt.toolCalls.find((c) => c.name === name && !c.content)
-        if (card) {
-          card.content = content
-          card.duration_ms = durationMs
-          card.is_error = !!isError
-          card.truncated = !!truncated
-          card.status = isError ? 'error' : 'success'
-        } else {
-          rt.toolCalls.push({ call_id: callId, name, content, duration_ms: durationMs, is_error: !!isError, truncated: !!truncated, status: isError ? 'error' : 'success' })
-        }
+        rt.toolCalls = applyToolResult(rt.toolCalls, name, { content, durationMs, isError, truncated }, callId)
         syncToolCards(rt)
       },
       onConfirmationRequired: (callId, argv, message) => {
@@ -307,10 +344,9 @@ export function useAgentCollaboration(opts: UseAgentCollaborationOptions) {
         const runId = rt?.runId || ''
         confirmations[`${runId}:${callId}`] = { runId, callId, argv, message }
         if (rt) {
-          const card = rt.toolCalls.find((c) => c.call_id === callId)
-          if (card) {
-            card.status = 'awaiting_confirm'
-            card.argv = argv
+          const next = applyToolConfirmation(rt.toolCalls, callId, argv)
+          if (next !== rt.toolCalls) {
+            rt.toolCalls = next
             syncToolCards(rt)
           }
         }
@@ -333,6 +369,7 @@ export function useAgentCollaboration(opts: UseAgentCollaborationOptions) {
         opts.onTurnEnd?.()
       },
       onError: (e) => {
+        detach()
         running.value = false
         pendingKey = ''
         opts.onError?.(e)
@@ -363,16 +400,28 @@ export function useAgentCollaboration(opts: UseAgentCollaborationOptions) {
     return all[all.length - 1]
   }
 
-  /** bubbleOf 找到任务对应的会话气泡（按 agentId + 任务顺序匹配）。 */
+  /**
+   * bubbleOf 找到任务对应的会话气泡：按 taskId 绑定（修复 CB-FE-03）。
+   * 不能按 agentId 找：同一助手在历史里回答过、或同一轮有两个任务指向同一助手时，
+   * 按 agentId 会把新 token 写进旧气泡。
+   */
   function bubbleOf(task: AgentTask): ChatMsg | undefined {
-    return opts.messages().find((m) => m.role === 'assistant' && m.agentId === task.targetId)
+    return opts.messages().find((m) => m.role === 'assistant' && m.taskId === task.id)
   }
 
-  /** ensureBubble 为任务补一条 assistant 气泡（没有就建）。 */
+  /** ensureBubble 为任务补一条 assistant 气泡（没有就建）；已流式到达的正文 / 工具卡一并带上。 */
   function ensureBubble(task: AgentTask): ChatMsg {
     const found = bubbleOf(task)
     if (found) return found
-    const bubble: ChatMsg = { role: 'assistant', content: '', agentId: task.targetId }
+    const rt = runtimes[task.id]
+    const bubble: ChatMsg = {
+      role: 'assistant',
+      content: rt?.content ?? '',
+      toolCalls: rt?.toolCalls.length ? [...rt.toolCalls] : undefined,
+      agentId: task.targetId,
+      taskId: task.id,
+      turnId: task.turnId
+    }
     opts.messages().push(bubble)
     return bubble
   }
@@ -394,6 +443,39 @@ export function useAgentCollaboration(opts: UseAgentCollaborationOptions) {
     connection = null
   }
 
+  /** 从最新已消费序号续接后台轮次。 */
+  function attach(turnId: string, after = lastSeq): void {
+    const projectId = opts.projectId()
+    if (!projectId || !turnId) return
+    detach()
+    running.value = true
+    connection = api.agentThreads.attachTurn(projectId, turnId, after, buildHandlers())
+  }
+
+  /** 批准 / 编辑后批准 / 拒绝整轮 Plan；与单次工具确认完全分离。 */
+  async function confirmPlan(approve: boolean, edits: AgentPlanEdit[] = []): Promise<void> {
+    const current = turn.value
+    const projectId = opts.projectId()
+    if (!current || !projectId || confirmingPlan.value) return
+    confirmingPlan.value = true
+    detach()
+    try {
+      const fresh = await api.agentTurns.confirmPlan(projectId, current.id, {
+        approve, edits, expectedVersion: current.version
+      })
+      turn.value = fresh
+      syncTasks(fresh.tasks)
+      pendingPlan.value = fresh.status === 'awaiting_plan_confirm' && fresh.plan
+        ? { turnId: fresh.id, decision: fresh.plan.decision }
+        : null
+      if (fresh.status === 'running') attach(fresh.id, fresh.lastEventSeq)
+    } catch (e) {
+      opts.onError?.(e)
+    } finally {
+      confirmingPlan.value = false
+    }
+  }
+
   /** 停止整轮：断开连接并请求服务端取消。 */
   async function cancel(): Promise<void> {
     detach()
@@ -408,14 +490,21 @@ export function useAgentCollaboration(opts: UseAgentCollaborationOptions) {
     }
   }
 
+  function taskVersion(taskId: string): number | undefined {
+    return tasks.value.find((task) => task.id === taskId)?.version
+  }
+
   /** 重试单个失败任务。 */
   async function retryTask(taskId: string): Promise<void> {
     const t = turn.value
     const projectId = opts.projectId()
     if (!t || !projectId) return
+    detach()
     try {
-      turn.value = await api.agentTurns.act(projectId, t.id, { action: 'retry_task', taskId })
+      turn.value = await api.agentTurns.act(projectId, t.id, { action: 'retry_task', taskId, expectedVersion: taskVersion(taskId) })
+      syncTasks(turn.value.tasks)
       running.value = true
+      attach(t.id, turn.value.lastEventSeq)
       opts.onTurnEnd?.()
     } catch (e) {
       opts.onError?.(e)
@@ -427,13 +516,16 @@ export function useAgentCollaboration(opts: UseAgentCollaborationOptions) {
     const projectId = opts.projectId()
     if (!projectId) return
     const task = tasks.value.find((t) => t.id === taskId)
+    detach()
     try {
       turn.value = await api.agentTurns.reply(projectId, taskId, {
         outcome,
         text,
         expectedVersion: task?.version
       })
-      running.value = turn.value?.status === 'running' || turn.value?.status === 'routing'
+      syncTasks(turn.value.tasks)
+      running.value = turn.value.status === 'running' || turn.value.status === 'planning'
+      if (running.value) attach(turn.value.id, turn.value.lastEventSeq)
       opts.onTurnEnd?.()
     } catch (e) {
       opts.onError?.(e)
@@ -448,6 +540,11 @@ export function useAgentCollaboration(opts: UseAgentCollaborationOptions) {
       const fresh = await api.agentTurns.get(projectId, turnId)
       turn.value = fresh
       syncTasks(fresh.tasks)
+      pendingPlan.value = fresh.status === 'awaiting_plan_confirm' && fresh.plan
+        ? { turnId: fresh.id, decision: fresh.plan.decision }
+        : null
+      running.value = fresh.status === 'running' || fresh.status === 'planning'
+      if (running.value) attach(fresh.id, fresh.lastEventSeq)
       return fresh
     } catch (e) {
       opts.onError?.(e)
@@ -479,6 +576,8 @@ export function useAgentCollaboration(opts: UseAgentCollaborationOptions) {
     }
     for (const task of list) {
       ensureRuntime(task)
+      // 切回会话 / 重连后，仍在执行的任务没有服务端消息（run 未结束），补回它的实时气泡。
+      if (task.targetKind === 'agent' && task.status !== 'pending' && task.status !== 'completed') ensureBubble(task)
     }
   }
 
@@ -492,16 +591,21 @@ export function useAgentCollaboration(opts: UseAgentCollaborationOptions) {
 
   return {
     turn,
+    pendingPlan,
+    confirmingPlan,
     runtimes,
     confirmations,
     running,
+    planning,
     tasks,
     waitingHuman,
     confirmationList,
     progress,
     start,
     detach,
+    attach,
     cancel,
+    confirmPlan,
     retryTask,
     replyHuman,
     refresh,

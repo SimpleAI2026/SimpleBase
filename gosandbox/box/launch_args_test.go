@@ -1,5 +1,28 @@
 //go:build linux
 
+// 文件说明：launch_args_test.go — gosandbox/box 的单元测试（TestRootArgsOverlayDirFailureIsAnError、TestRootArgsCopyFailureIsAnError 等）
+//
+// 用法
+//
+//	go test ./gosandbox/box -run 'TestRootArgsOverlayDirFailureIsAnError|TestRootArgsCopyFailureIsAnError|TestRootArgsHostRootWhenNoImage'
+//
+// 调用架构
+//
+//	[上游] gosandbox/cmd, gosandbox/vm/box
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/box/launch_args_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] backpressure_test.go, copytree.go, deadline.go, egress_e2e_test.go, files.go 等 26 个
+//
+// 主要符号
+//
+//	TestRootArgsOverlayDirFailureIsAnError(t *testing.T)
+//	TestRootArgsCopyFailureIsAnError(t *testing.T)
+//	TestRootArgsHostRootWhenNoImage(t *testing.T)
+
 package box
 
 // launch_args_test.go：沙盒根参数的失败语义。

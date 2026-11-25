@@ -32,6 +32,7 @@ import (
 	"fmt"
 
 	"github.com/linkxzhou/SimpleBase/gofunction"
+	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/functionrun"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
@@ -47,7 +48,7 @@ type systemDBRunner struct {
 // 错误保留哨兵语义（ErrTimeout/ErrCompile/ErrBind），由调度器统一落 failed 记录。
 func (r *systemDBRunner) RunFunction(ctx context.Context, projectID, funcFile, funcExport string, input json.RawMessage) ([]byte, error) {
 	if r.runner != nil {
-		result, err := r.runner.Run(ctx, functionrun.Request{ProjectID: projectID, FuncFile: funcFile, FuncExport: funcExport, Input: input, Channel: "cron", RequestID: "cron-" + funcFile, Actor: "cron"})
+		result, err := r.runner.Run(ctx, functionrun.Request{ProjectID: projectID, FuncFile: funcFile, FuncExport: funcExport, Input: input, Channel: "cron", RequestID: "cron-" + funcFile, Actor: auth.ActorCron})
 		return result.Output, err
 	}
 	if r.store == nil {

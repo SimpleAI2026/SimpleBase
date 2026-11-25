@@ -2,7 +2,7 @@ import { flushPromises } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import FunctionTriggers from '@/pages/FunctionTriggers.vue'
 import { api, resetApiMocks } from '@/test/api-mock'
-import { clickText, mountWithApp } from '@/test/helpers'
+import { clickText, mountWithApp, realDialogStubs, confirmAction, realAlertDialogStubs } from '@/test/helpers'
 import { ADMIN_PROJECT_ID } from '@/stores/project'
 
 vi.mock('@/services/api', async () => {
@@ -24,6 +24,8 @@ const trigger = {
   updatedAt: ''
 }
 const extraStubs = {
+  ...realDialogStubs,
+  ...realAlertDialogStubs,
   FunctionTriggerModal: {
     props: ['open', 'projectId'],
     emits: ['saved', 'update:open'],
@@ -52,18 +54,14 @@ describe('FunctionTriggers', () => {
     await wrapper.get('.modal-close').trigger('click')
     expect(wrapper.find('.trigger-modal').exists()).toBe(false)
 
-    await clickText(wrapper, '调用')
-    await wrapper.find('.confirm-action').trigger('click')
-    await flushPromises()
+    await confirmAction(wrapper, '调用')
     expect(api.triggers.invoke).toHaveBeenCalledWith('p1', 't1', {})
 
-    await wrapper.get('.switch').trigger('click')
+    await wrapper.get('[data-slot="switch"]').trigger('click')
     await flushPromises()
     expect(api.triggers.patch).toHaveBeenCalledWith('p1', 't1', { enabled: false })
 
-    await clickText(wrapper, '删除')
-    await wrapper.findAll('.confirm-action').at(-1)!.trigger('click')
-    await flushPromises()
+    await confirmAction(wrapper, '删除')
     expect(api.triggers.remove).toHaveBeenCalledWith('p1', 't1')
 
     await clickText(wrapper, '刷新')

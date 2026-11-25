@@ -1,3 +1,28 @@
+// 文件说明：dialect_bucket_test.go — godatabase/filedb 的单元测试（TestDateBucketRealEngines、TestDateBucketRejectsUnknownUnit 等）
+//
+// 用法
+//
+//	go test ./godatabase/filedb -run 'TestDateBucketRealEngines|TestDateBucketRejectsUnknownUnit|TestFloorAndTimestampParamRealEngines'
+//
+// 调用架构
+//
+//	[上游] godatabase/cmd, internal/app, internal/backup
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/filedb/dialect_bucket_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] factory.go, factory_test.go, path.go, remote.go, remote_test.go 等 9 个
+//
+// 主要符号
+//
+//	TestDateBucketRealEngines(t *testing.T)
+//	bindN(sql, value string) []any
+//	TestDateBucketRejectsUnknownUnit(t *testing.T)
+//	TestFloorAndTimestampParamRealEngines(t *testing.T)
+//	countPlaceholders(sql string) int
+
 package filedb
 
 import (

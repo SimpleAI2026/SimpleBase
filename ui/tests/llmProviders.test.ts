@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getProviderPreset, LLM_PROVIDER_PRESETS, maskSecret } from '@/constants/llmProviders'
+import { getProviderPreset, LLM_PROVIDER_PRESETS } from '@/constants/llmProviders'
 
 describe('llm provider catalog', () => {
   it('looks up presets by id', () => {
@@ -17,12 +17,5 @@ describe('llm provider catalog', () => {
       expect(preset?.fields.some((f) => f.key === 'api_key' && f.required)).toBe(true)
       expect(preset?.suggestedModels.length).toBeGreaterThan(0)
     }
-  })
-
-  it('masks secrets without leaking the full value', () => {
-    expect(maskSecret(undefined)).toBe('')
-    expect(maskSecret('')).toBe('')
-    expect(maskSecret('short')).toBe('••••••••')
-    expect(maskSecret('sk-abcdefghijklmnopqrstuvwxyz')).toBe('sk-...wxyz')
   })
 })

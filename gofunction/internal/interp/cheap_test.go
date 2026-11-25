@@ -1,3 +1,25 @@
+// 文件说明：cheap_test.go — gofunction/internal/interp 的单元测试（TestExecutorCleanupContract、TestValidateHTTPFuncsInitAndMethod 等）
+//
+// 用法
+//
+//	go test ./gofunction/internal/interp -run 'TestExecutorCleanupContract|TestValidateHTTPFuncsInitAndMethod'
+//
+// 调用架构
+//
+//	[上游] gofunction
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/internal/interp/cheap_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] bench_test.go, cachetest_test.go, call.go, call_test.go, compile.go 等 40 个
+//
+// 主要符号
+//
+//	TestExecutorCleanupContract(t *testing.T)
+//	TestValidateHTTPFuncsInitAndMethod(t *testing.T)
+
 package interp
 
 import (

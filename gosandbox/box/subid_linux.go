@@ -1,5 +1,38 @@
 //go:build linux
 
+// 文件说明：subid_linux.go — gosandbox/box 中 SubID、SubIDMap 等符号的实现
+//
+// 用法
+//
+//	type SubID struct{…}  // SubID 是一段 id 区间
+//	type SubIDMap struct{…}  // SubIDMap 是多段映射所需的宿主信息
+//	ProbeSubIDs() SubIDMap  // ProbeSubIDs 探测多段映射能力（结果缓存）
+//	同包调用：subIDSpec() → launch_linux.go, subid_test.go
+//
+// 调用架构
+//
+//	[上游] gosandbox/cmd, gosandbox/vm/box
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/box/subid_linux.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] backpressure_test.go, copytree.go, deadline.go, egress_e2e_test.go, files.go 等 26 个
+//	[关键引用] SubID ← subid_test.go；SubIDMap ← subid_test.go；ProbeSubIDs ← launch_linux.go
+//
+// 主要符号
+//
+//	type SubID struct{…}
+//	type SubIDMap struct{…}
+//	(m SubIDMap) MultiSegment() bool
+//	var newuidmapCandidates
+//	var subidOnce / subidMap
+//	ProbeSubIDs() SubIDMap
+//	probeSubIDs() SubIDMap
+//	firstExisting(paths []string) string
+//	... 另有 9 个顶层符号
+
 package box
 
 import (

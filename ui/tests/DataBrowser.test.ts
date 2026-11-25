@@ -3,7 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import DataBrowser from '@/pages/DataBrowser.vue'
 import { api, resetApiMocks } from '@/test/api-mock'
-import { uiStubs } from '@/test/helpers'
+import { chooseFromPopover, clickInPopover, installJsdomPolyfills, openPopover, popoverEl, realPopoverStubs, uiStubs, clickAlertDialog, dialogEl, realAlertDialogStubs, realDialogStubs, waitDialog, inDialog } from '@/test/helpers'
 import { pageVm } from '@/test/page-vm'
 import { useProjectStore } from '@/stores/project'
 import { useAuthStore } from '@/stores/auth'
@@ -63,14 +63,20 @@ function setup(opts: SetupOpts = {}) {
     return { columns: cols, rows, truncated: false, scanned: 3, durationMs: 1, requestId: '' }
   })
   api.db.exportCollection.mockResolvedValue(new Blob(['id']))
+  // 卡片「更多」菜单与工具栏「数据操作」都是真实 Popover：弹层内容 teleport 到 body，故一律 attachTo。
   const stubs = opts.realSelect
-    ? { ...uiStubs, Select: false, SelectTrigger: false, SelectValue: false, SelectContent: false, SelectGroup: false, SelectItem: false, teleport: false }
-    : uiStubs
-  const wrapper = mount(DataBrowser, { global: { plugins: [pinia], stubs }, attachTo: opts.realSelect ? document.body : undefined })
+    ? { ...uiStubs, ...realPopoverStubs, ...realDialogStubs, ...realAlertDialogStubs, Select: false, SelectTrigger: false, SelectValue: false, SelectContent: false, SelectGroup: false, SelectItem: false }
+    : { ...uiStubs, ...realPopoverStubs, ...realDialogStubs, ...realAlertDialogStubs }
+  const wrapper = mount(DataBrowser, { global: { plugins: [pinia], stubs }, attachTo: document.body })
   return wrapper
 }
 
 const buttonText = (wrapper: ReturnType<typeof setup>, text: string) => wrapper.findAll('button').find((b) => b.text().includes(text))
+
+installJsdomPolyfills()
+
+const widgetMenu = (id: string) => `[data-widget="${id}"]`
+const toolbar = '[data-testid="bi-toolbar"]'
 
 describe('DataBrowser (BI dashboard)', () => {
   const downloads: string[] = []
@@ -106,7 +112,9 @@ describe('DataBrowser (BI dashboard)', () => {
     await flushPromises()
     expect(wrapper.get('[data-testid="bi-toolbar"]').text()).not.toContain('图表类型')
     await wrapper.get('[data-action="add-widget"]').trigger('click')
-    const editor = wrapper.get('[data-testid="bi-editor"]')
+    await waitDialog()
+    // 编辑器是真实 Dialog：内容 teleport 到 body
+    const editor = inDialog().get('[data-testid="bi-editor"]')
     expect(editor.text()).toContain('图表类型')
     expect(editor.findAll('[data-type]').map((node) => node.attributes('data-type')))
       .toEqual(['auto', 'line', 'column', 'bar', 'pie', 'table', 'grouped_bar', 'stacked_bar', 'scatter'])
@@ -201,8 +209,7 @@ describe('DataBrowser (BI dashboard)', () => {
   it('persists board edits per collection and restores them on reload', async () => {
     const first = setup()
     await flushPromises()
-    await first.get('[data-widget="kpi-total"] [data-action="menu"]').trigger('click')
-    await first.get('[data-widget="kpi-total"] [data-action="duplicate"]').trigger('click')
+    await chooseFromPopover(first, '[data-action="duplicate"]', widgetMenu('kpi-total'))
     await flushPromises()
     const count = first.findAll('[data-testid="bi-board"] [data-widget]').length
     expect(window.localStorage.getItem('sb_bi_v1:p1:db1:tasks')).toContain('kpi-total')
@@ -217,14 +224,18 @@ describe('DataBrowser (BI dashboard)', () => {
   it('restoring the default board discards saved edits', async () => {
     const wrapper = setup()
     await flushPromises()
-    await wrapper.get('[data-widget="kpi-total"] [data-action="menu"]').trigger('click')
-    await wrapper.get('[data-widget="kpi-total"] [data-action="duplicate"]').trigger('click')
+    await chooseFromPopover(wrapper, '[data-action="duplicate"]', widgetMenu('kpi-total'))
     await flushPromises()
     expect(window.localStorage.getItem('sb_bi_v1:p1:db1:tasks')).toBeTruthy()
     const edited = wrapper.findAll('[data-testid="bi-board"] [data-widget]').length
-    // 共享 ConfirmAction 桩点击即确认。
+    // 真实 ConfirmAction：点「重置」先弹确认框，取消不动数据，确定才重置。
     await wrapper.get('[data-action="reset-board"]').trigger('click')
     await flushPromises()
+    await clickAlertDialog('取消')
+    expect(window.localStorage.getItem('sb_bi_v1:p1:db1:tasks')).toBeTruthy()
+    await wrapper.get('[data-action="reset-board"]').trigger('click')
+    await flushPromises()
+    await clickAlertDialog('确定')
     expect(window.localStorage.getItem('sb_bi_v1:p1:db1:tasks')).toBeNull()
     expect(wrapper.findAll('[data-testid="bi-board"] [data-widget]').length).toBeLessThan(edited)
     expect(wrapper.find('[data-widget="kpi-total"]').exists()).toBe(true)
@@ -252,33 +263,39 @@ describe('DataBrowser (BI dashboard)', () => {
   it('keeps the data actions (schema, view, import, export) reachable', async () => {
     const wrapper = setup()
     await flushPromises()
+    await openPopover(wrapper, toolbar)
     for (const action of ['schema', 'view', 'import', 'export-csv', 'export-json']) {
-      expect(wrapper.find(`[data-action="${action}"]`).exists(), action).toBe(true)
+      expect(popoverEl(`[data-action="${action}"]`), action).not.toBeNull()
     }
-    await wrapper.get('[data-action="schema"]').trigger('click')
-    expect(wrapper.find('.sb-modal').exists()).toBe(true)
+    await clickInPopover('[data-action="schema"]')
+    await waitDialog()
+    expect(dialogEl()).not.toBeNull()
   })
 
   it('logical views and read-only roles cannot reach write actions', async () => {
+    const disabled = (action: string) => popoverEl(`[data-action="${action}"]`)!.hasAttribute('disabled')
     const view = setup({ view: true })
     await flushPromises()
-    for (const action of ['schema', 'import']) expect(view.get(`[data-action="${action}"]`).attributes('disabled'), action).toBeDefined()
+    await openPopover(view, toolbar)
+    for (const action of ['schema', 'import']) expect(disabled(action), action).toBe(true)
     // 视图可以新建视图（针对库，不针对集合）。
-    expect(view.get('[data-action="view"]').attributes('disabled')).toBeUndefined()
+    expect(disabled('view')).toBe(false)
     view.unmount()
 
     resetApiMocks()
     const readonly = setup({ canWrite: false })
     await flushPromises()
-    for (const action of ['schema', 'view', 'import']) expect(readonly.get(`[data-action="${action}"]`).attributes('disabled'), action).toBeDefined()
+    await openPopover(readonly, toolbar)
+    for (const action of ['schema', 'view', 'import']) expect(disabled(action), action).toBe(true)
     // 导出是读操作，仍可用。
-    expect(readonly.get('[data-action="export-csv"]').attributes('disabled')).toBeUndefined()
+    expect(disabled('export-csv')).toBe(false)
   })
 
   it('the system project is read-only and has no agent controls', async () => {
     const wrapper = setup({ admin: true })
     await flushPromises()
-    for (const action of ['schema', 'view', 'import']) expect(wrapper.get(`[data-action="${action}"]`).attributes('disabled'), action).toBeDefined()
+    await openPopover(wrapper, toolbar)
+    for (const action of ['schema', 'view', 'import']) expect(popoverEl(`[data-action="${action}"]`)!.hasAttribute('disabled'), action).toBe(true)
     expect(wrapper.find('[data-testid="bi-agent-disabled"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="bi-agent-input"]').exists()).toBe(false)
   })

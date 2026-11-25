@@ -1,16 +1,18 @@
-// planv6.7 v2：协作群 UI 组件测试。
-// 覆盖：群成员弹窗（两个页签、成员置灰、新建校验）、路由分工卡（步骤与重试）、
+// 协作群 UI 组件测试。
+// 覆盖：群成员弹窗（两个页签、成员置灰、新建校验）、Plan 卡（目标 / 步骤 / 分工 / 进度与重试）、
 // 人工待办卡（回复/无法处理、只读态）、群设置弹窗的新字段（路由提示词/兜底/人工策略）。
 import { flushPromises, mount } from '@vue/test-utils'
+import type { VueWrapper } from '@vue/test-utils'
 import type { Component } from 'vue'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia } from 'pinia'
 import { setI18nLocale } from '@/locales'
 import AgentGroupMembersModal from '@/components/modal/AgentGroupMembersModal.vue'
-import AgentDispatchCard from '@/components/agent/AgentDispatchCard.vue'
+import AgentPlanCard from '@/components/agent/AgentPlanCard.vue'
 import AgentHumanTaskCard from '@/components/agent/AgentHumanTaskCard.vue'
 import AgentTagModal from '@/components/modal/AgentTagModal.vue'
-import type { AgentModuleInfo, AgentTag, AgentTask } from '@/services/types'
+import { Select } from '@/components/ui/select'
+import type { AgentPlanSnapshot, AgentModuleInfo, AgentTag, AgentTask } from '@/services/types'
 
 function task(over: Partial<AgentTask> = {}): AgentTask {
   return {
@@ -57,6 +59,13 @@ function mountWithI18n(component: Component, props: Record<string, unknown>) {
     global: { plugins: [createPinia()], stubs: { SbModal: SbModalStub } }
   })
 }
+
+/** 真实 reka Select：值由 modelValue 承载；触发器上的 data-* 钩子用来定位第几个下拉。 */
+function selects(wrapper: VueWrapper) {
+  return wrapper.findAllComponents(Select)
+}
+const FALLBACK = 0
+const HUMAN_POLICY = 1
 
 describe('AgentGroupMembersModal', () => {
   beforeEach(() => setI18nLocale('zh-CN'))
@@ -135,26 +144,73 @@ describe('AgentGroupMembersModal', () => {
   })
 })
 
-describe('AgentDispatchCard', () => {
+/** Plan 快照：默认 simple、无确认。 */
+function plan(over: Partial<AgentPlanSnapshot['decision']> = {}): AgentPlanSnapshot {
+  return {
+    version: 3,
+    confirmState: '',
+    replans: 0,
+    decision: {
+      action: 'create', goal: '核对订单', complexity: 'simple', steps: [], dispatches: [],
+      confirm: { required: false, reasons: [] }, progress: { percent: 0, note: '' },
+      findings: [], unknowns: [], shouldContinue: false, shouldSummarize: false, sources: [],
+      ...over
+    }
+  }
+}
+
+describe('AgentPlanCard', () => {
   beforeEach(() => setI18nLocale('zh-CN'))
 
-  it('渲染每一步与状态、进度', () => {
-    const wrapper = mountWithI18n(AgentDispatchCard, {
+  it('渲染目标、任务分工与进度；没有 Plan 快照时不渲染', () => {
+    const wrapper = mountWithI18n(AgentPlanCard, {
+      plan: plan(),
       tasks: [
         task({ id: 't1', seq: 1, status: 'completed' }),
         task({ id: 't2', seq: 2, targetId: 'a2', status: 'running' })
       ],
       names: { a1: '数据库助手', a2: '日志助手' }
     })
+    expect(wrapper.get('[data-plan-goal]').text()).toBe('核对订单')
     expect(wrapper.findAll('[data-dispatch-step]')).toHaveLength(2)
     expect(wrapper.text()).toContain('数据库助手')
     expect(wrapper.text()).toContain('日志助手')
     expect(wrapper.text()).toContain('1/2')
+    expect(wrapper.get('[role="progressbar"]').attributes('aria-valuenow')).toBe('50')
+    expect(wrapper.find('[data-plan-complexity]').exists()).toBe(false)
+    expect(wrapper.find('[data-plan-steps]').exists()).toBe(false)
+    wrapper.unmount()
+
+    const empty = mountWithI18n(AgentPlanCard, { plan: null, tasks: [task()] })
+    expect(empty.find('[data-agent-plan-card]').exists()).toBe(false)
+    empty.unmount()
+  })
+
+  it('复杂计划显示步骤清单，步骤状态按关联任务归约；发现可展开', () => {
+    const wrapper = mountWithI18n(AgentPlanCard, {
+      plan: plan({
+        complexity: 'complex',
+        steps: [
+          { id: 's1', title: '建表', status: 'pending', note: '' },
+          { id: 's2', title: '发布站点', status: 'done', note: '已验证' }
+        ],
+        findings: ['订单表缺索引'],
+        progress: { percent: 40, note: '建表中' }
+      }),
+      tasks: [task({ id: 't1', stepId: 's1', status: 'completed' })]
+    })
+    expect(wrapper.get('[data-plan-complexity]').text()).toBe('复杂任务')
+    expect(wrapper.get('[data-plan-summary]').text()).toBe('建表中')
+    expect(wrapper.get('[data-plan-step="s1"]').attributes('data-plan-step-status')).toBe('done')
+    expect(wrapper.get('[data-plan-step="s2"]').attributes('data-plan-step-status')).toBe('done')
+    expect(wrapper.get('[data-plan-step="s2"]').text()).toContain('已验证')
+    expect(wrapper.get('[data-plan-findings]').text()).toContain('订单表缺索引')
     wrapper.unmount()
   })
 
   it('失败步骤可重试，完成步骤不显示重试', async () => {
-    const wrapper = mountWithI18n(AgentDispatchCard, {
+    const wrapper = mountWithI18n(AgentPlanCard, {
+      plan: plan(),
       tasks: [task({ id: 't1', status: 'failed' }), task({ id: 't2', seq: 2, status: 'completed' })]
     })
     const retry = wrapper.findAll('[data-dispatch-retry]')
@@ -165,7 +221,8 @@ describe('AgentDispatchCard', () => {
   })
 
   it('人工任务显示为「需要你处理」', () => {
-    const wrapper = mountWithI18n(AgentDispatchCard, {
+    const wrapper = mountWithI18n(AgentPlanCard, {
+      plan: plan(),
       tasks: [task({ id: 'h1', targetKind: 'human', targetId: 'u1', status: 'waiting_human' })]
     })
     expect(wrapper.text()).toContain('需要你处理')
@@ -247,8 +304,11 @@ describe('AgentTagModal（群设置）', () => {
     })
     await flushPromises()
     expect((wrapper.get('[data-tag-routing-prompt]').element as HTMLTextAreaElement).value).toBe('数据问题交给数据库')
-    expect((wrapper.get('[data-tag-fallback]').element as HTMLSelectElement).value).toBe('a1')
-    expect((wrapper.get('[data-tag-human-policy]').element as HTMLSelectElement).value).toBe('disabled')
+    expect(selects(wrapper)[FALLBACK].props('modelValue')).toBe('a1')
+    expect(selects(wrapper)[HUMAN_POLICY].props('modelValue')).toBe('disabled')
+    // 触发器按钮仍带原有的 data 钩子（样式与定位不变）。
+    expect(wrapper.find('[data-tag-fallback]').exists()).toBe(true)
+    expect(wrapper.find('[data-tag-human-policy]').exists()).toBe(true)
     wrapper.unmount()
   })
 
@@ -264,7 +324,34 @@ describe('AgentTagModal（群设置）', () => {
     await flushPromises()
     await wrapper.get('[data-tag-agent-check="a1"]').trigger('change')
     await flushPromises()
-    expect((wrapper.get('[data-tag-fallback]').element as HTMLSelectElement).value).toBe('')
+    // 空值用哨兵 __none__ 表示「无兜底」（reka 不允许空串作 item value）。
+    expect(selects(wrapper)[FALLBACK].props('modelValue')).toBe('__none__')
+    wrapper.unmount()
+  })
+
+  it('选择兜底 / 人工策略后随保存提交；选回「无」「允许人工」则清空', async () => {
+    const wrapper = mountWithI18n(AgentTagModal, {
+      open: true,
+      tag: { ...tag, fallbackAgentId: '', humanPolicy: undefined },
+      agents: [
+        { id: 'a1', name: '数据库助手', module: 'database' },
+        { id: 'a2', name: '日志助手', module: 'logs' }
+      ]
+    })
+    await flushPromises()
+    selects(wrapper)[FALLBACK].vm.$emit('update:modelValue', 'a2')
+    selects(wrapper)[HUMAN_POLICY].vm.$emit('update:modelValue', 'disabled')
+    await flushPromises()
+    await wrapper.get('.modal-ok').trigger('click')
+    expect(wrapper.emitted('save')?.[0]?.[0]).toMatchObject({ fallbackAgentId: 'a2', humanPolicy: 'disabled' })
+
+    selects(wrapper)[FALLBACK].vm.$emit('update:modelValue', '__none__')
+    selects(wrapper)[HUMAN_POLICY].vm.$emit('update:modelValue', '__none__')
+    await flushPromises()
+    await wrapper.get('.modal-ok').trigger('click')
+    const second = wrapper.emitted('save')?.[1]?.[0] as { fallbackAgentId: string; humanPolicy?: string }
+    expect(second.fallbackAgentId).toBe('')
+    expect(second.humanPolicy).toBeUndefined()
     wrapper.unmount()
   })
 
@@ -279,8 +366,10 @@ describe('AgentTagModal（群设置）', () => {
       ]
     })
     await flushPromises()
-    const options = wrapper.get('[data-tag-fallback]').findAll('option')
-    expect(options.map((o) => o.attributes('value'))).toEqual(['', 'a1', 'a2'])
+    // 候选来自 memberAgents：只列当前成员，群外助手 a3 不在其中。
+    // （下拉内容在 portal 里、关闭时不挂载，这里断言真实的数据来源。）
+    const vm = wrapper.vm as unknown as { memberAgents: Array<{ id: string }> }
+    expect(vm.memberAgents.map((a) => a.id)).toEqual(['a1', 'a2'])
     wrapper.unmount()
   })
 })

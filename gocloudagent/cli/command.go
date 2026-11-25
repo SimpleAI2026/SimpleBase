@@ -25,15 +25,10 @@
 package cli
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
-	"time"
 )
 
 // RunCommand 处理子命令分派，返回退出码。
@@ -55,6 +50,8 @@ func RunCommand(env []string, args []string, stdout, stderr *os.File) int {
 		return cmdConfig(env, args[1:], stdout, stderr)
 	case "mcp":
 		return cmdMCP(env, args[1:], stdout, stderr)
+	case "group":
+		return cmdGroup(env, args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		printUsage(stdout)
 		return exitOK
@@ -146,202 +143,6 @@ func cmdResume(env []string, args []string, stdout, stderr *os.File) int {
 	opts = parseFlags(opts, args[1:])
 	return Run(opts)
 }
-
-func cmdSessions(env []string, args []string, stdout, stderr *os.File) int {
-	sub := "list"
-	if len(args) > 0 {
-		sub = args[0]
-	}
-	switch sub {
-	case "list", "ls":
-		sessions, err := ListSessions(env)
-		if err != nil {
-			fmt.Fprintf(stderr, "error: %v\n", err)
-			return exitConfig
-		}
-		if len(sessions) == 0 {
-			fmt.Fprintln(stdout, "no sessions yet")
-			return exitOK
-		}
-		for _, s := range sessions {
-			fmt.Fprintf(stdout, "%s  %s  %s\n", s.ID, s.CreatedAt.Local().Format(time.DateTime), s.Cwd)
-		}
-		return exitOK
-	case "show":
-		if len(args) < 2 {
-			fmt.Fprintln(stderr, "usage: gocloudagent sessions show <session-id>")
-			return exitUsage
-		}
-		path, err := FindSession(env, args[1])
-		if err != nil {
-			fmt.Fprintf(stderr, "error: %v\n", err)
-			return exitConfig
-		}
-		s, err := OpenSession(path)
-		if err != nil {
-			fmt.Fprintf(stderr, "error: %v\n", err)
-			return exitConfig
-		}
-		for _, e := range s.Lines {
-			switch e.Type {
-			case EntrySession:
-				fmt.Fprintf(stdout, "session %s  cwd=%s  endpoint=%s  model=%s\n", s.ID, e.Cwd, e.Endpoint, e.Model)
-			case EntryCompaction:
-				fmt.Fprintf(stdout, "[compaction] %s\n", firstLine(e.Summary, 120))
-			default:
-				fmt.Fprintf(stdout, "%s: %s\n", e.Role, firstLine(e.Content, 200))
-			}
-		}
-		return exitOK
-	case "rm", "remove", "delete":
-		if len(args) < 2 {
-			fmt.Fprintln(stderr, "usage: gocloudagent sessions rm <session-id>")
-			return exitUsage
-		}
-		path, err := FindSession(env, args[1])
-		if err != nil {
-			fmt.Fprintf(stderr, "error: %v\n", err)
-			return exitConfig
-		}
-		if err := RemoveSession(path); err != nil {
-			fmt.Fprintf(stderr, "error: %v\n", err)
-			return exitConfig
-		}
-		fmt.Fprintln(stdout, "removed", filepath.Base(path))
-		return exitOK
-	default:
-		fmt.Fprintf(stderr, "unknown sessions subcommand %q\n", sub)
-		return exitUsage
-	}
-}
-
-// configKeys 是 config get/set 支持的键。
-var configKeys = []struct {
-	Name string
-	Get  func(Config) string
-	Set  func(*Config, string)
-}{
-	{"endpoint", func(c Config) string { return c.Endpoint }, func(c *Config, v string) { c.Endpoint = v }},
-	{"token", func(c Config) string { return c.Token }, func(c *Config, v string) { c.Token = v }},
-	{"model", func(c Config) string { return c.Model }, func(c *Config, v string) { c.Model = v }},
-	{"output", func(c Config) string { return c.Output }, func(c *Config, v string) { c.Output = v }},
-	{"search_provider", func(c Config) string { return c.SearchProvider }, func(c *Config, v string) { c.SearchProvider = v }},
-	{"search_api_key", func(c Config) string { return c.SearchAPIKey }, func(c *Config, v string) { c.SearchAPIKey = v }},
-	{"yolo", func(c Config) string { return fmt.Sprintf("%t", c.Yolo) }, func(c *Config, v string) { c.Yolo = v == "true" || v == "1" }},
-	{"max_run_seconds", func(c Config) string { return fmt.Sprintf("%d", c.MaxRunSeconds) }, func(c *Config, v string) { setPositiveInt(&c.MaxRunSeconds, v) }},
-	{"compact_trigger_tokens", func(c Config) string { return fmt.Sprintf("%d", c.CompactTriggerTokens) }, func(c *Config, v string) { setPositiveInt(&c.CompactTriggerTokens, v) }},
-	{"compact_keep_tokens", func(c Config) string { return fmt.Sprintf("%d", c.CompactKeepTokens) }, func(c *Config, v string) { setPositiveInt(&c.CompactKeepTokens, v) }},
-}
-
-// setPositiveInt 解析正整数配置；非法值保持原样（0 即用默认值），
-// 避免把 `config set compact_keep_tokens abc` 变成静默清零。
-func setPositiveInt(dst *int, v string) {
-	if n, err := strconv.Atoi(v); err == nil && n > 0 {
-		*dst = n
-	}
-}
-
-func cmdConfig(env []string, args []string, stdout, stderr *os.File) int {
-	sub := "show"
-	if len(args) > 0 {
-		sub = args[0]
-	}
-	switch sub {
-	case "path":
-		fmt.Fprintln(stdout, configPath(env))
-		return exitOK
-	case "show", "list":
-		cfg, err := LoadConfig(env)
-		if err != nil {
-			fmt.Fprintf(stderr, "error: %v\n", err)
-			return exitConfig
-		}
-		for _, k := range configKeys {
-			v := k.Get(cfg)
-			if k.Name == "token" && v != "" {
-				v = maskSecret(v)
-			}
-			fmt.Fprintf(stdout, "%s=%s\n", k.Name, v)
-		}
-		return exitOK
-	case "get":
-		if len(args) < 2 {
-			fmt.Fprintln(stderr, "usage: gocloudagent config get <key>")
-			return exitUsage
-		}
-		cfg, err := LoadConfig(env)
-		if err != nil {
-			fmt.Fprintf(stderr, "error: %v\n", err)
-			return exitConfig
-		}
-		for _, k := range configKeys {
-			if k.Name == args[1] {
-				fmt.Fprintln(stdout, k.Get(cfg))
-				return exitOK
-			}
-		}
-		fmt.Fprintf(stderr, "unknown key %q; known: %s\n", args[1], knownKeys())
-		return exitUsage
-	case "set":
-		if len(args) < 3 {
-			fmt.Fprintln(stderr, "usage: gocloudagent config set <key> <value>")
-			return exitUsage
-		}
-		cfg, err := LoadConfig(env)
-		if err != nil {
-			fmt.Fprintf(stderr, "error: %v\n", err)
-			return exitConfig
-		}
-		found := false
-		for _, k := range configKeys {
-			if k.Name == args[1] {
-				k.Set(&cfg, args[2])
-				found = true
-				break
-			}
-		}
-		if !found {
-			fmt.Fprintf(stderr, "unknown key %q; known: %s\n", args[1], knownKeys())
-			return exitUsage
-		}
-		path, err := SaveConfig(env, cfg)
-		if err != nil {
-			fmt.Fprintf(stderr, "error: %v\n", err)
-			return exitConfig
-		}
-		fmt.Fprintln(stdout, "wrote", path)
-		return exitOK
-	case "test":
-		cfg := MergeEnv(mustConfig(env), env)
-		if err := cfg.Validate(); err != nil {
-			fmt.Fprintf(stderr, "error: %v\n", err)
-			return exitConfig
-		}
-		client := &HTTPClient{Endpoint: cfg.Endpoint, Token: cfg.Token}
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		defer cancel()
-		if err := client.Probe(ctx); err != nil {
-			fmt.Fprintf(stderr, "error: %v\n", err)
-			return exitAPI
-		}
-		fmt.Fprintln(stdout, "ok")
-		return exitOK
-	case "json":
-		cfg, err := LoadConfig(env)
-		if err != nil {
-			fmt.Fprintf(stderr, "error: %v\n", err)
-			return exitConfig
-		}
-		cfg.Token = maskSecret(cfg.Token)
-		b, _ := json.MarshalIndent(cfg, "", "  ")
-		fmt.Fprintln(stdout, string(b))
-		return exitOK
-	default:
-		fmt.Fprintf(stderr, "unknown config subcommand %q\n", sub)
-		return exitUsage
-	}
-}
-
 func mustConfig(env []string) Config {
 	cfg, err := LoadConfig(env)
 	if err != nil {
@@ -381,6 +182,7 @@ Usage:
   gocloudagent sessions [list|show|rm]  manage local sessions
   gocloudagent config [show|get|set|path|test|json]  manage ~/.gocloudagent/config.json
   gocloudagent mcp [list|tools]       manage and inspect MCP servers
+  gocloudagent group [list|show|new|run]  local groups: every message is planned first
   gocloudagent --version | --help
 
 Flags:
@@ -397,6 +199,8 @@ Layout:
   ~/.gocloudagent/config.json      CLI config (mode 0600, contains the model token)
   ~/.gocloudagent/sessions/*.jsonl append-only session log
   ~/.gocloudagent/prompts/*.md     prompt templates, invoked with /name
+  ~/.gocloudagent/groups/<name>.json  group definitions (members = model + instruction + tools)
+  ~/.gocloudagent/groups/<name>/   plan files (plan.md, progress.md) and turn state per group
 
 Environment:
   GOCLOUDAGENT_HOME, GOCLOUDAGENT_ENDPOINT, GOCLOUDAGENT_TOKEN,

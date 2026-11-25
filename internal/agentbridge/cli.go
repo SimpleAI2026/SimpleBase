@@ -28,6 +28,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/sbcli"
 )
 
@@ -49,7 +50,7 @@ func (InProcessCLI) Run(ctx context.Context, argv []string, env []string, stdin 
 		r = strings.NewReader(stdin)
 	}
 	code := sbcli.RunIO(ctx, argv, env, &out, &errb, r)
-	return limitOut(out.String()), limitOut(errb.String()), code, nil
+	return cloudagent.LimitProcessOutput(out.String(), cliOutputLimit), cloudagent.LimitProcessOutput(errb.String(), cliOutputLimit), code, nil
 }
 
 // 编译期断言：适配器满足宿主 CLI 运行接口。

@@ -236,6 +236,7 @@ BUG 编号（注释里最高频）：
 | `ui/src/services/types.ts` / `http-api-converters.ts` | 「契约对照 plan/planv2.0/proto-http.md」 | 改为本文 §4.2 |
 | `internal/objectstore/plan_databases_s3_test.go` | 「对齐 plan/planv2.0/databases-and-s3-plan.md」 | 改为本文 §4.3 |
 | `ui/src/lib/status.ts` | 「plan/planv5.0/ui-optimization-v3-plan.md §3.2」 | 改为本文 §4.8 |
+| `internal/agentbridge/{bench,docs}` | 历史计划中的路径 | 已迁出：`bench/agent/`、`gocloudagent/docs/`（planv6.8 MV-1/MV-2） |
 
 其余约 30 处裸编号注释（`planv4.1 BUG-07`、`planv4.1 §5.1`、`planv4.0 cloud-sandbox-plan §4` 等）**不改代码**，统一由本文 §2 承接。
 

@@ -1,3 +1,31 @@
+// 文件说明：manifest_test.go — gosandbox/image 的单元测试（TestDecodeIndex、TestDecodeManifestSingle 等）
+//
+// 用法
+//
+//	go test ./gosandbox/image -run 'TestDecodeIndex|TestDecodeManifestSingle|TestDecodeManifestInfersType|TestDecodeManifestRejects'
+//
+// 调用架构
+//
+//	[上游] gosandbox/vm/box, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/image/manifest_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] arch.go, import.go, manifest.go, pull.go, pull_test.go 等 16 个
+//
+// 主要符号
+//
+//	var indexJSON
+//	TestDecodeIndex(t *testing.T)
+//	TestDecodeManifestSingle(t *testing.T)
+//	TestDecodeManifestInfersType(t *testing.T)
+//	TestDecodeManifestRejects(t *testing.T)
+//	TestDecodeConfig(t *testing.T)
+//	TestDecodeConfigEmpty(t *testing.T)
+//	TestDescriptorRoundTrip(t *testing.T)
+
 package image
 
 // manifest_test.go：manifest 与 config 解析、平台选择。

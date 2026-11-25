@@ -1,3 +1,34 @@
+// 文件说明：router_stack_test.go — internal/api 的单元测试（TestNewRouter_AuthProjectMetricsSPA、TestNewRouter_CrossProjectDeniedBeforeHandlers 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestNewRouter_AuthProjectMetricsSPA|TestNewRouter_CrossProjectDeniedBeforeHandlers|TestNewRouter_NoMetricsNoAuth|TestBodyLimitAndRequestTooLarge'
+//	同包调用：memAuthRepo → agent_routes_test.go, agent_skills_router_e2e_test.go；fullRouterDeps() → agent_routes_test.go, e2b_e2e_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/router_stack_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] memAuthRepo ← agent_routes_test.go, agent_skills_router_e2e_test.go；fullRouterDeps ← agent_routes_test.go, e2b_e2e_test.go
+//
+// 主要符号
+//
+//	type memAuthRepo struct{…}
+//	(m *memAuthRepo) FindByHash(_ context.Context, hash string) (auth.APIKeyRecord, error)
+//	fullRouterDeps(t *testing.T) (Dependencies, string)
+//	TestNewRouter_AuthProjectMetricsSPA(t *testing.T)
+//	TestNewRouter_CrossProjectDeniedBeforeHandlers(t *testing.T)
+//	TestNewRouter_NoMetricsNoAuth(t *testing.T)
+//	TestBodyLimitAndRequestTooLarge(t *testing.T)
+//	TestS3UploadUsesDedicatedBodyLimit(t *testing.T)
+//	... 另有 9 个顶层符号
+
 package api
 
 import (

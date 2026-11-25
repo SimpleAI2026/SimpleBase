@@ -99,7 +99,7 @@ func (h *CollectionMetaHandler) Put(c echo.Context) error {
 	}
 	dryRun := c.QueryParam("dry_run") == "1" || c.QueryParam("dry_run") == "true"
 	if schema.SchemaMode == "view" {
-		principal, _ := PrincipalFromContext(c.Request().Context())
+		principal := principalOf(c)
 		if !principal.HasPermission(auth.ProjectAdmin) {
 			return WriteError(c, auth.ErrForbidden)
 		}
@@ -154,7 +154,7 @@ type viewPreviewResult struct {
 }
 
 func (h *CollectionMetaHandler) DryRunView(c echo.Context) error {
-	principal, _ := PrincipalFromContext(c.Request().Context())
+	principal := principalOf(c)
 	if !principal.HasPermission(auth.ProjectAdmin) {
 		return WriteError(c, auth.ErrForbidden)
 	}
@@ -166,7 +166,7 @@ func (h *CollectionMetaHandler) DryRunView(c echo.Context) error {
 		return WriteError(c, err)
 	}
 	if !collectionNamePattern.MatchString(request.Name) {
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "invalid collection name", RequestIDFromContext(c.Request().Context())))
+		return WriteError(c, badRequest(c, "invalid collection name"))
 	}
 	preview, err := h.previewView(c, request.Query)
 	if err != nil {
@@ -178,7 +178,7 @@ func (h *CollectionMetaHandler) DryRunView(c echo.Context) error {
 func (h *CollectionMetaHandler) previewView(c echo.Context, query string) (viewPreviewResult, error) {
 	result := viewPreviewResult{Columns: []string{}, Fields: []collection.Field{}, Items: []documentDTO{}}
 	invalid := func() (viewPreviewResult, error) {
-		return result, NewAPIError(http.StatusBadRequest, "invalid_view_query", "view query must return id, JSON data, created_at and updated_at", RequestIDFromContext(c.Request().Context()))
+		return result, NewAPIError(http.StatusBadRequest, "invalid_view_query", "view query must return id, JSON data, created_at and updated_at", requestID(c))
 	}
 	query = strings.TrimSuffix(strings.TrimSpace(query), ";")
 	keyword := sqlguard.FirstKeyword(query)
@@ -218,7 +218,7 @@ func (h *CollectionMetaHandler) previewView(c echo.Context, query string) (viewP
 		}
 		result.Items = append(result.Items, dto)
 		for name, value := range data {
-			if !fieldNamePattern.MatchString(name) || name == "id" || name == "created_at" || name == "updated_at" {
+			if !collection.FieldNamePattern.MatchString(name) || name == "id" || name == "created_at" || name == "updated_at" {
 				return invalid()
 			}
 			if _, exists := fieldTypes[name]; !exists {
@@ -295,10 +295,10 @@ func (h *CollectionMetaHandler) svcFor(c echo.Context, mode godatabase.AccessMod
 
 func collectionMetaError(c echo.Context, err error) error {
 	if errors.Is(err, collection.ErrNotFound) {
-		return WriteError(c, NewAPIError(http.StatusNotFound, "schema_not_registered", "schema is not registered", RequestIDFromContext(c.Request().Context())))
+		return WriteError(c, NewAPIError(http.StatusNotFound, "schema_not_registered", "schema is not registered", requestID(c)))
 	}
 	if errors.Is(err, collection.ErrUnavailable) {
-		return WriteError(c, NewAPIError(http.StatusServiceUnavailable, "collection_schema_unavailable", "collection schema migration is not applied", RequestIDFromContext(c.Request().Context())))
+		return WriteError(c, NewAPIError(http.StatusServiceUnavailable, "collection_schema_unavailable", "collection schema migration is not applied", requestID(c)))
 	}
 	return validationAPIError(c, err)
 }

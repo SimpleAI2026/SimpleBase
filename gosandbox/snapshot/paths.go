@@ -1,3 +1,27 @@
+// 文件说明：paths.go — gosandbox/snapshot 的内部实现（typeOf、safeRel 等）
+//
+// 用法
+//
+//	同包调用：typeOf() → multidir.go；safeRel() → multidir.go, snapshot_test.go
+//
+// 调用架构
+//
+//	[上游] gosandbox/vm/box, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/snapshot/paths.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] multidir.go, snapshot.go, snapshot_test.go
+//	[关键引用] typeOf ← multidir.go；safeRel ← multidir.go, snapshot_test.go
+//
+// 主要符号
+//
+//	var ErrUnsafeArchive
+//	typeOf(fi os.FileInfo, link string) byte
+//	safeRel(name string) (string, error)
+
 package snapshot
 
 import (

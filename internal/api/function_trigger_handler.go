@@ -86,7 +86,7 @@ func (h *FunctionTriggerHandler) Create(c echo.Context) error {
 	}
 	item.ID = ""
 	item.ProjectID = projectID(c)
-	item.CreatedBy = actorID(c)
+	item.CreatedBy = principalOf(c).Actor()
 	if err := h.validate(c, &item); err != nil {
 		return WriteError(c, err)
 	}
@@ -167,7 +167,7 @@ func (h *FunctionTriggerHandler) Invoke(c echo.Context) error {
 		return WriteError(c, mapNotFound(err))
 	}
 	if item.Kind != "http" || !item.Enabled {
-		return WriteError(c, NewAPIError(http.StatusConflict, "trigger_not_invokable", "only enabled HTTP triggers can be invoked", RequestIDFromContext(c.Request().Context())))
+		return WriteError(c, NewAPIError(http.StatusConflict, "trigger_not_invokable", "only enabled HTTP triggers can be invoked", requestID(c)))
 	}
 	var body map[string]any
 	if err := decodeJSONBody(c, &body, true); err != nil {
@@ -175,7 +175,7 @@ func (h *FunctionTriggerHandler) Invoke(c echo.Context) error {
 	}
 	if err := h.dispatcher.Invoke(item, body); err != nil {
 		if errors.Is(err, trigger.ErrQueueFull) {
-			return WriteError(c, NewAPIError(http.StatusTooManyRequests, "trigger_queue_full", "trigger queue is full", RequestIDFromContext(c.Request().Context())))
+			return WriteError(c, NewAPIError(http.StatusTooManyRequests, "trigger_queue_full", "trigger queue is full", requestID(c)))
 		}
 		return WriteError(c, err)
 	}
@@ -185,19 +185,19 @@ func (h *FunctionTriggerHandler) Invoke(c echo.Context) error {
 func (h *FunctionTriggerHandler) validate(c echo.Context, item *systemdb.FunctionTrigger) error {
 	item.FuncFile = strings.TrimSuffix(strings.TrimSpace(item.FuncFile), ".go")
 	if item.Kind != "record_change" && item.Kind != "object_event" && item.Kind != "http" || item.Target == "" && item.Kind != "http" || !gofunctionNameRe.MatchString(item.FuncFile) || !gofunctionExportNameRe.MatchString(item.FuncExport) || len(item.Filter) > 2048 || !trigger.ValidateFilter(item.Filter) {
-		return NewAPIError(http.StatusBadRequest, "invalid_trigger", "invalid trigger target, function or filter", RequestIDFromContext(c.Request().Context()))
+		return NewAPIError(http.StatusBadRequest, "invalid_trigger", "invalid trigger target, function or filter", requestID(c))
 	}
 	if item.Kind == "record_change" && item.Target != "*" && !collectionNamePattern.MatchString(item.Target) {
-		return NewAPIError(http.StatusBadRequest, "invalid_trigger", "invalid record collection", RequestIDFromContext(c.Request().Context()))
+		return NewAPIError(http.StatusBadRequest, "invalid_trigger", "invalid record collection", requestID(c))
 	}
 	if item.Kind == "object_event" && item.Target != "*" {
 		if err := objectstore.ValidateFileKey(item.Target); err != nil {
-			return NewAPIError(http.StatusBadRequest, "invalid_trigger", "invalid object prefix", RequestIDFromContext(c.Request().Context()))
+			return NewAPIError(http.StatusBadRequest, "invalid_trigger", "invalid object prefix", requestID(c))
 		}
 	}
 	if _, err := h.store.ResolveActiveSource(c.Request().Context(), item.ProjectID, item.FuncFile); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return NewAPIError(http.StatusNotFound, "gofunction_not_found", "go function not found", RequestIDFromContext(c.Request().Context()))
+			return NewAPIError(http.StatusNotFound, "gofunction_not_found", "go function not found", requestID(c))
 		}
 		return err
 	}
@@ -209,7 +209,7 @@ func (h *FunctionTriggerHandler) guard(c echo.Context) error {
 		return systemdb.ErrUnavailable
 	}
 	if systemdb.IsAdminProject(projectID(c)) {
-		return NewAPIError(http.StatusForbidden, "system_project_protected", "system project does not support function triggers", RequestIDFromContext(c.Request().Context()))
+		return NewAPIError(http.StatusForbidden, "system_project_protected", "system project does not support function triggers", requestID(c))
 	}
 	return nil
 }

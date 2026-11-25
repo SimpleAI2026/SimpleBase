@@ -1,3 +1,32 @@
+// 文件说明：trace_test.go — internal/llmgateway 的单元测试（TestChatRecordsTrace、TestChatRecordsErrorTrace 等）
+//
+// 用法
+//
+//	go test ./internal/llmgateway -run 'TestChatRecordsTrace|TestChatRecordsErrorTrace|TestStreamRecordsTrace|TestTraceRecorderErrorsIgnored'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app 等 5 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/llmgateway/trace_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_tools_test.go, catalog_resolver.go, client_chat_usage_test.go, fallback_resolver.go, fallback_resolver_test.go 等 14 个
+//
+// 主要符号
+//
+//	type fakeTracer struct{…}
+//	(f *fakeTracer) RecordTrace(ctx context.Context, t LLMTrace) error
+//	(f *fakeTracer) snapshot() []LLMTrace
+//	TestChatRecordsTrace(t *testing.T)
+//	TestChatRecordsErrorTrace(t *testing.T)
+//	TestStreamRecordsTrace(t *testing.T)
+//	TestTraceRecorderErrorsIgnored(t *testing.T)
+//	TestTraceErrorHelper(t *testing.T)
+//	... 另有 5 个顶层符号
+
 package llmgateway
 
 import (

@@ -1,3 +1,37 @@
+// 文件说明：jsonrun.go — gofunction/internal/interp 中 FuncInfo、ValidateHTTPFuncs 等符号的实现
+//
+// 用法
+//
+//	type FuncInfo struct{…}  // FuncInfo 描述一个合规的导出 HTTP 函数
+//	ValidateHTTPFuncs(source string) ([]FuncInfo, error)  // ValidateHTTPFuncs 编译源码并校验全部包级导出函数符合 HTTP 约定： Params==1 且 Results==1，且参数/返回类型可通过 ...
+//	SetProgramCacheLimit(n int)  // SetProgramCacheLimit 调整 RunJSON 编译缓存容量（<=0 关闭缓存）
+//	RunJSON(ctx context.Context, seqid, fname, source, funcName string, body []byte) ([]byte, error)  // RunJSON 编译并执行 funcName，body 解到唯一形参，返回值 JSON 编码
+//	同包调用：sha256Sum() → cachetest_test.go；safeTypeChange() → json_more_test.go；isDeadlineExceeded() → coverage_more_test.go
+//
+// 调用架构
+//
+//	[上游] gofunction
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/internal/interp/jsonrun.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] bench_test.go, cachetest_test.go, call.go, call_test.go, cheap_test.go 等 40 个
+//	[关键引用] ValidateHTTPFuncs ← cheap_test.go, json_more_test.go；SetProgramCacheLimit ← cachetest_test.go；sha256Sum ← cachetest_test.go
+//
+// 主要符号
+//
+//	var ErrFunctionNotFound
+//	var ErrTimeout
+//	var ErrBind
+//	var ErrCompile
+//	type FuncInfo struct{…}
+//	ValidateHTTPFuncs(source string) ([]FuncInfo, error)
+//	type programCache struct{…}
+//	type cacheEntry struct{…}
+//	... 另有 12 个顶层符号
+
 package interp
 
 import (

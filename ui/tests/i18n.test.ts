@@ -5,7 +5,7 @@ import zhCN from '@/locales/zh-CN'
 import enUS from '@/locales/en-US'
 import { LOCALES, LOCALE_LABELS, htmlLang, i18n, isLocaleCode, setI18nLocale, t } from '@/locales'
 import { agentErrorText } from '@/utils/agent-errors'
-import { cronStatusText, logLevelText, statusText } from '@/lib/status'
+import { cronStatusText, logLevelText, statusText } from '@/utils/status'
 import { currentBcp47, formatCount } from '@/utils/format'
 import { relativeTime } from '@/utils/relative-time'
 

@@ -94,7 +94,7 @@ func (l *rateLimiter) middleware(stage rateLimitStage) echo.MiddlewareFunc {
 					if l.metrics != nil {
 						l.metrics.APIRateLimited.WithLabelValues(rule.Match).Inc()
 					}
-					return WriteError(c, NewAPIError(http.StatusTooManyRequests, "rate_limited", "rate limit exceeded", RequestIDFromContext(c.Request().Context())))
+					return WriteError(c, NewAPIError(http.StatusTooManyRequests, "rate_limited", "rate limit exceeded", requestID(c)))
 				}
 				break
 			}
@@ -106,7 +106,7 @@ func (l *rateLimiter) middleware(stage rateLimitStage) echo.MiddlewareFunc {
 // key 按规则的 key 维度构造桶键。principal 取 APIKeyID/UserID/EndUserID，未认证退化为 ip。
 func (l *rateLimiter) key(c echo.Context, rule config.RateLimitRule) string {
 	ip := c.RealIP()
-	principal, _ := PrincipalFromContext(c.Request().Context())
+	principal := principalOf(c)
 	principalID := principal.APIKeyID
 	if principalID == "" {
 		principalID = principal.UserID

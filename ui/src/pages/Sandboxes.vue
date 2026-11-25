@@ -7,12 +7,12 @@
       >
         <template #actions>
           <SbRefreshButton :pending="pending" @click="load" />
-          <Button v-if="capabilities?.available && !isAdminProject && auth.canWrite" size="sm" @click="createOpen = true">
+          <Button v-if="capabilities?.available && canWrite" size="sm" @click="createOpen = true">
             <PlusIcon data-icon="inline-start" />
             {{ t('pages.sandboxes.create') }}
           </Button>
         </template>
-        <!-- 静态提示：直接渲染空态，不再套 SbAsyncRegion（planv6.7 ui-simplify-ux-plan C11） -->
+        <!-- 静态提示：直接渲染空态，不再套 SbAsyncRegion -->
         <div v-if="notice" class="p-6">
           <template v-if="notice === 'unconfigured'">
             <SbEmptyState :title="t('pages.sandboxes.notConfiguredTitle')" :description="t('pages.sandboxes.notConfiguredDesc')" />
@@ -66,12 +66,7 @@
             <SbAsyncRegion
               as="tbody"
               :columns="8"
-              :pending="pending"
-              :show-skeleton="showSkeleton"
-              :show-empty="showEmpty"
-              :show-error="showError"
-              :refreshing="refreshing"
-              :error="error"
+              :state="loadState"
               :empty-title="t('pages.sandboxes.emptyTitle')"
               :empty-description="t('pages.sandboxes.emptyDesc')"
               @retry="load"
@@ -90,7 +85,7 @@
                   <div class="flex flex-wrap items-center justify-center gap-1">
                     <Button variant="ghost" size="sm" @click="selected = item">{{ t('pages.sandboxes.open') }}</Button>
                     <Button
-                      v-if="auth.canWrite && item.state === 'running'"
+                      v-if="canWrite && item.state === 'running'"
                       variant="ghost"
                       size="sm"
                       :disabled="stopping.has(item.id)"
@@ -100,7 +95,7 @@
                       {{ t('pages.sandboxes.stop') }}
                     </Button>
                     <Button
-                      v-if="auth.canWrite && item.state === 'paused'"
+                      v-if="canWrite && item.state === 'paused'"
                       variant="ghost"
                       size="sm"
                       :disabled="starting.has(item.id)"
@@ -110,7 +105,7 @@
                       {{ t('pages.sandboxes.start') }}
                     </Button>
                     <ConfirmAction
-                      v-if="auth.canWrite"
+                      v-if="canWrite"
                       :title="t('pages.sandboxes.deleteConfirm', { name: item.name })"
                       :disabled="deleting.has(item.id)"
                       @confirm="remove(item)"
@@ -142,7 +137,7 @@
 </template>
 <script setup lang="ts">
 import { errorMessage } from '@/utils/format'
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
 import { toast } from 'vue-sonner'
@@ -152,25 +147,26 @@ import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableHeader, TableRow, TableHead, TableCell, TableEmpty } from '@/components/ui/table'
-import { api } from '../services/api'
-import type { SandboxCapabilities, SandboxItem } from '../services/types'
-import { useProjectStore } from '../stores/project'
-import { useAuthStore } from '../stores/auth'
+import { api } from '@/services/api'
+import type { SandboxCapabilities, SandboxItem } from '@/services/types'
+import { useProjectStore } from '@/stores/project'
 import { useLoadState } from '@/composables/useLoadState'
-import { formatTime } from '../utils/format'
-import PageContainer from '../components/PageContainer.vue'
-import ProjectScope from '../components/ProjectScope.vue'
+import { useCanWrite } from '@/composables/useCanWrite'
+import { useProjectReload } from '@/composables/useProjectReload'
+import { formatTime } from '@/utils/format'
+import PageContainer from '@/components/PageContainer.vue'
+import ProjectScope from '@/components/ProjectScope.vue'
 import SbAsyncRegion from '@/components/SbAsyncRegion.vue'
 import SbRefreshButton from '@/components/SbRefreshButton.vue'
 import SbListCard from '@/components/SbListCard.vue'
-import SbEmptyState from '../components/SbEmptyState.vue'
-import ConfirmAction from '../components/ConfirmAction.vue'
-import SandboxCreateModal from '../components/modal/SandboxCreateModal.vue'
-import SandboxDrawer from '../components/sandbox/SandboxDrawer.vue'
+import SbEmptyState from '@/components/SbEmptyState.vue'
+import ConfirmAction from '@/components/ConfirmAction.vue'
+import SandboxCreateModal from '@/components/modal/SandboxCreateModal.vue'
+import SandboxDrawer from '@/components/sandbox/SandboxDrawer.vue'
 
 const { t } = useI18n()
 const store = useProjectStore()
-const auth = useAuthStore()
+const canWrite = useCanWrite()
 
 /** 状态过滤下拉的可选值（值本身是后端枚举，不翻译）。 */
 const SANDBOX_STATUSES = ['running', 'paused']
@@ -186,9 +182,10 @@ const selected = ref<SandboxItem | null>(null)
 const starting = ref(new Set<string>())
 const stopping = ref(new Set<string>())
 const deleting = ref(new Set<string>())
-const { pending, settled, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
+const loadState = useLoadState({
   fallback: 'pages.sandboxes.loadFailed'
 })
+const { pending, settled, showError, run } = loadState
 
 /** 未配置沙盒时给出的最小配置示例（模板里写 \n 会原样显示，B9）。 */
 const SANDBOX_CONFIG_SAMPLE = 'sandbox:\n  enabled: true\n  backend: local'
@@ -283,8 +280,5 @@ async function remove(item: SandboxItem) {
   })
 }
 
-void load()
-watch(projectId, () => {
-  void load()
-})
+useProjectReload(projectId, load)
 </script>

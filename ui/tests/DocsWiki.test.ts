@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { defaultModuleId, defaultSlug, docCatalog, getModule } from '@/docs/catalog'
-import { mountWithApp } from '@/test/helpers'
+import { clickTab, mountWithApp } from '@/test/helpers'
 
 vi.mock('@/services/api', async () => {
   const m = await import('@/test/api-mock')
@@ -65,7 +65,7 @@ describe('DocsWiki', () => {
     expect(bar.classes()).toContain('border-border')
     expect(bar.classes()).not.toContain('border-b-0')
     expect(bar.classes().join(' ')).not.toContain('backdrop-blur')
-    const list = wrapper.get('.tabs-list')
+    const list = wrapper.get('[data-slot="tabs-list"]')
     expect(list.classes()).toContain('border-b-0')
     expect(list.classes()).not.toContain('border-b')
   })
@@ -128,10 +128,12 @@ describe('DocsWiki', () => {
       await flushPromises()
       expect(router.currentRoute.value.path).toContain(`/docs/${id}/`)
     }
-    if (wrapper.find('.tab-emit').exists() && docCatalog.length > 1) {
-      await wrapper.get('.tab-emit').trigger('click')
+    if (docCatalog.length > 1) {
+      // 真实页签：切到另一个模块，路由跟着变
+      const other = docCatalog.find((m) => m.id !== id)!
+      await clickTab(wrapper, other.id)
       await flushPromises()
-      expect(router.currentRoute.value.path.startsWith('/docs/')).toBe(true)
+      expect(router.currentRoute.value.path.startsWith(`/docs/${other.id}`)).toBe(true)
     }
     Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: 900 })
     window.dispatchEvent(new Event('resize'))

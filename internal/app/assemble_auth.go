@@ -14,8 +14,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// assembleAuthServices 装配 auth/user/session 服务（原 assembleDeps 连续块，
-// B4 提取）。SYNC-01：user/session 仓储直接写系统库表，绕过 Store.notifyWrite；
+// assembleAuthServices 装配 auth/user/session 服务。SYNC-01：user/session 仓储直接写系统库表，绕过 Store.notifyWrite；
 // 注入写后同步通知，防止改密/禁用是唯一一次写入时 catalog 漏发布。
 func (a *App) assembleAuthServices(store *systemdb.Store, cfg config.Config) {
 	a.auth = auth.NewService(store.AuthRepo(), cfg.Auth.APIKeyHashSecret).WithPolicyLoader(func(ctx context.Context, keyID, projectID string) (*auth.KeyPolicy, error) {
@@ -47,8 +46,7 @@ func (a *App) assembleAuthServices(store *systemdb.Store, cfg config.Config) {
 }
 
 // seedAndStartMaintenance 执行系统库 Seed、日志保留与周期刷新，并启动
-// 系统库周期维护（原 assembleDeps 连续块，B4 提取）。种子先于后台维护启动；
-// 错误包装与 closer 注册顺序保持原样。
+// 系统库周期维护。种子先于后台维护启动，closer 注册顺序决定关闭顺序。
 func (a *App) seedAndStartMaintenance(ctx context.Context, store *systemdb.Store, cfg config.Config) error {
 	if err := systemdb.Seed(ctx, systemdb.SeedInput{
 		// §8.2.2：引导口令注入（SIMPLEBASE_BOOTSTRAP_PASSWORD）。

@@ -1,3 +1,28 @@
+// 文件说明：adapter_test.go — gocloudagent/mcp 的单元测试（TestMarshalSchemaRejectsNonObjectAndOversize、TestSanitizeDescriptionStripsControlCharsAndTruncates 等）
+//
+// 用法
+//
+//	go test ./gocloudagent/mcp -run 'TestMarshalSchemaRejectsNonObjectAndOversize|TestSanitizeDescriptionStripsControlCharsAndTruncates|TestToToolInfoReadsAnnotations|TestToCallResultMapsContentTypes'
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/cloudagent, gocloudagent/tools, internal/agentbridge 等 5 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/mcp/adapter_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, client.go, http_transport.go, http_transport_test.go, limits.go 等 10 个
+//
+// 主要符号
+//
+//	TestMarshalSchemaRejectsNonObjectAndOversize(t *testing.T)
+//	TestSanitizeDescriptionStripsControlCharsAndTruncates(t *testing.T)
+//	TestToToolInfoReadsAnnotations(t *testing.T)
+//	TestToCallResultMapsContentTypes(t *testing.T)
+//	TestToCallResultTruncates(t *testing.T)
+
 package mcp
 
 import (

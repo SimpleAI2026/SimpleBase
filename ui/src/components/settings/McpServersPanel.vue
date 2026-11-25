@@ -30,14 +30,9 @@
           </TableRow>
         </TableHeader>
         <SbAsyncRegion
+          :state="loadState"
           as="tbody"
           :columns="6"
-          :pending="loading"
-          :show-skeleton="showSkeleton"
-          :show-empty="showEmpty"
-          :show-error="showError"
-          :refreshing="refreshing"
-          :error="error"
           :empty-title="t('components.mcpServers.emptyTitle')"
           :empty-description="t('components.mcpServers.emptyDesc')"
           @retry="load"
@@ -103,7 +98,7 @@
 
 <script setup lang="ts">
 /**
- * MCP Server 配置面板（planv6.2 §6-7）。
+ * MCP Server 配置面板。
  *
  * 挂在「设置」页：项目级配置，与模型设置同级。
  * 凭据只单向写：列表只展示 header 名字，编辑时留空即沿用既有值。
@@ -112,7 +107,7 @@ import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
 import { toast } from 'vue-sonner'
-import { PlusIcon, RefreshCwIcon } from '@lucide/vue'
+import { PlusIcon } from '@lucide/vue'
 import { api } from '@/services/api'
 import type { McpBuiltinServer, McpServer } from '@/services/types'
 import { useProjectStore } from '@/stores/project'
@@ -145,9 +140,10 @@ const modalOpen = ref(false)
 const editing = ref<McpServer | null>(null)
 let listRequest = 0
 
-const { pending: loading, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
+const loadState = useLoadState({
   fallback: 'components.mcpServers.loadFailed'
 })
+const { pending: loading, run } = loadState
 
 function toolCount(item: McpServer): number {
   return Object.keys(item.tools_policy || {}).length

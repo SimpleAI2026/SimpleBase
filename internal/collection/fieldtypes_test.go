@@ -1,3 +1,26 @@
+// 文件说明：fieldtypes_test.go — internal/collection 的单元测试（TestValidateDocument、TestMergePatch 等）
+//
+// 用法
+//
+//	go test ./internal/collection -run 'TestValidateDocument|TestMergePatch|TestValidationError'
+//
+// 调用架构
+//
+//	[上游] internal/api, internal/app, internal/collection/query
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/collection/fieldtypes_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] events.go, fieldtypes.go, model.go, pick.go, pick_test.go 等 7 个
+//
+// 主要符号
+//
+//	TestValidateDocument(t *testing.T)
+//	TestMergePatch(t *testing.T)
+//	TestValidationError(t *testing.T)
+
 package collection
 
 import (

@@ -1,3 +1,29 @@
+// 文件说明：sweeper_test.go — godatabase/kv 的单元测试（TestDeleteExpired、TestHasExpired 等）
+//
+// 用法
+//
+//	go test ./godatabase/kv -run 'TestDeleteExpired|TestHasExpired|TestSweeperSweepOnce|TestDeleteExpiredPerSweepCap'
+//
+// 调用架构
+//
+//	[上游] godatabase/cmd, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/kv/sweeper_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] bugfix_test.go, collections_test.go, conn_schema_test.go, core.go, executor.go 等 20 个
+//
+// 主要符号
+//
+//	TestDeleteExpired(t *testing.T)
+//	TestHasExpired(t *testing.T)
+//	type fixedResolver struct{…}
+//	(r fixedResolver) ResolveDatabasePath(context.Context, string, string) (string, error)
+//	TestSweeperSweepOnce(t *testing.T)
+//	TestDeleteExpiredPerSweepCap(t *testing.T)
+
 package kv
 
 import (

@@ -1,5 +1,38 @@
 //go:build linux
 
+// 文件说明：pasta_linux.go — gosandbox/netx 中 Available、PastaPath 等符号的实现
+//
+// 用法
+//
+//	Available() bool  // Available 报告本机是否装了 pasta
+//	PastaPath() string  // PastaPath 返回要用的 pasta 路径（空表示不可用）
+//	type StartOptions struct{…}  // StartOptions 是出网配置
+//	type Runner struct{…}  // Runner 是一个正在运行的 pasta 进程
+//	Start(ctx context.Context, opt StartOptions) (*Runner, error)  // Start 给一个 netns 接上出网
+//
+// 调用架构
+//
+//	[上游] gosandbox/box, gosandbox/vm/box, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/netx/pasta_linux.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] netx.go, netx_test.go, pasta_other.go
+//
+// 主要符号
+//
+//	var pastaCandidates
+//	var pastaOnce / pastaPath
+//	Available() bool
+//	PastaPath() string
+//	var nsenterCandidates
+//	nsenterPath() (string, bool)
+//	type StartOptions struct{…}
+//	type Runner struct{…}
+//	... 另有 8 个顶层符号
+
 package netx
 
 import (

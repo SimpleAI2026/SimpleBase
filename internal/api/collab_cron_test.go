@@ -1,3 +1,29 @@
+// 文件说明：collab_cron_test.go — internal/api 的单元测试（TestGroupCronReuseThread、TestGroupCronNewThreadPerFire 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestGroupCronReuseThread|TestGroupCronNewThreadPerFire|TestGroupCronArchivedGroupSkips|TestGroupCronBindingValidation'
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/collab_cron_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//
+// 主要符号
+//
+//	newGroupCronEnv(t *testing.T, policy string, owner string) (*agentHarness, string, string, string)
+//	TestGroupCronReuseThread(t *testing.T)
+//	TestGroupCronNewThreadPerFire(t *testing.T)
+//	(h *agentHarness) runScheduledFireWithKey(t *testing.T, tagID, jobID, key string) (agentbridge.GroupCronResult...
+//	TestGroupCronArchivedGroupSkips(t *testing.T)
+//	TestGroupCronBindingValidation(t *testing.T)
+
 // planv6.7 v2 §11：群定时任务测试。
 // 覆盖两种会话策略（reuse_thread / new_thread_per_fire）、触发去重、
 // 群归档暂停调度、只读主体不产生人工任务、负责人缺失时的错误码。
@@ -55,16 +81,13 @@ func newGroupCronEnv(t *testing.T, policy string, owner string) (*agentHarness, 
 		ID string `json:"id"`
 	}
 	_ = json.Unmarshal(rec.Body.Bytes(), &job)
-	runner := NewGroupCronRunner()
-	runner.Attach(h.handler)
-	h.collabRunner = runner
 	return h, tag.ID, job.ID, general
 }
 
 func TestGroupCronReuseThread(t *testing.T) {
 	h, tagID, jobID, agentID := newGroupCronEnv(t, systemdb.GroupCronReuseThread, "")
 
-	first, err := h.collabRunner.RunGroupCron(context.Background(), "testprj1", jobID, agentbridge.GroupCronBinding{
+	first, err := h.agentRun.RunGroupCron(context.Background(), "testprj1", jobID, agentbridge.GroupCronBinding{
 		TagID: tagID, ThreadPolicy: systemdb.GroupCronReuseThread, ThreadKind: systemdb.ThreadKindScheduled,
 		Prompt: "生成昨日概况", OwnerUserID: "",
 	})
@@ -86,7 +109,7 @@ func TestGroupCronReuseThread(t *testing.T) {
 	}
 	// 第二轮（模拟下一个分钟窗口，用不同 fire_key 通过时间推进不好造，
 	// 这里直接断言去重：同分钟重复触发被跳过）。
-	dup, err := h.collabRunner.RunGroupCron(context.Background(), "testprj1", jobID, agentbridge.GroupCronBinding{
+	dup, err := h.agentRun.RunGroupCron(context.Background(), "testprj1", jobID, agentbridge.GroupCronBinding{
 		TagID: tagID, ThreadPolicy: systemdb.GroupCronReuseThread, Prompt: "生成昨日概况",
 	})
 	if err != nil {
@@ -113,7 +136,7 @@ func TestGroupCronReuseThread(t *testing.T) {
 func TestGroupCronNewThreadPerFire(t *testing.T) {
 	h, tagID, jobID, _ := newGroupCronEnv(t, systemdb.GroupCronNewThreadPerFire, "")
 
-	first, err := h.collabRunner.RunGroupCron(context.Background(), "testprj1", jobID, agentbridge.GroupCronBinding{
+	first, err := h.agentRun.RunGroupCron(context.Background(), "testprj1", jobID, agentbridge.GroupCronBinding{
 		TagID: tagID, ThreadPolicy: systemdb.GroupCronNewThreadPerFire,
 		ThreadKind: systemdb.ThreadKindScheduled, Prompt: "生成昨日概况",
 	})
@@ -135,35 +158,13 @@ func TestGroupCronNewThreadPerFire(t *testing.T) {
 	}
 }
 
-// runScheduledFireWithKey 用给定的幂等键直接走内部执行路径（绕过分钟级去重窗口）。
+// runScheduledFireWithKey 用给定的幂等键直接执行（绕过分钟级去重窗口）。
 func (h *agentHarness) runScheduledFireWithKey(t *testing.T, tagID, jobID, key string) (agentbridge.GroupCronResult, error) {
 	t.Helper()
-	tag, err := h.handler.resolveAgentTag(context.Background(), "testprj1", tagID)
-	if err != nil {
-		return agentbridge.GroupCronResult{}, err
-	}
-	threadID, err := h.handler.groupCronThread(context.Background(), "testprj1", jobID, agentbridge.GroupCronBinding{
+	return h.agentRun.RunGroupCronWithKey(context.Background(), "testprj1", jobID, key, agentbridge.GroupCronBinding{
 		TagID: tagID, ThreadPolicy: systemdb.GroupCronNewThreadPerFire,
 		ThreadKind: systemdb.ThreadKindScheduled, Prompt: "生成昨日概况",
-	}, tag)
-	if err != nil {
-		return agentbridge.GroupCronResult{}, err
-	}
-	thread, err := h.store.GetAgentThread(context.Background(), "testprj1", threadID)
-	if err != nil {
-		return agentbridge.GroupCronResult{}, err
-	}
-	ws, _ := h.store.GetAgentThreadWorkspace(context.Background(), "testprj1", threadID)
-	collab, _ := h.store.GetAgentThreadCollab(context.Background(), "testprj1", threadID)
-	tc := turnContext{
-		pc:     ProjectContext{ID: "testprj1", TenantID: "t"},
-		thread: thread, ws: ws, collab: collab, tag: tag,
-	}
-	turn, err := h.handler.runScheduledTurn(context.Background(), tc, "生成昨日概况", key)
-	if err != nil {
-		return agentbridge.GroupCronResult{}, err
-	}
-	return agentbridge.GroupCronResult{TurnID: turn.ID, ThreadID: threadID}, nil
+	})
 }
 
 func TestGroupCronArchivedGroupSkips(t *testing.T) {
@@ -172,7 +173,7 @@ func TestGroupCronArchivedGroupSkips(t *testing.T) {
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("archive tag: %d %s", rec.Code, rec.Body.String())
 	}
-	_, err := h.collabRunner.RunGroupCron(context.Background(), "testprj1", jobID, agentbridge.GroupCronBinding{
+	_, err := h.agentRun.RunGroupCron(context.Background(), "testprj1", jobID, agentbridge.GroupCronBinding{
 		TagID: tagID, ThreadPolicy: systemdb.GroupCronReuseThread, Prompt: "生成昨日概况",
 	})
 	if err == nil {

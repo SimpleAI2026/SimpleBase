@@ -1,5 +1,32 @@
 //go:build linux
 
+// 文件说明：files_linux.go — gosandbox/vm/box 的内部实现（ReadFile、WriteFile 等）
+//
+// 用法
+//
+//	同包调用：kindOf() → capabilities.go, contracts_linux_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/vm/box/files_linux.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] capabilities.go, contracts_linux_test.go, diskuse_linux.go, driver_linux.go, driver_other.go 等 15 个
+//	[关键引用] kindOf ← capabilities.go, contracts_linux_test.go
+//
+// 主要符号
+//
+//	(d *Driver) ReadFile(ctx context.Context, t vm.Target, p string) ([]byte, error)
+//	(d *Driver) WriteFile(ctx context.Context, t vm.Target, p string, data []byte) error
+//	(d *Driver) RemoveFile(ctx context.Context, t vm.Target, p string) error
+//	(d *Driver) ListDir(ctx context.Context, t vm.Target, p string) ([]vm.FileEntry, error)
+//	kindOf(k proto.FileKind) string
+//	isNotExist(err error) bool
+
 package box
 
 import (

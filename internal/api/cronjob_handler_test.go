@@ -1,3 +1,32 @@
+// 文件说明：cronjob_handler_test.go — internal/api 的单元测试（TestCronJob_CRUDLifecycle、TestCronJob_ValidationErrors 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestCronJob_CRUDLifecycle|TestCronJob_ValidationErrors|TestCronJob_DuplicateConflict|TestCronJob_ReadOnlyMode'
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/cronjob_handler_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//
+// 主要符号
+//
+//	setupCronJobTestRouter(t *testing.T, writable bool, projectID string) (*echo.Echo, *systemdb.Store)
+//	decodeCronJobs(t *testing.T, rec *httptest.ResponseRecorder) []cronJobDTO
+//	TestCronJob_CRUDLifecycle(t *testing.T)
+//	TestCronJob_ValidationErrors(t *testing.T)
+//	TestCronJob_DuplicateConflict(t *testing.T)
+//	TestCronJob_ReadOnlyMode(t *testing.T)
+//	TestCronJob_NotFound(t *testing.T)
+//	TestCronJob_TargetMissingFlag(t *testing.T)
+//	... 另有 6 个顶层符号
+
 package api
 
 import (

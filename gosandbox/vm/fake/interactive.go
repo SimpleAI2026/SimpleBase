@@ -1,3 +1,33 @@
+// 文件说明：interactive.go — gosandbox/vm/fake 的内部实现（Start、fakeProc 等）
+//
+// 用法
+//
+//	同包调用：fakeProc → interactive_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/vm/fake/interactive.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] fake.go, interactive_test.go
+//	[关键引用] fakeProc ← interactive_test.go
+//
+// 主要符号
+//
+//	(d *Driver) Start(ctx context.Context, t sb.Target, req sb.StartSpec) (sb.Proc, error)
+//	type fakeProc struct{…}
+//	(p *fakeProc) PID() int
+//	(p *fakeProc) Stdin() io.WriteCloser
+//	(p *fakeProc) Output() io.Reader
+//	(p *fakeProc) Done() <-chan struct{}
+//	(p *fakeProc) Wait() sb.ProcExit
+//	(p *fakeProc) Size() sb.PTYSize
+//	... 另有 12 个顶层符号
+
 package fake
 
 import (

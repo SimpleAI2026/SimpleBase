@@ -61,15 +61,15 @@ type endUserAuthResponse struct {
 
 // Signup: POST /v1/projects/:projectID/end-users/signup（免认证，§8.2.6）。
 func (h *EndUsersHandler) Signup(c echo.Context) error {
-	rid := RequestIDFromContext(c.Request().Context())
+	rid := requestID(c)
 	projectID := c.Param("projectID")
 	var req endUserSignupRequest
 	if err := c.Bind(&req); err != nil {
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "invalid json body", rid))
+		return WriteError(c, badRequest(c, "invalid json body"))
 	}
 	req.Username = strings.TrimSpace(req.Username)
 	if req.Username == "" {
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "username required", rid))
+		return WriteError(c, badRequest(c, "username required"))
 	}
 	// 注册同样吃 loginGuard（ip 维度挡批量注册爆破）。
 	if err := h.guardAllow(c, req.Username); err != nil {
@@ -93,22 +93,22 @@ func (h *EndUsersHandler) Signup(c echo.Context) error {
 	}
 	h.guard.recordSuccess(req.Username)
 	if h.audit != nil {
-		_ = h.audit.Record(c.Request().Context(), AuditEvent{ProjectID: projectID, Kind: "enduser.signup", Detail: "enduser:" + u.ID})
+		_ = h.audit.Record(c.Request().Context(), AuditEvent{ProjectID: projectID, Kind: "enduser.signup", Detail: auth.EndUserActor(u.ID)})
 	}
 	return c.JSON(http.StatusCreated, endUserTokenResponse(token, u))
 }
 
 // Login: POST /v1/projects/:projectID/end-users/login（免认证，§8.2.6）。
 func (h *EndUsersHandler) Login(c echo.Context) error {
-	rid := RequestIDFromContext(c.Request().Context())
+	rid := requestID(c)
 	projectID := c.Param("projectID")
 	var req endUserLoginRequest
 	if err := c.Bind(&req); err != nil {
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "invalid json body", rid))
+		return WriteError(c, badRequest(c, "invalid json body"))
 	}
 	req.Username = strings.TrimSpace(req.Username)
 	if req.Username == "" || req.Password == "" {
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "username and password required", rid))
+		return WriteError(c, badRequest(c, "username and password required"))
 	}
 	if err := h.guardAllow(c, req.Username); err != nil {
 		return err
@@ -127,7 +127,7 @@ func (h *EndUsersHandler) Login(c echo.Context) error {
 	}
 	h.guard.recordSuccess(req.Username)
 	if h.audit != nil {
-		_ = h.audit.Record(c.Request().Context(), AuditEvent{ProjectID: projectID, Kind: "enduser.login", Detail: "enduser:" + u.ID})
+		_ = h.audit.Record(c.Request().Context(), AuditEvent{ProjectID: projectID, Kind: "enduser.login", Detail: auth.EndUserActor(u.ID)})
 	}
 	return c.JSON(http.StatusOK, endUserTokenResponse(token, u))
 }
@@ -136,7 +136,7 @@ func (h *EndUsersHandler) Login(c echo.Context) error {
 func (h *EndUsersHandler) Me(c echo.Context) error {
 	claims, ok := endUserClaimsFromContext(c.Request().Context())
 	if !ok {
-		return WriteError(c, NewAPIError(http.StatusUnauthorized, "unauthorized", "end user token required", RequestIDFromContext(c.Request().Context())))
+		return WriteError(c, NewAPIError(http.StatusUnauthorized, "unauthorized", "end user token required", requestID(c)))
 	}
 	var body struct {
 		ID        string `json:"id"`
@@ -158,7 +158,7 @@ func endUserTokenResponse(token string, u auth.EndUser) endUserAuthResponse {
 }
 
 func (h *EndUsersHandler) guardAllow(c echo.Context, username string) error {
-	rid := RequestIDFromContext(c.Request().Context())
+	rid := requestID(c)
 	switch h.guard.allow(c.RealIP(), username) {
 	case loginSoftLocked:
 		if h.audit != nil {

@@ -3,7 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useProjectStore } from '@/stores/project'
 import { api, resetApiMocks } from '@/test/api-mock'
-import { sampleCron, uiStubs } from '@/test/helpers'
+import { sampleCron, uiStubs, installJsdomPolyfills, pickSelectOption, realSelectStubs, selectTriggers } from '@/test/helpers'
 import CronJobRunsModal from '@/components/modal/CronJobRunsModal.vue'
 
 vi.mock('@/services/api', async () => {
@@ -21,6 +21,8 @@ const modalStubs = {
       '<div v-if="open" class="sb-modal"><button type="button" class="modal-close" @click="$emit(\'update:open\', false)">x</button><slot /></div>'
   }
 }
+
+installJsdomPolyfills()
 
 describe('CronJobRunsModal', () => {
   beforeEach(() => {
@@ -52,7 +54,7 @@ describe('CronJobRunsModal', () => {
     useProjectStore().setProject('dev-shop')
     const w = mount(CronJobRunsModal, {
       props: { open: false, job: sampleCron },
-      global: { plugins: [pinia], stubs: modalStubs }
+      global: { plugins: [pinia], stubs: { ...modalStubs, ...realSelectStubs } }
     })
     await flushPromises()
     const vm = w.vm as any
@@ -94,8 +96,9 @@ describe('CronJobRunsModal', () => {
       await b.trigger('click')
     }
     expect(navigator.clipboard.writeText).toHaveBeenCalled()
-    await w.get('.select-emit').trigger('click')
-    expect(vm.statusFilter).toBe('info')
+    // 真实 Select：状态筛选选项是 全部 / 成功 / 失败
+    await pickSelectOption(selectTriggers(w)[0], '成功')
+    expect(vm.statusFilter).toBe('completed')
     vm.statusFilter = 'all'
     await w.get('.modal-close').trigger('click')
     expect(w.emitted('update:open')).toBeTruthy()
@@ -125,7 +128,7 @@ describe('CronJobRunsModal', () => {
     useProjectStore().setProject('dev-shop')
     const w = mount(CronJobRunsModal, {
       props: { open: false, job: sampleCron, autoTrigger: true },
-      global: { plugins: [pinia], stubs: uiStubs }
+      global: { plugins: [pinia], stubs: { ...uiStubs, ...realSelectStubs } }
     })
     await flushPromises()
     expect(api.cronjobs.trigger).not.toHaveBeenCalled()
@@ -162,11 +165,13 @@ describe('CronJobRunsModal', () => {
       }
     ])
     const w = mount(CronJobRunsModal, {
+      attachTo: document.body,
       props: { open: true, job: sampleCron },
       global: {
         plugins: [createPinia()],
         stubs: {
           ...uiStubs,
+          ...realSelectStubs,
           SbModal: {
             props: ['open', 'title', 'description', 'maxWidth', 'hideFooter'],
             emits: ['update:open'],
@@ -179,8 +184,9 @@ describe('CronJobRunsModal', () => {
     await flushPromises()
     const copies = w.findAll('button').filter((b) => b.text().includes('复制'))
     for (const c of copies) await c.trigger('click')
-    if (w.find('.select-emit').exists()) await w.get('.select-emit').trigger('click')
-    if (w.find('.modal-close').exists()) await w.get('.modal-close').trigger('click')
+    await pickSelectOption(selectTriggers(w)[0], '失败')
+    expect((w.vm as unknown as { statusFilter: string }).statusFilter).toBe('failed')
+    await w.get('.modal-close').trigger('click')
     expect(w.emitted('update:open')).toBeTruthy()
     w.unmount()
   })
@@ -203,8 +209,9 @@ describe('CronJobRunsModal', () => {
       }
     ])
     const w = mount(CronJobRunsModal, {
+      attachTo: document.body,
       props: { open: true, job: sampleCron },
-      global: { plugins: [pinia], stubs: uiStubs }
+      global: { plugins: [pinia], stubs: { ...uiStubs, ...realSelectStubs } }
     })
     await flushPromises()
     for (const b of w.findAll('button')) {
@@ -219,7 +226,7 @@ describe('CronJobRunsModal', () => {
 
     const empty = mount(CronJobRunsModal, {
       props: { open: true },
-      global: { plugins: [pinia], stubs: uiStubs }
+      global: { plugins: [pinia], stubs: { ...uiStubs, ...realSelectStubs } }
     })
     await flushPromises()
     empty.unmount()

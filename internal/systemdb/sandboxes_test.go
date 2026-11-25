@@ -1,3 +1,27 @@
+// 文件说明：sandboxes_test.go — internal/systemdb 的单元测试（TestSandboxRowCRUD、TestSandboxListCursorPagination 等）
+//
+// 用法
+//
+//	go test ./internal/systemdb -run 'TestSandboxRowCRUD|TestSandboxListCursorPagination|TestSandboxMetadataRoundTrip|TestGetSandboxByIDAndSchemaReady'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app 等 8 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/systemdb/sandboxes_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] agent_approvals.go, agent_approvals_test.go, agent_collab.go, agent_collab_cron.go, agent_collab_test.go 等 54 个
+//
+// 主要符号
+//
+//	TestSandboxRowCRUD(t *testing.T)
+//	TestSandboxListCursorPagination(t *testing.T)
+//	TestSandboxMetadataRoundTrip(t *testing.T)
+//	TestGetSandboxByIDAndSchemaReady(t *testing.T)
+
 package systemdb
 
 import (

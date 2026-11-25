@@ -102,9 +102,9 @@ func (h *SandboxHandler) bindSandbox(c echo.Context, next echo.HandlerFunc, boun
 // envdScope 取 envd 请求的项目与沙盒，并校验权限：读需要读权限，写需要写权限且实例可写、非系统项目。
 // 令牌方式视为已授权写（令牌只在写权限调用方的响应里下发），仍受实例只读与系统项目限制。
 func (h *SandboxHandler) envdScope(c echo.Context, write bool) (projectID, sandboxID string, err error) {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return "", "", ErrProjectMissing
+	pc, err := requireProject(c)
+	if err != nil {
+		return "", "", err
 	}
 	sandboxID, _ = c.Get(ctxSandboxID).(string)
 	if tokenAuth, _ := c.Get(ctxTokenAuth).(bool); tokenAuth {

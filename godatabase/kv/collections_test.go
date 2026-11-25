@@ -1,3 +1,32 @@
+// 文件说明：collections_test.go — godatabase/kv 的单元测试（TestHashSetGetItems、TestHashDeleteAutoRemoveKey 等）
+//
+// 用法
+//
+//	go test ./godatabase/kv -run 'TestHashSetGetItems|TestHashDeleteAutoRemoveKey|TestHashIncr|TestListPushRangePop'
+//
+// 调用架构
+//
+//	[上游] godatabase/cmd, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/kv/collections_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] bugfix_test.go, conn_schema_test.go, core.go, executor.go, export_test.go 等 20 个
+//
+// 主要符号
+//
+//	TestHashSetGetItems(t *testing.T)
+//	TestHashDeleteAutoRemoveKey(t *testing.T)
+//	TestHashIncr(t *testing.T)
+//	TestListPushRangePop(t *testing.T)
+//	TestListSetAndTrim(t *testing.T)
+//	TestSetBasic(t *testing.T)
+//	TestSetAlgebra(t *testing.T)
+//	TestSetPop(t *testing.T)
+//	... 另有 3 个顶层符号
+
 package kv
 
 import (

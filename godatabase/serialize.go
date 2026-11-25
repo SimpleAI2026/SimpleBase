@@ -1,3 +1,37 @@
+// 文件说明：serialize.go — godatabase 中 BlobValue、SerializeValue 等符号的实现
+//
+// 用法
+//
+//	type BlobValue struct{…}  // BlobValue 表示二进制列值
+//	SerializeValue(v any) (any, error)  // SerializeValue 将驱动返回的列值转为 JSON 安全类型
+//	SerializeRow(row []any) ([]any, error)  // SerializeRow 对一行驱动值逐列序列化
+//	SerializeRows(rows [][]any) ([][]any, error)  // SerializeRows 对全部行执行序列化
+//	同包调用：serializeMap() → coverage_test.go；serializeDuckMap() → coverage_test.go；mustSerialize() → coverage_test.go
+//
+// 调用架构
+//
+//	[上游] godatabase/cache, godatabase/cmd, godatabase/ducklake, godatabase/filedb 等 16 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/serialize.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] coverage_test.go, dialect.go, errmatch.go, query.go, query_test.go 等 10 个
+//	[关键引用] BlobValue ← serialize_test.go；SerializeValue ← coverage_test.go, serialize_test.go；serializeMap ← coverage_test.go
+//
+// 主要符号
+//
+//	type BlobValue struct{…}
+//	SerializeValue(v any) (any, error)
+//	decodeJSON(raw json.RawMessage) (any, error)
+//	serializeMap(in map[string]any) (map[string]any, error)
+//	serializeDuckMap(m duckdb.Map) (any, error)
+//	formatInterval(v duckdb.Interval) string
+//	mustSerialize(v any) any
+//	SerializeRow(row []any) ([]any, error)
+//	... 另有 1 个顶层符号
+
 package godatabase
 
 import (

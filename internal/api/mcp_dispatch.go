@@ -1,3 +1,33 @@
+// 文件说明：mcp_dispatch.go — internal/api 的内部实现（mcpToolResultLimit、mcpCaller 等）
+//
+// 用法
+//
+//	同包调用：mcpCaller → mcp_builtin.go；withMCPCaller() → mcp_builtin.go；dispatchBuiltinTool() → mcp_builtin.go, mcp_builtin_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/mcp_dispatch.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] mcpCaller ← mcp_builtin.go；withMCPCaller ← mcp_builtin.go；dispatchBuiltinTool ← mcp_builtin.go, mcp_builtin_test.go
+//
+// 主要符号
+//
+//	const mcpToolResultLimit
+//	type mcpCaller struct{…}
+//	type mcpCallerKey struct{…}
+//	withMCPCaller(ctx context.Context, c mcpCaller) context.Context
+//	mcpCallerFrom(ctx context.Context) (mcpCaller, bool)
+//	var errMCPNoCaller
+//	dispatchBuiltinTool(ctx context.Context, e *echo.Echo, deps Dependencies, pc ProjectContext, t builtinAPITool,...
+//	subRequest(ctx context.Context, e *echo.Echo, caller mcpCaller, method, path string, body io.Reader) (int, str...
+//	... 另有 2 个顶层符号
+
 // mcp_dispatch.go — 内置 MCP 工具调用：转成对完整路由树的子请求（planv6.7 §3.4）
 package api
 

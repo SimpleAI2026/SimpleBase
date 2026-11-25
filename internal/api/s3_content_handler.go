@@ -160,20 +160,20 @@ func s3ListResponseWith(c echo.Context, prefix string, objects []s3ObjectDTO, de
 }
 
 func (h *S3Handler) DownloadObject(c echo.Context) error {
-	project, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	project, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	return h.streamObject(c, project.ID, c.QueryParam("key"))
 }
 
 func (h *S3Handler) CreateLink(c echo.Context) error {
-	project, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	project, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	if h.tokenSecret == "" {
-		return WriteError(c, NewAPIError(http.StatusServiceUnavailable, "file_token_unavailable", "file token is not configured", RequestIDFromContext(c.Request().Context())))
+		return WriteError(c, NewAPIError(http.StatusServiceUnavailable, "file_token_unavailable", "file token is not configured", requestID(c)))
 	}
 	var body struct {
 		Key        string `json:"key"`
@@ -189,7 +189,7 @@ func (h *S3Handler) CreateLink(c echo.Context) error {
 		body.TTLSeconds = 900
 	}
 	if body.TTLSeconds < 1 || body.TTLSeconds > 86400 {
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "ttl_seconds must be between 1 and 86400", RequestIDFromContext(c.Request().Context())))
+		return WriteError(c, badRequest(c, "ttl_seconds must be between 1 and 86400"))
 	}
 	token := signFileToken(h.tokenSecret, fileToken{ProjectID: project.ID, Key: body.Key, ExpiresAt: time.Now().UTC().Add(time.Duration(body.TTLSeconds) * time.Second).Unix()})
 	return c.JSON(http.StatusOK, map[string]any{"url": "/files/" + token, "expires_at": time.Now().UTC().Add(time.Duration(body.TTLSeconds) * time.Second).Format(time.RFC3339)})
@@ -228,11 +228,11 @@ func parseFileToken(secret, value string) (fileToken, error) {
 
 func (h *S3Handler) DownloadLinkedObject(c echo.Context) error {
 	if h.tokenSecret == "" {
-		return WriteError(c, NewAPIError(http.StatusNotFound, "not_found", "file not found", RequestIDFromContext(c.Request().Context())))
+		return WriteError(c, NewAPIError(http.StatusNotFound, "not_found", "file not found", requestID(c)))
 	}
 	token, err := parseFileToken(h.tokenSecret, c.Param("token"))
 	if err != nil {
-		return WriteError(c, NewAPIError(http.StatusNotFound, "not_found", "file not found", RequestIDFromContext(c.Request().Context())))
+		return WriteError(c, NewAPIError(http.StatusNotFound, "not_found", "file not found", requestID(c)))
 	}
 	return h.streamObject(c, token.ProjectID, token.Key)
 }
@@ -255,13 +255,13 @@ func (h *S3Handler) streamObject(c echo.Context, projectID, key string) error {
 	}
 	store, ok := h.store.(objectstore.ContentStore)
 	if !ok {
-		return WriteError(c, NewAPIError(http.StatusNotImplemented, "file_content_unavailable", "file content is unavailable", RequestIDFromContext(c.Request().Context())))
+		return WriteError(c, NewAPIError(http.StatusNotImplemented, "file_content_unavailable", "file content is unavailable", requestID(c)))
 	}
 	rangeValue := c.Request().Header.Get("Range")
 	content, err := store.GetContent(c.Request().Context(), joinKey(projectID, key), rangeValue)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "invalid range") {
-			return WriteError(c, NewAPIError(http.StatusRequestedRangeNotSatisfiable, "invalid_range", "invalid range", RequestIDFromContext(c.Request().Context())))
+			return WriteError(c, NewAPIError(http.StatusRequestedRangeNotSatisfiable, "invalid_range", "invalid range", requestID(c)))
 		}
 		return WriteError(c, err)
 	}

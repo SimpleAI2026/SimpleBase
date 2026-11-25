@@ -1,7 +1,7 @@
 import { flushPromises } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api, resetApiMocks } from '@/test/api-mock'
-import { mountWithApp, clickText } from '@/test/helpers'
+import { mountWithApp, clickText, realDialogStubs, confirmAction, realAlertDialogStubs } from '@/test/helpers'
 
 vi.mock('@/services/api', async () => {
   const m = await import('@/test/api-mock')
@@ -21,6 +21,8 @@ const available = {
   maxPerProject: 5, terminal: true
 }
 const stubs = {
+  ...realDialogStubs,
+  ...realAlertDialogStubs,
   SandboxCreateModal: { template: '<div data-modal />' },
   SandboxDrawer: { template: '<div data-drawer />' }
 }
@@ -61,8 +63,7 @@ describe('Sandboxes', () => {
     await clickText(wrapper, '恢复')
     await flushPromises()
     expect(api.sandboxes.connect).toHaveBeenCalled()
-    await clickText(wrapper, '删除')
-    await flushPromises()
+    await confirmAction(wrapper, '删除')
     expect(api.sandboxes.remove).toHaveBeenCalled()
     api.sandboxes.list.mockRejectedValueOnce(new Error('读取失败'))
     await clickText(wrapper, '刷新')
@@ -164,11 +165,9 @@ describe('Sandboxes interactions', () => {
     await clickText(wrapper, '暂停')
     await flushPromises()
     api.sandboxes.remove.mockRejectedValueOnce('boom')
-    await clickText(wrapper, '删除')
-    await flushPromises()
+    await confirmAction(wrapper, '删除')
     api.sandboxes.remove.mockRejectedValueOnce(new Error('删除失败'))
-    await clickText(wrapper, '删除')
-    await flushPromises()
+    await confirmAction(wrapper, '删除')
     api.sandboxes.list.mockResolvedValue([{ ...sample, state: 'paused', status: 'expired' }])
     await clickText(wrapper, '刷新')
     await flushPromises()
@@ -191,6 +190,45 @@ describe('Sandboxes interactions', () => {
     // 不可用时不显示「暂无云沙盒」这种引导式空态
     expect(wrapper.text()).not.toContain('暂无云沙盒')
     wrapper.unmount()
+  })
+
+  // 行内按钮与「新建」现在共用 useCanWrite；系统项目下整表被 notice 取代，行内按钮本就不可达。
+  describe('行内写按钮与「新建」同一规则（!系统项目 && 角色可写）', () => {
+    const writeLabels = ['暂停', '恢复', '删除']
+
+    async function mountRows(opts: { projectId?: string; role?: 'superadminl1' | 'user' | 'admin' }) {
+      resetApiMocks()
+      api.sandboxes.capabilities.mockResolvedValue(available)
+      api.sandboxes.list.mockResolvedValue([sample, { ...sample, id: 'sbx-2', name: 'idle-one', state: 'paused', status: 'stopped' }])
+      const { useAuthStore } = await import('@/stores/auth')
+      const mounted = await mountWithApp(Sandboxes, { stubs, projectId: opts.projectId })
+      if (opts.role) useAuthStore(mounted.pinia).user = { id: 'u', username: 'a', role: opts.role } as never
+      await flushPromises()
+      return mounted.wrapper
+    }
+
+    it('可写角色在普通项目：暂停 / 恢复 / 删除与新建都可见', async () => {
+      const wrapper = await mountRows({ role: 'user' })
+      expect(wrapper.text()).toContain('ci-test')
+      for (const label of writeLabels) expect(wrapper.text(), label).toContain(label)
+      expect(wrapper.text()).toContain('新建沙盒')
+      wrapper.unmount()
+    })
+
+    it('只读管理员：能看到列表，行内写按钮与新建都隐藏', async () => {
+      const wrapper = await mountRows({ role: 'admin' })
+      expect(wrapper.text()).toContain('ci-test')
+      for (const label of writeLabels) expect(wrapper.text(), label).not.toContain(label)
+      expect(wrapper.text()).not.toContain('新建沙盒')
+      wrapper.unmount()
+    })
+
+    it('系统项目里只显示提示，不渲染列表，因此也没有行内写按钮', async () => {
+      const wrapper = await mountRows({ projectId: 'sb-admin', role: 'superadminl1' })
+      expect(wrapper.text()).toContain('系统项目不支持云沙盒')
+      for (const label of writeLabels) expect(wrapper.text(), label).not.toContain(label)
+      wrapper.unmount()
+    })
   })
 
   it('skips loading without a project id', async () => {

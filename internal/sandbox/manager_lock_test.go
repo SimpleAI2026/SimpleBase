@@ -1,3 +1,27 @@
+// 文件说明：manager_lock_test.go — internal/sandbox 的单元测试（TestManagerDefaultLockWaitIsFiveSeconds、TestManagerLockWaitTimeoutReturnsErrBusy 等）
+//
+// 用法
+//
+//	go test ./internal/sandbox -run 'TestManagerDefaultLockWaitIsFiveSeconds|TestManagerLockWaitTimeoutReturnsErrBusy|TestManagerLockReleasedAfterBusy'
+//
+// 调用架构
+//
+//	[上游] internal/api, internal/app, internal/sandbox/sshd
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/sandbox/manager_lock_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] create_test.go, errors.go, logs.go, manager.go, manager_exec.go 等 13 个
+//
+// 主要符号
+//
+//	holdLock(t *testing.T, m *Manager, name string) (release func())
+//	TestManagerDefaultLockWaitIsFiveSeconds(t *testing.T)
+//	TestManagerLockWaitTimeoutReturnsErrBusy(t *testing.T)
+//	TestManagerLockReleasedAfterBusy(t *testing.T)
+
 package sandbox
 
 import (

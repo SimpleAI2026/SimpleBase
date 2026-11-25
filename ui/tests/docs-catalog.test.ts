@@ -14,7 +14,6 @@ import {
   parseFrontmatter,
   toPosix,
   loadMarkdown,
-  isLargeDoc,
   searchDocs
 } from '@/docs/catalog'
 
@@ -48,8 +47,9 @@ describe('docs catalog', () => {
 
   it('lazy-loads DuckLake only when requested and searches contents', async () => {
     const file = 'data/ducklake.md'
-    expect(isLargeDoc(file)).toBe(true)
-    expect(isLargeDoc('getting-started/index.md')).toBe(false)
+    // 大文档在目录里只有元数据桩（不随包加载）；普通文档是整篇原文。
+    expect(loadMarkdownRaw(file)).toBeNull()
+    expect(loadMarkdownRaw('getting-started/index.md')).toContain('SimpleBase')
     expect((await loadMarkdown(file))?.length).toBeGreaterThan(200000)
     expect(loadMarkdownRaw(file)).toContain('DuckLake')
     expect(await loadMarkdown('missing/file.md')).toBeNull()

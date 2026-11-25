@@ -4,7 +4,6 @@ package cloudagent
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -13,11 +12,11 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
-	"github.com/eino-contrib/jsonschema"
 	"go.uber.org/zap"
 
 	"github.com/linkxzhou/SimpleBase/gocloudagent/agentcore"
 	"github.com/linkxzhou/SimpleBase/gocloudagent/mcp"
+	"github.com/linkxzhou/SimpleBase/gocloudagent/tools"
 )
 
 // mcpTool 把一个 MCP 工具包装成 eino InvokableTool。
@@ -40,7 +39,7 @@ type mcpTool struct {
 	timeout time.Duration
 	// confirmTimeout 是破坏性调用的确认窗口。
 	confirmTimeout time.Duration
-	trace          tracer
+	trace          Tracer
 }
 
 func (t *mcpTool) Info(context.Context) (*schema.ToolInfo, error) { return t.info, nil }
@@ -58,17 +57,20 @@ func (t *mcpTool) InvokableRun(ctx context.Context, argumentsInJSON string, _ ..
 		return toolFailure(mcp.CodeWriteNotAllowed, "该助手未开启写权限，只能调用只读 MCP 工具"), nil
 	}
 	if decision.Destructive {
-		if t.req.Headless {
-			if emit != nil {
-				emit(Event{Type: "confirmation_resolved", CallID: callID, Name: name, Approve: boolPtr(false), Message: "定时任务不能确认破坏性操作"})
-			}
-			return toolFailure(mcp.CodeConfirmationUnavailable, "定时任务不能确认破坏性操作"), nil
-		}
-		approved, err := t.askConfirm(ctx, callID, name, argumentsInJSON)
+		argv := mcpConfirmArgv(t.serverID, t.rawName, argumentsInJSON)
+		outcome, err := AwaitConfirmation(ctx, ConfirmationRequest{
+			RunID: t.req.RunID, CallID: callID, Subject: t.req.Subject, Name: name,
+			Argv: argv, Message: "将调用破坏性 MCP 工具：" + strings.Join(argv, " "),
+			Headless: t.req.Headless, Timeout: t.confirmTimeout,
+			Waiter: t.confirm, Emit: emit,
+		})
 		if err != nil {
 			return "", err
 		}
-		if !approved {
+		switch outcome {
+		case ConfirmationUnavailable:
+			return toolFailure(mcp.CodeConfirmationUnavailable, "定时任务不能确认破坏性操作"), nil
+		case ConfirmationDenied:
 			return toolFailure(mcp.CodeConfirmationDenied, "已取消"), nil
 		}
 	}
@@ -97,7 +99,7 @@ func (t *mcpTool) InvokableRun(ctx context.Context, argumentsInJSON string, _ ..
 			zap.String("tool", t.rawName),
 			zap.Int64("duration_ms", time.Since(started).Milliseconds()),
 			zap.Bool("is_error", res.IsError),
-			zap.String("result", hashSummary(res.Text)),
+			zap.String("result", HashSummary(res.Text)),
 		)
 	}
 	if res.IsError {
@@ -127,33 +129,9 @@ func (t *mcpTool) classify(ctx context.Context) (ToolDecision, error) {
 	return t.policy.Classify(ctx, t.req, t.serverID, t.rawName)
 }
 
-// askConfirm 走与 CLI 相同的确认流程（§4.2-3）。
-func (t *mcpTool) askConfirm(ctx context.Context, callID, name, arguments string) (bool, error) {
-	emit := t.rc.Emit
-	argv := mcpConfirmArgv(t.serverID, t.rawName, arguments)
-	if emit != nil {
-		if p, ok := t.confirm.(ConfirmationPreparer); ok && callID != "" {
-			p.Prepare(t.req.RunID, callID, t.req.Subject)
-		}
-		emit(Event{Type: "confirmation_required", CallID: callID, Name: name, Argv: argv, Message: "将调用破坏性 MCP 工具：" + strings.Join(argv, " ")})
-	}
-	approved := false
-	if t.confirm != nil && callID != "" {
-		ok, err := t.confirm.Wait(ctx, t.req.RunID, callID, t.req.Subject, t.confirmTimeout)
-		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
-			return false, ctx.Err()
-		}
-		approved = err == nil && ok
-	}
-	if emit != nil {
-		emit(Event{Type: "confirmation_resolved", CallID: callID, Name: name, Approve: boolPtr(approved)})
-	}
-	return approved, nil
-}
-
 // mcpConfirmArgv 生成脱敏后的确认参数摘要：工具名 + 参数 JSON 截断。
 func mcpConfirmArgv(serverID, tool, arguments string) []string {
-	summary := truncate(strings.TrimSpace(arguments), 200)
+	summary := truncate(agentcore.RedactSecrets(strings.TrimSpace(arguments)), 200)
 	if summary == "" {
 		return []string{serverID, tool}
 	}
@@ -169,7 +147,7 @@ type mcpBuildParams struct {
 	Confirm        ConfirmationWaiter
 	ConfirmTimeout time.Duration
 	CallTimeout    time.Duration
-	Trace          tracer
+	Trace          Tracer
 	Reserved       map[string]bool
 }
 
@@ -253,26 +231,7 @@ func buildMCPTools(ctx context.Context, p mcpBuildParams) ([]tool.BaseTool, mcp.
 	return out, set, notes, nil
 }
 
-// mcpToolInfo 把自有 ToolInfo 转成 eino 的 schema.ToolInfo（§3.3）。
-//
-// 走 JSON 序列化往返：SDK 的 InputSchema 是 any，eino 用的是
-// eino-contrib/jsonschema，两套库不交换类型。
+// mcpToolInfo 把自有 ToolInfo 转成 eino 的 schema.ToolInfo（严格模式：非法 schema 报错跳过）。
 func mcpToolInfo(name string, info mcp.ToolInfo) (*schema.ToolInfo, error) {
-	var js jsonschema.Schema
-	if err := json.Unmarshal(info.InputSchema, &js); err != nil {
-		return nil, err
-	}
-	// 顶层必须是 object：eino 的 ParamsOneOf 只接受对象型参数。
-	// mcp 包已过滤一次，这里再挡一次（ToolInfo 可能来自其它实现）。
-	if js.Type != "" && js.Type != "object" {
-		return nil, fmt.Errorf("mcp: %s has non-object input schema (%q)", name, js.Type)
-	}
-	return &schema.ToolInfo{
-		Name: name,
-		Desc: info.Description,
-		Extra: map[string]any{
-			"mcp_tool": info.Name,
-		},
-		ParamsOneOf: schema.NewParamsOneOfByJSONSchema(&js),
-	}, nil
+	return tools.MCPToolInfo(name, info, true)
 }

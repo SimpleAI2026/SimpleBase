@@ -1,3 +1,24 @@
+// 文件说明：integration_test.go — gofunction/importer 的单元测试（TestFullWorkflow 等）
+//
+// 用法
+//
+//	go test ./gofunction/importer -run 'TestFullWorkflow'
+//
+// 调用架构
+//
+//	[上游] gofunction/cmd, gofunction/internal/interp, gofunction/packages, gofunction/value
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/importer/integration_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] coverage_test.go, importer.go, importer_test.go, parser_test.go, registry.go 等 8 个
+//
+// 主要符号
+//
+//	TestFullWorkflow(t *testing.T)
+
 package importer
 
 import (

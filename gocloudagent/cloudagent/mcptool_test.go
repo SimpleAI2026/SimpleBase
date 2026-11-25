@@ -1,3 +1,32 @@
+// 文件说明：mcptool_test.go — gocloudagent/cloudagent 的单元测试（TestMCPToolRefsAndServerIDs、TestBuildMCPToolsRequiresConnector 等）
+//
+// 用法
+//
+//	go test ./gocloudagent/cloudagent -run 'TestMCPToolRefsAndServerIDs|TestBuildMCPToolsRequiresConnector|TestBuildMCPToolsSkipsFailedServerAndKeepsOthers|TestBuildMCPToolsFiltersByToolRef'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/cloudagent/mcptool_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] callgate.go, callgate_test.go, confirmation.go, confirmation_test.go, errors.go 等 32 个
+//
+// 主要符号
+//
+//	type fakeSession struct{…}
+//	(f *fakeSession) ServerID() string
+//	(f *fakeSession) ListTools(context.Context) ([]mcp.ToolInfo, error)
+//	(f *fakeSession) CallTool(_ context.Context, name string, args []byte) (mcp.CallResult, error)
+//	(f *fakeSession) Close() error
+//	type fakeConnector struct{…}
+//	(c *fakeConnector) Connect(_ context.Context, _ RunRequest, ids []string) (mcp.SessionSet, error)
+//	type fakePolicy struct{…}
+//	... 另有 22 个顶层符号
+
 package cloudagent
 
 import (

@@ -253,8 +253,8 @@ func sandboxDriverLog(l observability.Logger) vm.LogFunc {
 
 // setupSandboxTerminal 装配浏览器终端与（可选的）外部 SSH 端口。失败只关闭终端，不影响沙盒的其它能力。
 //
-// 返回的 TerminalBridge 里 Server 先是 nil：它的认证器要等 api.NewRouter 构造出 handler 后才能挂上
-// （见 bindSandboxSSHAuth）。因此这里只准备主机密钥与指纹。
+// 返回的 TerminalBridge 里 Server 先是 nil：SSH 服务端在 buildHTTPServers 中、路由树之前由
+// bindSandboxSSHAuth 挂上。因此这里只准备主机密钥与指纹。
 func (a *App) setupSandboxTerminal(cfg config.Config, logger observability.Logger) *api.TerminalBridge {
 	keyPath := cfg.Sandbox.SSH.HostKeyPath
 	if keyPath == "" {
@@ -271,7 +271,8 @@ func (a *App) setupSandboxTerminal(cfg config.Config, logger observability.Logge
 	return &api.TerminalBridge{Fingerprint: sshd.Fingerprint(signer), SSHListen: strings.TrimSpace(cfg.Sandbox.SSH.Listen)}
 }
 
-// bindSandboxSSHAuth 构造 SSH 服务端并按需开放外部端口。返回服务端供 TerminalBridge 使用。
+// bindSandboxSSHAuth 构造 SSH 服务端并按需开放外部端口，返回服务端供 TerminalBridge 使用。
+// 认证器用同一份 deps 另建一个 SandboxHandler（只走票据校验与项目沙盒查找，不挂路由）。
 func (a *App) bindSandboxSSHAuth(t *api.TerminalBridge, deps api.Dependencies) *sshd.Server {
 	h := api.NewSandboxHandler(deps.Sandbox, deps.Config.Instance.Writable, deps.Audit, deps.System, deps.SandboxUsage, deps)
 	audit := func(ctx context.Context, id sshd.Identity, kind string, d time.Duration, exit int) {

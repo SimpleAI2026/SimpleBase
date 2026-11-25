@@ -1,3 +1,34 @@
+// 文件说明：systemdb_test.go — internal/systemdb 的单元测试（TestEnsureSystemSchemaIdempotent、TestLocatorRoundTrip 等）
+//
+// 用法
+//
+//	go test ./internal/systemdb -run 'TestEnsureSystemSchemaIdempotent|TestLocatorRoundTrip|TestSQLRepositoryOnSystemSchema|TestBootstrapDuckLake'
+//	同包调用：newTestStore() → agent_approvals_test.go, agent_collab_test.go；assertUnavailable() → agent_history_test.go
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app 等 8 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/systemdb/systemdb_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_approvals.go, agent_approvals_test.go, agent_collab.go, agent_collab_cron.go, agent_collab_test.go 等 54 个
+//	[关键引用] newTestStore ← agent_approvals_test.go, agent_collab_test.go；assertUnavailable ← agent_history_test.go；SystemTableCount ← schema_status_test.go
+//
+// 主要符号
+//
+//	newTestStore(t *testing.T) *Store
+//	TestEnsureSystemSchemaIdempotent(t *testing.T)
+//	TestLocatorRoundTrip(t *testing.T)
+//	TestSQLRepositoryOnSystemSchema(t *testing.T)
+//	TestBootstrapDuckLake(t *testing.T)
+//	type pauseProbe struct{…}
+//	(p *pauseProbe) PausePeriodic(id string)
+//	(p *pauseProbe) ResumePeriodic(id string)
+//	... 另有 16 个顶层符号
+
 package systemdb
 
 import (

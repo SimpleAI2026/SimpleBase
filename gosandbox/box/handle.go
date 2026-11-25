@@ -1,3 +1,35 @@
+// 文件说明：handle.go — gosandbox/box 中 ExecRequest、Exit 等符号的实现
+//
+// 用法
+//
+//	type ExecRequest struct{…}  // ExecRequest 是一次进程启动请求
+//	type Exit struct{…}  // Exit 是进程结束信息
+//	type Handle struct{…}  // Handle 是一个由 agent 托管的进程
+//
+// 调用架构
+//
+//	[上游] gosandbox/cmd, gosandbox/vm/box
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/box/handle.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] backpressure_test.go, copytree.go, deadline.go, egress_e2e_test.go, files.go 等 26 个
+//	[关键引用] ExecRequest ← log_watch_test.go, netx_e2e_test.go；Handle ← session.go, tunnel_test.go
+//
+// 主要符号
+//
+//	type ExecRequest struct{…}
+//	type Exit struct{…}
+//	type Handle struct{…}
+//	(s *Session) Exec(ctx context.Context, r ExecRequest) (*Handle, error)
+//	newHandle(s *Session, id string, tty bool) *Handle
+//	streamOf(s proto.Stream) Stream
+//	(s *Session) dropHandle(id string)
+//	(h *Handle) closePipes()
+//	... 另有 10 个顶层符号
+
 package box
 
 import (

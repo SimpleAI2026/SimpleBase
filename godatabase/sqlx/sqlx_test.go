@@ -1,3 +1,27 @@
+// 文件说明：sqlx_test.go — godatabase/sqlx 的单元测试（TestIdent、TestLiteral 等）
+//
+// 用法
+//
+//	go test ./godatabase/sqlx -run 'TestIdent|TestLiteral|TestIsIdentByte|TestIsSafeIdent'
+//
+// 调用架构
+//
+//	[上游] godatabase, godatabase/ducklake, godatabase/filedb, godatabase/sqlguard 等 7 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/sqlx/sqlx_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] sqlx.go
+//
+// 主要符号
+//
+//	TestIdent(t *testing.T)
+//	TestLiteral(t *testing.T)
+//	TestIsIdentByte(t *testing.T)
+//	TestIsSafeIdent(t *testing.T)
+
 package sqlx
 
 import "testing"

@@ -1,3 +1,26 @@
+// 文件说明：export_test.go — godatabase/kv 的测试辅助代码
+//
+// 用法
+//
+//	包内实现，无导出与跨文件调用
+//
+// 调用架构
+//
+//	[上游] godatabase/cmd, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/kv/export_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] bugfix_test.go, collections_test.go, conn_schema_test.go, core.go, executor.go 等 20 个
+//	[关键引用] WithNowFunc ← kv_test.go
+//
+// 主要符号
+//
+//	WithNowFunc(fn func() time.Time) Option
+//	(r *KeyRepo) rawCount(ctx context.Context) (int64, error)
+
 package kv
 
 import (

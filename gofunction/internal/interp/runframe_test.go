@@ -1,3 +1,26 @@
+// 文件说明：runframe_test.go — gofunction/internal/interp 的单元测试（TestRunFrameJumpContinues、TestRunFrameNilFnRecoverAndCancel 等）
+//
+// 用法
+//
+//	go test ./gofunction/internal/interp -run 'TestRunFrameJumpContinues|TestRunFrameNilFnRecoverAndCancel|TestFrameGetMissingAndDeferPanic'
+//
+// 调用架构
+//
+//	[上游] gofunction
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/internal/interp/runframe_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] bench_test.go, cachetest_test.go, call.go, call_test.go, cheap_test.go 等 40 个
+//
+// 主要符号
+//
+//	TestRunFrameJumpContinues(t *testing.T)
+//	TestRunFrameNilFnRecoverAndCancel(t *testing.T)
+//	TestFrameGetMissingAndDeferPanic(t *testing.T)
+
 package interp
 
 // 本文件覆盖 runFrame 主循环：跳转、panic 恢复、上下文取消。

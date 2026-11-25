@@ -1,3 +1,27 @@
+// 文件说明：middleware_http_test.go — internal/api 的单元测试（TestSecurityHeadersAndGzipSkip、TestRateLimiter429AndExpiry 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestSecurityHeadersAndGzipSkip|TestRateLimiter429AndExpiry|TestTrustedIPExtractor|TestCollectionImportBodyLimit'
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/middleware_http_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//
+// 主要符号
+//
+//	TestSecurityHeadersAndGzipSkip(t *testing.T)
+//	TestRateLimiter429AndExpiry(t *testing.T)
+//	TestTrustedIPExtractor(t *testing.T)
+//	TestCollectionImportBodyLimit(t *testing.T)
+
 package api
 
 import (

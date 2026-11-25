@@ -1,3 +1,32 @@
+// 文件说明：logfile_test.go — gosandbox/box 的单元测试（TestLogRoundTrip、TestLogSplitsLongLines 等）
+//
+// 用法
+//
+//	go test ./gosandbox/box -run 'TestLogRoundTrip|TestLogSplitsLongLines|TestSinkWritesOneRecordPerLine|TestSinkSplitsPartialLines'
+//
+// 调用架构
+//
+//	[上游] gosandbox/cmd, gosandbox/vm/box
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/box/logfile_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] backpressure_test.go, copytree.go, deadline.go, egress_e2e_test.go, files.go 等 26 个
+//
+// 主要符号
+//
+//	TestLogRoundTrip(t *testing.T)
+//	TestLogSplitsLongLines(t *testing.T)
+//	TestSinkWritesOneRecordPerLine(t *testing.T)
+//	TestSinkSplitsPartialLines(t *testing.T)
+//	TestLogRotation(t *testing.T)
+//	TestTailFilters(t *testing.T)
+//	TestTailIgnoresTornTail(t *testing.T)
+//	TestTailDetectsCorruption(t *testing.T)
+//	... 另有 2 个顶层符号
+
 package box
 
 // logfile_test.go：日志记录格式、轮转与回放。

@@ -1,3 +1,32 @@
+// 文件说明：stage_timing_test.go — internal/api 的单元测试（TestStageTimerNilSafe、TestStageTimerObserveAndSnapshot 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestStageTimerNilSafe|TestStageTimerObserveAndSnapshot|TestStageScopeDoneIdempotent|TestPerfStageMiddlewareDisabledByDefault'
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/stage_timing_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//
+// 主要符号
+//
+//	type fakeStageRecorder struct{…}
+//	newFakeStageRecorder() *fakeStageRecorder
+//	(f *fakeStageRecorder) ObserveStage(route, stage string, seconds float64)
+//	TestStageTimerNilSafe(t *testing.T)
+//	TestStageTimerObserveAndSnapshot(t *testing.T)
+//	TestStageScopeDoneIdempotent(t *testing.T)
+//	(t *StageTimer) SnapshotT(stage Stage) time.Duration
+//	TestPerfStageMiddlewareDisabledByDefault(t *testing.T)
+//	... 另有 15 个顶层符号
+
 // stage_timing_test.go 验证分段计时中间件与打点的正确性
 // （api-db-perf-validation-plan §2.1 的单元验收）。
 package api

@@ -155,11 +155,3 @@ export const LLM_PROVIDER_PRESETS: LlmProviderPreset[] = [
 export function getProviderPreset(id: string): LlmProviderPreset | undefined {
   return LLM_PROVIDER_PRESETS.find((p) => p.id === id)
 }
-
-/** 掩码展示：仅保留首尾，避免完整 key 出现在 UI */
-export function maskSecret(value: string | undefined): string {
-  if (!value) return ''
-  const v = value.trim()
-  if (v.length <= 8) return '••••••••'
-  return `${v.slice(0, 3)}...${v.slice(-4)}`
-}

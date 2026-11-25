@@ -1,7 +1,44 @@
+// 文件说明：client.go — gocloudagent/mcp 中 ToolInfo、CallResult 等符号的实现
+//
+// 用法
+//
+//	type ToolInfo struct{…}  // ToolInfo 是暴露给调用方的工具元数据（不含 SDK 类型）
+//	type CallResult struct{…}  // CallResult 是一次 tools/call 的结果（不含 SDK 类型）
+//	type Session interface{…}  // Session 是一个已连接的 MCP 会话
+//	type SessionSet interface{…}  // SessionSet 是一轮 run 内可用的会话集合
+//	type HTTPOptions struct{…}  // HTTPOptions 是 Streamable HTTP 传输的构造参数
+//	type StdioOptions struct{…}  // StdioOptions 是 stdio 传输的构造参数（仅 CLI）
+//	同包调用：connect() → server.go
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/cloudagent, gocloudagent/tools, internal/agentbridge 等 5 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/mcp/client.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapter_test.go, http_transport.go, http_transport_test.go, limits.go 等 10 个
+//	[关键引用] ToolInfo ← adapter.go, server_test.go；CallResult ← adapter.go, server.go；Session ← server.go, server_test.go
+//
+// 主要符号
+//
+//	type ToolInfo struct{…}
+//	type CallResult struct{…}
+//	type Session interface{…}
+//	type SessionSet interface{…}
+//	type HTTPOptions struct{…}
+//	type StdioOptions struct{…}
+//	ConnectHTTP(ctx context.Context, serverID string, opts HTTPOptions) (Session, error)
+//	ConnectStdio(ctx context.Context, serverID string, opts StdioOptions) (Session, error)
+//	... 另有 11 个顶层符号
+
 package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -125,6 +162,9 @@ func connect(ctx context.Context, serverID string, transport sdkmcp.Transport, t
 	return &sdkSession{id: serverID, cs: cs}, nil
 }
 
+// ErrTooManyPages 表示 tools/list 的页数超出预算。
+var ErrTooManyPages = errors.New("mcp: tools/list exceeded page budget")
+
 // sdkSession 是 Session 的 go-sdk 实现。SDK 类型只出现在本文件。
 type sdkSession struct {
 	id string
@@ -138,24 +178,36 @@ func (s *sdkSession) ListTools(ctx context.Context) ([]ToolInfo, error) {
 		return nil, errors.New("mcp: session is closed")
 	}
 	out := make([]ToolInfo, 0, 16)
-	// 用 Tools 迭代自动翻页，累计到上限即停止，避免恶意 Server 无限分页。
-	for t, err := range s.cs.Tools(ctx, nil) {
+	// 自己翻页而不用 SDK 的 Tools 迭代器：有效工具累计到 MaxToolsPerServer 即停，
+	// 同时对页数设总预算——否则恶意 Server 可以用「空页 / 全无效工具」的无限分页
+	// 让累计数永远到不了上限，一直占用连接直到调用方超时。
+	params := &sdkmcp.ListToolsParams{}
+	for page := 0; ; page++ {
+		if page >= MaxListPages {
+			return nil, fmt.Errorf("mcp: list tools: %w (%d pages)", ErrTooManyPages, MaxListPages)
+		}
+		res, err := s.cs.ListTools(ctx, params)
 		if err != nil {
 			return nil, fmt.Errorf("mcp: list tools: %w", err)
 		}
-		if t == nil {
-			continue
+		for _, t := range res.Tools {
+			if t == nil {
+				continue
+			}
+			info, ok := toToolInfo(t)
+			if !ok {
+				continue
+			}
+			out = append(out, info)
+			if len(out) >= MaxToolsPerServer {
+				return out, nil
+			}
 		}
-		info, ok := toToolInfo(t)
-		if !ok {
-			continue
+		if res.NextCursor == "" {
+			return out, nil
 		}
-		out = append(out, info)
-		if len(out) >= MaxToolsPerServer {
-			break
-		}
+		params = &sdkmcp.ListToolsParams{Cursor: res.NextCursor}
 	}
-	return out, nil
 }
 
 func (s *sdkSession) CallTool(ctx context.Context, tool string, arguments []byte) (CallResult, error) {
@@ -165,7 +217,7 @@ func (s *sdkSession) CallTool(ctx context.Context, tool string, arguments []byte
 	params := &sdkmcp.CallToolParams{Name: tool}
 	if len(arguments) > 0 {
 		// 原样透传模型给的 JSON，不在客户端重新校验 schema（校验权在 Server）。
-		params.Arguments = jsonRaw(arguments)
+		params.Arguments = json.RawMessage(arguments)
 	}
 	res, err := s.cs.CallTool(ctx, params)
 	if err != nil {

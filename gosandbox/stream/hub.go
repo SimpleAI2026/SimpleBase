@@ -1,3 +1,34 @@
+// 文件说明：hub.go — gosandbox/stream 中 Hub、NewHub 等符号的实现
+//
+// 用法
+//
+//	type Hub struct{…}  // Hub 是单一读取器 + 多订阅者广播
+//	NewHub(r io.Reader) *Hub  // NewHub 从 r 持续读取并广播；r 返回错误（含 io.EOF）时标记结束， 所有订阅者的 Read 随后返回 io.EOF
+//	type Subscription struct{…}  // Subscription 是一个订阅者在输出流里的读取位置
+//
+// 调用架构
+//
+//	[上游] internal/sandbox
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/stream/hub.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] hub_test.go
+//	[关键引用] NewHub ← hub_test.go；Subscription ← hub_test.go
+//
+// 主要符号
+//
+//	const ReplayCap
+//	type Hub struct{…}
+//	NewHub(r io.Reader) *Hub
+//	(h *Hub) pump(r io.Reader)
+//	type Subscription struct{…}
+//	(h *Hub) Subscribe(fromStart bool) *Subscription
+//	(s *Subscription) Read(p []byte) (int, error)
+//	(s *Subscription) Close()
+
 // Package stream 把「只有一个读者」的输出源（进程 stdout、管道）转成多订阅者的
 // 实时流，并保留一段固定长度的回放缓冲。
 //

@@ -1,3 +1,34 @@
+// 文件说明：dialect.go — godatabase 中 Dialect、IsInternalTableName 等符号的实现
+//
+// 用法
+//
+//	type Dialect interface{…}  // Dialect 描述用户库引擎之间必须差异化的元数据查询
+//	IsInternalTableName(name string) bool  // IsInternalTableName 是内部保留命名空间的唯一判定：所有以 "__" 开头的表 均不向用户暴露（含 __sb_ 系列和系统库历史内部表）
+//	DialectFor(engine string) (Dialect, error)  // DialectFor 按目录中的引擎选择方言
+//
+// 调用架构
+//
+//	[上游] godatabase/cache, godatabase/cmd, godatabase/ducklake, godatabase/filedb 等 16 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/dialect.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] coverage_test.go, errmatch.go, query.go, query_test.go, runtime.go 等 10 个
+//
+// 主要符号
+//
+//	type Dialect interface{…}
+//	var DateBucketUnits
+//	dateBucketFormat(unit string) (string, bool)
+//	const InternalTablePrefix
+//	IsInternalTableName(name string) bool
+//	DialectFor(engine string) (Dialect, error)
+//	type duckDBDialect struct{…}
+//	(duckDBDialect) Engine() string
+//	... 另有 26 个顶层符号
+
 package godatabase
 
 import (
@@ -55,16 +86,14 @@ func dateBucketFormat(unit string) (string, bool) {
 	}
 }
 
-const internalTablePrefix = "__sb_"
+// InternalTablePrefix 由 KV 与系统内部表使用。
+const InternalTablePrefix = "__sb_"
 
 // IsInternalTableName 是内部保留命名空间的唯一判定：所有以 "__" 开头的表
 // 均不向用户暴露（含 __sb_ 系列和系统库历史内部表）。
 func IsInternalTableName(name string) bool {
 	return strings.HasPrefix(strings.TrimSpace(name), "__")
 }
-
-// InternalTablePrefix 由 KV 与系统内部表使用。
-const InternalTablePrefix = internalTablePrefix
 
 // DialectFor 按目录中的引擎选择方言。
 func DialectFor(engine string) (Dialect, error) {

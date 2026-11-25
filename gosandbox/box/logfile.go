@@ -1,3 +1,38 @@
+// 文件说明：logfile.go — gosandbox/box 中 Stream、Options 等符号的实现
+//
+// 用法
+//
+//	type Stream = uint8  // Stream 区分 stdout 与 stderr（与协议一致）
+//	type Options struct{…}  // Options 是写入参数
+//	type Record struct{…}  // Record 是一条输出记录
+//	type Log struct{…}  // Log 是某个进程的日志写入器
+//	Open(dir, name string, opt Options) (*Log, error)  // Open 打开（或创建）一个进程的日志
+//	type TailOptions struct{…}  // TailOptions 是回放参数
+//
+// 调用架构
+//
+//	[上游] gosandbox/cmd, gosandbox/vm/box
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/box/logfile.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] backpressure_test.go, copytree.go, deadline.go, egress_e2e_test.go, files.go 等 26 个
+//	[关键引用] Stream ← handle.go, log.go；Options ← log.go, logfile_test.go；Record ← log.go, logfile_test.go
+//
+// 主要符号
+//
+//	const DefaultMaxSize / DefaultMaxFiles / MaxLine / maxRecord / recordOverhead / flushBytes / flushAfter
+//	type Stream = uint8
+//	const StreamStdout / StreamStderr
+//	var ErrLogCorrupt
+//	type Options struct{…}
+//	(o Options) effective() Options
+//	type Record struct{…}
+//	type Log struct{…}
+//	... 另有 13 个顶层符号
+
 package box
 
 import (

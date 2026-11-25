@@ -404,18 +404,10 @@ func applyYAML(cfg *Config, yc yamlConfig) (yamlSecretPresence, error) {
 	setStr(&cfg.Instance.ID, yc.Instance.ID)
 	setBool(&cfg.Instance.Writable, yc.Instance.Writable)
 	setStr(&cfg.Instance.Profile, yc.Instance.Profile)
-	if yc.Instance.Lease.Enabled != nil {
-		cfg.Instance.Lease.Enabled = *yc.Instance.Lease.Enabled
-	}
-	if yc.Instance.Lease.TTL.set {
-		cfg.Instance.Lease.TTL = yc.Instance.Lease.TTL.d
-	}
-	if yc.Instance.Lease.RenewInterval.set {
-		cfg.Instance.Lease.RenewInterval = yc.Instance.Lease.RenewInterval.d
-	}
-	if yc.Instance.Lease.Grace.set {
-		cfg.Instance.Lease.Grace = yc.Instance.Lease.Grace.d
-	}
+	setBool(&cfg.Instance.Lease.Enabled, yc.Instance.Lease.Enabled)
+	setDur(&cfg.Instance.Lease.TTL, yc.Instance.Lease.TTL)
+	setDur(&cfg.Instance.Lease.RenewInterval, yc.Instance.Lease.RenewInterval)
+	setDur(&cfg.Instance.Lease.Grace, yc.Instance.Lease.Grace)
 	setStr(&cfg.Instance.Lease.OnLost, yc.Instance.Lease.OnLost)
 
 	setStr(&cfg.Storage.Database, yc.Storage.Database)

@@ -2,7 +2,7 @@
 //
 // 用法
 //
-//	ErrEnvelope(code, msg string) string  // toolErr 是工具失败结果（统一信封，与云端 skillFail 同形）
+//	ErrEnvelope(code, msg string) string  // ErrEnvelope 是工具失败结果（统一信封，与云端 toolFailure 同形）
 //	IsDangerousShell(command string) bool  // IsDangerousShell 报告一条命令是否需要确认
 //
 // 调用架构
@@ -33,16 +33,19 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/components/tool/utils"
 
+	"github.com/linkxzhou/SimpleBase/gocloudagent/agentcore"
 	"github.com/linkxzhou/SimpleBase/gosandbox/host"
 )
 
@@ -52,7 +55,7 @@ const (
 	shellTimeout = 120 * time.Second
 	// ShellOutputLimit 是回给模型的 stdout+stderr 字符上限。
 	ShellOutputLimit = 32 << 10
-	// fileReadLimit 是单次 read_file 的字节上限。
+	// fileReadLimit 是单次 read 的字节上限。
 	fileReadLimit = 256 << 10
 )
 
@@ -74,16 +77,20 @@ type Workspace struct {
 // ConfirmFunc 返回是否批准；question 面向人阅读。
 type ConfirmFunc func(question string) bool
 
-// toolErr 是工具失败结果（统一信封，与云端 skillFail 同形）。
-func ErrEnvelope(code, msg string) string {
-	b, _ := json.Marshal(map[string]any{"ok": false, "error": map[string]any{"code": code, "message": msg}})
-	return string(b)
-}
+// ErrEnvelope 是工具失败结果（统一信封，与云端 toolFailure 同形，message 原样写入）。
+func ErrEnvelope(code, msg string) string { return agentcore.ErrorEnvelope(code, msg) }
+
+// SafePath 是 resolvePath 的导出入口：plan 的文件存储等同包外调用方复用同一套路径安全规则。
+func (w *Workspace) SafePath(p string) (string, error) { return w.resolvePath(p) }
 
 // resolvePath 把模型给的路径解析到 workspace 内；越界返回错误。
 //
-// 相对路径相对 Root 解析；绝对路径必须落在 Root 子树内。
-// 用 filepath.Rel 判定，避免 strings.HasPrefix 的 /root-evil 绕过。
+// 相对路径相对 Root 解析；绝对路径必须落在 Root 子树内。先做词法检查
+// （filepath.Rel，避免 strings.HasPrefix 的 /root-evil 绕过），再做符号链接检查：
+// 目标（或其最近的已存在祖先）解析符号链接后仍须位于 Root 的真实路径之内，
+// 否则 workspace 内的链接可以把读写带到 workspace 之外。
+//
+// 已知边界：检查与随后的打开之间存在 TOCTOU 窗口；真正的防护靠 shell_isolation。
 func (w *Workspace) resolvePath(p string) (string, error) {
 	if w == nil || w.Root == "" {
 		return "", errors.New("workspace root is not set")
@@ -107,21 +114,85 @@ func (w *Workspace) resolvePath(p string) (string, error) {
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("path escapes workspace: %s", p)
 	}
+	if !withinRealRoot(root, target) {
+		return "", fmt.Errorf("path escapes workspace through a symlink: %s", p)
+	}
 	// shell 里被盖住的 deny_read 路径，文件工具也必须拒绝，
-	// 否则模型可以用 read_file 读到 shell 已经看不到的 token。
+	// 否则模型可以用 read 读到 shell 已经看不到的 token。
 	if host.DeniesRead(w.Isolation, target) {
 		return "", fmt.Errorf("path is denied by shell isolation policy: %s", p)
 	}
 	return target, nil
 }
 
-// denyReadSkipper 返回 glob/grep 遍历时用的跳过函数；隔离未开启时为 nil。
+// withinRealRoot 报告 target 解析符号链接后是否仍在 root 的真实路径内。
+// target 不存在时（例如要新建的文件）改用它最近的已存在祖先判定。
+// 无法解析（权限等）一律按越界处理：fail-closed。
+func withinRealRoot(root, target string) bool {
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return false
+	}
+	existing := target
+	for {
+		real, err := filepath.EvalSymlinks(existing)
+		if err == nil {
+			return isWithin(realRoot, real)
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return false
+		}
+		parent := filepath.Dir(existing)
+		if parent == existing {
+			return false
+		}
+		existing = parent
+	}
+}
+
+// isWithin 报告 path 是否等于 base 或位于 base 之下（按路径分段，不做字符串前缀比较）。
+func isWithin(base, path string) bool {
+	rel, err := filepath.Rel(base, path)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+}
+
+// walkSkipper 返回 glob/grep 遍历用的跳过函数：deny_read 命中，或符号链接解析后越出
+// workspace，都跳过（越界链接既不列出也不读取内容）。
+//
+// 只有符号链接条目才需要解析：WalkDir 从真实目录出发，非链接条目的路径本身就是真实路径，
+// 逐条 EvalSymlinks 会让遍历慢一个数量级。
+func (w *Workspace) walkSkipper() pathSkipper {
+	deny := w.denyReadSkipper()
+	root, err := filepath.Abs(w.Root)
+	if err != nil {
+		return func(string, fs.DirEntry) bool { return true }
+	}
+	realRoot, rerr := filepath.EvalSymlinks(root)
+	return func(abs string, d fs.DirEntry) bool {
+		if deny != nil && deny(abs, d) {
+			return true
+		}
+		if d == nil || d.Type()&fs.ModeSymlink == 0 {
+			return false
+		}
+		if rerr != nil {
+			return true
+		}
+		real, err := filepath.EvalSymlinks(abs)
+		return err != nil || !isWithin(realRoot, real)
+	}
+}
+
+// denyReadSkipper 返回 deny_read 的跳过函数；隔离未开启时为 nil。
 func (w *Workspace) denyReadSkipper() pathSkipper {
 	if w == nil || !w.Isolation.Isolates() || len(w.Isolation.DenyRead) == 0 {
 		return nil
 	}
 	pol := w.Isolation
-	return func(abs string) bool { return host.DeniesRead(pol, abs) }
+	return func(abs string, _ fs.DirEntry) bool { return host.DeniesRead(pol, abs) }
 }
 
 // dangerousShellPatterns lists shell commands that require confirmation.
@@ -148,7 +219,7 @@ func IsDangerousShell(command string) bool {
 	return false
 }
 
-// shellArgs 是 shell 工具的参数。
+// shellArgs 是 bash 工具的参数。
 type shellArgs struct {
 	Command string `json:"command" jsonschema:"description=shell command to run with /bin/sh -c, in the workspace directory"`
 	// Cwd 相对 workspace 解析；空表示 workspace 根。
@@ -156,7 +227,7 @@ type shellArgs struct {
 }
 
 func (w *Workspace) shellTool() (tool.BaseTool, error) {
-	return utils.InferTool("shell",
+	return utils.InferTool("bash",
 		"Run a shell command on the local machine in the workspace directory. Destructive commands require user confirmation. Prefer read-only inspection commands. The command environment has GOCLOUDAGENT_* and credential-like variables removed. Never try to read or print credentials to work around a missing configuration.",
 		func(ctx context.Context, in shellArgs) (string, error) {
 			if strings.TrimSpace(in.Command) == "" {
@@ -212,7 +283,12 @@ func (w *Workspace) runShell(ctx context.Context, command, cwd string) string {
 	cmd.Dir = cwd
 	// Do not inherit agent credentials in child processes.
 	cmd.Env = env
-	out, err := cmd.CombinedOutput()
+	// stdout 与 stderr 共用同一个有界写入器：保持真实交错顺序（与 CombinedOutput 相同），
+	// 但只保留前 ShellOutputLimit+1 字节——多留的一个字节用来判定「是否超限」，
+	// 其余输出继续排空并丢弃，命令不会因管道写满而阻塞，内存也不随输出量增长。
+	buf := &boundedBuffer{limit: ShellOutputLimit + 1}
+	cmd.Stdout, cmd.Stderr = buf, buf
+	err := cmd.Run()
 	if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
 		return ErrEnvelope("timeout", fmt.Sprintf("命令超过 %s 未结束", timeout))
 	}
@@ -220,11 +296,35 @@ func (w *Workspace) runShell(ctx context.Context, command, cwd string) string {
 	if err != nil {
 		code = exitCode(err)
 	}
-	var cmdErr error
-	if err != nil {
-		cmdErr = err
+	return formatShell(truncateText(buf.String(), ShellOutputLimit), code, err, host.Limits{})
+}
+
+// boundedBuffer 最多保留 limit 字节，其余丢弃；总是报告写入了全部输入（io.Writer 契约，
+// 否则 os/exec 的复制协程会因短写停止排空管道）。多个 Writer（stdout/stderr 指向同一个
+// 实例时 os/exec 只会起一个复制协程；这里仍加锁以便独立使用时安全）。
+type boundedBuffer struct {
+	mu    sync.Mutex
+	buf   []byte
+	limit int
+}
+
+func (b *boundedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if remain := b.limit - len(b.buf); remain > 0 {
+		keep := p
+		if len(keep) > remain {
+			keep = keep[:remain]
+		}
+		b.buf = append(b.buf, keep...)
 	}
-	return formatShell(truncateText(string(out), ShellOutputLimit), code, cmdErr, host.Limits{})
+	return len(p), nil
+}
+
+func (b *boundedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return string(b.buf)
 }
 
 // shellResult 把隔离执行的结果转成工具返回值。
@@ -300,7 +400,7 @@ func sanitizedEnv(env []string) []string {
 	return out
 }
 
-// readFileArgs 是 read_file 的参数。
+// readFileArgs 是 read 的参数。
 type readFileArgs struct {
 	Path string `json:"path" jsonschema:"description=file path, relative to the workspace root or an absolute path inside it"`
 	// Offset / Limit 支持大文件分段读。
@@ -309,7 +409,7 @@ type readFileArgs struct {
 }
 
 func (w *Workspace) readFileTool() (tool.BaseTool, error) {
-	return utils.InferTool("read_file", "Read a UTF-8 text file inside the workspace. Returns numbered lines.",
+	return utils.InferTool("read", "Read a UTF-8 text file inside the workspace. Returns numbered lines.",
 		func(_ context.Context, in readFileArgs) (string, error) {
 			path, err := w.resolvePath(in.Path)
 			if err != nil {
@@ -355,14 +455,14 @@ func (w *Workspace) readFileTool() (tool.BaseTool, error) {
 		})
 }
 
-// writeFileArgs 是 write_file 的参数。
+// writeFileArgs 是 write 的参数。
 type writeFileArgs struct {
 	Path    string `json:"path" jsonschema:"description=file path inside the workspace"`
 	Content string `json:"content" jsonschema:"description=full file content to write"`
 }
 
 func (w *Workspace) writeFileTool() (tool.BaseTool, error) {
-	return utils.InferTool("write_file", "Create or overwrite a file inside the workspace. Parent directories are created. Overwriting an existing file requires confirmation.",
+	return utils.InferTool("write", "Create or overwrite a file inside the workspace. Parent directories are created. Overwriting an existing file requires confirmation.",
 		func(_ context.Context, in writeFileArgs) (string, error) {
 			path, err := w.resolvePath(in.Path)
 			if err != nil {
@@ -384,7 +484,7 @@ func (w *Workspace) writeFileTool() (tool.BaseTool, error) {
 		})
 }
 
-// editFileArgs 是 edit_file 的参数（精确替换，不引入 diff 格式）。
+// editFileArgs 是 edit 的参数（精确替换，不引入 diff 格式）。
 type editFileArgs struct {
 	Path    string `json:"path" jsonschema:"description=file path inside the workspace"`
 	OldText string `json:"old_text" jsonschema:"description=exact text to replace; must be unique in the file"`
@@ -392,7 +492,7 @@ type editFileArgs struct {
 }
 
 func (w *Workspace) editFileTool() (tool.BaseTool, error) {
-	return utils.InferTool("edit_file", "Replace an exact, unique snippet in a file inside the workspace.",
+	return utils.InferTool("edit", "Replace an exact, unique snippet in a file inside the workspace.",
 		func(_ context.Context, in editFileArgs) (string, error) {
 			path, err := w.resolvePath(in.Path)
 			if err != nil {
@@ -436,7 +536,7 @@ func (w *Workspace) globTool() (tool.BaseTool, error) {
 			if filepath.IsAbs(in.Pattern) || strings.Contains(in.Pattern, "..") {
 				return ErrEnvelope("path_not_allowed", "pattern must be relative and must not contain .."), nil
 			}
-			matches, err := globWalkSkip(w.Root, in.Pattern, w.denyReadSkipper())
+			matches, err := globWalkSkip(w.Root, in.Pattern, w.walkSkipper())
 			if err != nil {
 				return ErrEnvelope("glob_failed", err.Error()), nil
 			}
@@ -471,7 +571,7 @@ func (w *Workspace) grepTool() (tool.BaseTool, error) {
 			if limit <= 0 {
 				limit = 100
 			}
-			hits, truncated, err := grepWalkSkip(w.Root, re, in.Glob, limit, w.denyReadSkipper())
+			hits, truncated, err := grepWalkSkip(w.Root, re, in.Glob, limit, w.walkSkipper())
 			if err != nil {
 				return ErrEnvelope("grep_failed", err.Error()), nil
 			}
@@ -494,11 +594,4 @@ func (w *Workspace) LocalTools() ([]tool.BaseTool, error) {
 		out = append(out, t)
 	}
 	return out, nil
-}
-
-func truncateText(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	return s[:max] + "\n…(truncated)"
 }

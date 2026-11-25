@@ -1,3 +1,27 @@
+// 文件说明：syncer_capture.go — godatabase/ducklake 的内部实现（CatalogSyncer.captureCatalog、CatalogSyncer.lostFor 等）
+//
+// 用法
+//
+//	同包调用：CatalogSyncer.syncOnce → syncer_schedule.go
+//
+// 调用架构
+//
+//	[上游] internal/app, internal/systemdb
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/ducklake/syncer_capture.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] c4_syncer_lease_test.go, c4_syncer_ordering_test.go, catalog_syncer.go, catalog_syncer_test.go, coverage_test.go 等 35 个
+//	[关键引用] CatalogSyncer.syncOnce ← syncer_schedule.go
+//
+// 主要符号
+//
+//	(s *CatalogSyncer) captureCatalog(ctx context.Context, sqlDB *sql.DB, meta godatabase.Spec, alias string) (int...
+//	(s *CatalogSyncer) lostFor(dbID string) bool
+//	(s *CatalogSyncer) syncOnce(ctx context.Context, sqlDB *sql.DB, meta godatabase.Spec, alias string) error
+
 package ducklake
 
 import (
@@ -114,6 +138,16 @@ func (s *CatalogSyncer) captureCatalog(ctx context.Context, sqlDB *sql.DB, meta 
 	return snap, data, nil
 }
 
+// lostFor 返回该库是否已标记失租（锁内快照读，供发布前准入检查）。
+func (s *CatalogSyncer) lostFor(dbID string) bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lostLease[dbID]
+}
+
 func (s *CatalogSyncer) syncOnce(ctx context.Context, sqlDB *sql.DB, meta godatabase.Spec, alias string) error {
 	if !s.Remote.Enabled {
 		// 无远程时只推进水位（与 LocalSyncer 语义对齐，便于单测）。
@@ -155,6 +189,12 @@ func (s *CatalogSyncer) syncOnce(ctx context.Context, sqlDB *sql.DB, meta godata
 	snap, data, err := s.captureCatalog(ctx, sqlDB, meta, alias)
 	if err != nil {
 		return err
+	}
+
+	// B7：捕获后、上传前核对准入——捕获期间发生的失租不得继续发布
+	// （已捕获的快照字节丢弃即可，无副作用）。
+	if s.lostFor(meta.ID) {
+		return nil
 	}
 
 	nextSeq, epoch, snapKey, err := s.publishSnapshot(ctx, meta, snap, data)

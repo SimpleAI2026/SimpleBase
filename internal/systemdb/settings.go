@@ -43,11 +43,13 @@ type SettingKV struct {
 
 // GetGlobalSetting 读取实例级设置。
 func (s *Store) GetGlobalSetting(ctx context.Context, key string) (SettingKV, error) {
-	if s == nil || s.db == nil {
-		return SettingKV{}, ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return SettingKV{}, connErr
 	}
+
 	var row SettingKV
-	err := s.db.QueryRowContext(ctx,
+	err := sqlDB.QueryRowContext(ctx,
 		`SELECT key, value_json, updated_at FROM sys_settings_global WHERE key = ?`, key).
 		Scan(&row.Key, &row.ValueJSON, &row.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -58,10 +60,12 @@ func (s *Store) GetGlobalSetting(ctx context.Context, key string) (SettingKV, er
 
 // ListGlobalSettings 列出全部实例级设置。
 func (s *Store) ListGlobalSettings(ctx context.Context) ([]SettingKV, error) {
-	if s == nil || s.db == nil {
-		return nil, ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return nil, connErr
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT key, value_json, updated_at FROM sys_settings_global ORDER BY key`)
+
+	rows, err := sqlDB.QueryContext(ctx, `SELECT key, value_json, updated_at FROM sys_settings_global ORDER BY key`)
 	if err != nil {
 		return nil, err
 	}
@@ -79,16 +83,18 @@ func (s *Store) ListGlobalSettings(ctx context.Context) ([]SettingKV, error) {
 
 // PutGlobalSetting 写入实例级设置。
 func (s *Store) PutGlobalSetting(ctx context.Context, key, valueJSON string) error {
-	if s == nil || s.db == nil {
-		return ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return connErr
 	}
+
 	now := time.Now().UTC()
 	var existing string
-	err := s.db.QueryRowContext(ctx, `SELECT key FROM sys_settings_global WHERE key = ?`, key).Scan(&existing)
+	err := sqlDB.QueryRowContext(ctx, `SELECT key FROM sys_settings_global WHERE key = ?`, key).Scan(&existing)
 	if err == nil {
-		_, err = s.db.ExecContext(ctx, `UPDATE sys_settings_global SET value_json=?, updated_at=? WHERE key=?`, valueJSON, now, key)
+		_, err = sqlDB.ExecContext(ctx, `UPDATE sys_settings_global SET value_json=?, updated_at=? WHERE key=?`, valueJSON, now, key)
 	} else if errors.Is(err, sql.ErrNoRows) {
-		_, err = s.db.ExecContext(ctx, `INSERT INTO sys_settings_global(key, value_json, updated_at) VALUES(?, ?, ?)`, key, valueJSON, now)
+		_, err = sqlDB.ExecContext(ctx, `INSERT INTO sys_settings_global(key, value_json, updated_at) VALUES(?, ?, ?)`, key, valueJSON, now)
 	}
 	if err != nil {
 		return err
@@ -99,11 +105,13 @@ func (s *Store) PutGlobalSetting(ctx context.Context, key, valueJSON string) err
 
 // GetProjectSetting 读取单个项目级设置；不存在时返回 Key 已填、ValueJSON 为空的行（与 GetGlobalSetting 同口径）。
 func (s *Store) GetProjectSetting(ctx context.Context, projectID, key string) (SettingKV, error) {
-	if s == nil || s.db == nil {
-		return SettingKV{}, ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return SettingKV{}, connErr
 	}
+
 	var row SettingKV
-	err := s.db.QueryRowContext(ctx,
+	err := sqlDB.QueryRowContext(ctx,
 		`SELECT key, value_json, updated_at FROM sys_settings_project WHERE project_id = ? AND key = ?`, projectID, key).
 		Scan(&row.Key, &row.ValueJSON, &row.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -114,10 +122,12 @@ func (s *Store) GetProjectSetting(ctx context.Context, projectID, key string) (S
 
 // ListProjectSettings 列出项目级设置。
 func (s *Store) ListProjectSettings(ctx context.Context, projectID string) ([]SettingKV, error) {
-	if s == nil || s.db == nil {
-		return nil, ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return nil, connErr
 	}
-	rows, err := s.db.QueryContext(ctx,
+
+	rows, err := sqlDB.QueryContext(ctx,
 		`SELECT key, value_json, updated_at FROM sys_settings_project WHERE project_id = ? ORDER BY key`, projectID)
 	if err != nil {
 		return nil, err
@@ -136,19 +146,21 @@ func (s *Store) ListProjectSettings(ctx context.Context, projectID string) ([]Se
 
 // PutProjectSetting 写入项目级设置。
 func (s *Store) PutProjectSetting(ctx context.Context, projectID, key, valueJSON string) error {
-	if s == nil || s.db == nil {
-		return ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return connErr
 	}
+
 	now := time.Now().UTC()
 	var existing string
-	err := s.db.QueryRowContext(ctx,
+	err := sqlDB.QueryRowContext(ctx,
 		`SELECT key FROM sys_settings_project WHERE project_id = ? AND key = ?`, projectID, key).Scan(&existing)
 	if err == nil {
-		_, err = s.db.ExecContext(ctx,
+		_, err = sqlDB.ExecContext(ctx,
 			`UPDATE sys_settings_project SET value_json=?, updated_at=? WHERE project_id=? AND key=?`,
 			valueJSON, now, projectID, key)
 	} else if errors.Is(err, sql.ErrNoRows) {
-		_, err = s.db.ExecContext(ctx,
+		_, err = sqlDB.ExecContext(ctx,
 			`INSERT INTO sys_settings_project(project_id, key, value_json, updated_at) VALUES(?, ?, ?, ?)`,
 			projectID, key, valueJSON, now)
 	}

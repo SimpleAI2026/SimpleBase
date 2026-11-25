@@ -56,7 +56,18 @@
             :data-sidebar-section="group.id"
             @click="selectGroup(group.id)"
           >
-            <component :is="groupIcon()" class="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <!-- 群头像：成员头像叠放（最多 3 个）；没有成员信息时退回 # 图标。 -->
+            <span v-if="groupMembers?.[group.id]?.length" class="flex shrink-0 -space-x-1" aria-hidden="true" data-group-avatars>
+              <span
+                v-for="member in groupMembers[group.id].slice(0, 3)"
+                :key="member.id"
+                class="flex size-4 items-center justify-center rounded-full border border-background bg-card text-foreground"
+                :data-group-avatar="member.id"
+              >
+                <component :is="iconForAgentModule(member.module)" class="size-2.5" />
+              </span>
+            </span>
+            <component :is="groupIcon()" v-else class="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
             <span class="min-w-0 flex-1 truncate">{{ groupName(group) }}</span>
             <span
               v-if="pendingCount(group.id)"
@@ -127,7 +138,7 @@
             v-for="th in visibleThreads(group.id)"
             :key="th.id"
             type="button"
-            class="group flex min-h-8 items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs hover:bg-muted"
+            class="group flex min-h-9 items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs hover:bg-muted"
             :class="th.id === threadId ? 'bg-muted font-medium' : 'text-muted-foreground'"
             :aria-current="th.id === threadId ? 'page' : undefined"
             :data-sidebar-thread="th.id"
@@ -139,7 +150,15 @@
               :aria-label="t('components.threadSwitcher.running')"
             />
             <component v-else :is="kindIcon(th.thread_kind)" class="size-3.5 shrink-0 opacity-70" aria-hidden="true" />
-            <span class="min-w-0 flex-1 truncate">{{ threadTitle(th) }}</span>
+            <span class="flex min-w-0 flex-1 flex-col leading-tight">
+              <span class="truncate">{{ threadTitle(th) }}</span>
+              <span
+                v-if="th.last_message_preview"
+                class="truncate text-[10px] text-muted-foreground/80"
+                :title="th.last_message_preview"
+                data-sidebar-preview
+              >{{ th.last_message_preview }}</span>
+            </span>
             <span class="hidden shrink-0 text-[10px] text-muted-foreground/70 xl:inline">{{ relativeTime(th.updated_at) }}</span>
             <Popover>
               <PopoverTrigger as-child>
@@ -215,6 +234,7 @@ import {
   SearchIcon,
   XIcon
 } from '@lucide/vue'
+import { iconForAgentModule } from '@/components/nav-icons'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -240,6 +260,8 @@ const props = defineProps<{
   runningThreadIds?: Set<string>
   /** 每个群的待办数（群行角标）。 */
   pendingByGroup?: Record<string, number>
+  /** 每个群的成员（最多取 3 个渲染头像叠放）：groupId → 成员 id 与模块。 */
+  groupMembers?: Record<string, { id: string; module?: string }[]>
   pending?: boolean
   error?: string
 }>()

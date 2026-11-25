@@ -1,3 +1,33 @@
+// 文件说明：proc.go — gosandbox/agent 的内部实现（proc、start 等）
+//
+// 用法
+//
+//	同包调用：proc → agent.go
+//
+// 调用架构
+//
+//	[上游] gosandbox/cmd
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/agent/proc.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent.go, agent_test.go, fs.go, loopback_linux.go, loopback_other.go 等 16 个
+//	[关键引用] proc ← agent.go
+//
+// 主要符号
+//
+//	type proc struct{…}
+//	(s *Server) start(m proto.Msg) error
+//	(s *Server) startWith(m proto.Msg, exe string, cred *syscall.Credential) error
+//	type pipeReader struct{…}
+//	(s *Server) pump(p *proc, r io.Reader, stream proto.Stream)
+//	(s *Server) stdinLoop(p *proc)
+//	(s *Server) drainConsumed(p *proc)
+//	(s *Server) input(m proto.Msg)
+//	... 另有 10 个顶层符号
+
 package agent
 
 import (

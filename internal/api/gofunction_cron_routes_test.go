@@ -1,3 +1,31 @@
+// 文件说明：gofunction_cron_routes_test.go — internal/api 的单元测试（TestB3GofnCronRouteSetLocked、TestB3GofnCronRoutesAbsentWithoutSystem 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestB3GofnCronRouteSetLocked|TestB3GofnCronRoutesAbsentWithoutSystem|TestB3GofnCronWriteRoutesForbiddenWithReadOnlyPermission|TestB3GofnCronDelegatedAccess'
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/gofunction_cron_routes_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//
+// 主要符号
+//
+//	var gofnCronBlockRoutes
+//	var gofnCronWriteOps
+//	var gofnCronReadOps
+//	TestB3GofnCronRouteSetLocked(t *testing.T)
+//	TestB3GofnCronRoutesAbsentWithoutSystem(t *testing.T)
+//	TestB3GofnCronWriteRoutesForbiddenWithReadOnlyPermission(t *testing.T)
+//	TestB3GofnCronDelegatedAccess(t *testing.T)
+//	TestB3GofnCronWriteGateOnReadOnlyInstance(t *testing.T)
+
 package api
 
 // b3_gofunction_cron_routes_test.go：planv6.0 B3 gofunction/cron 路由块

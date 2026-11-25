@@ -1,3 +1,34 @@
+// 文件说明：collection_query_test.go — internal/api 的单元测试（TestCollectionFilterTypesAndInjection、TestCollectionFieldsNested 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestCollectionFilterTypesAndInjection|TestCollectionFieldsNested|TestCollectionDocumentAPIRealEngines'
+//	同包调用：staticSchemas → collection_aggregate_test.go, collection_transfer_test.go；realDataService → collection_aggregate_test.go, collection_transfer_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/collection_query_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] staticSchemas ← collection_aggregate_test.go, collection_transfer_test.go；realDataService ← collection_aggregate_test.go, collection_transfer_test.go
+//
+// 主要符号
+//
+//	type staticSchemas struct{…}
+//	(s staticSchemas) Get(context.Context, string, string) (*collection.Collection, error)
+//	(s staticSchemas) List(context.Context, string) ([]collection.Collection, error)
+//	TestCollectionFilterTypesAndInjection(t *testing.T)
+//	TestCollectionFieldsNested(t *testing.T)
+//	type realDataService struct{…}
+//	(s realDataService) GetDatabase(context.Context, auth.Principal, string, string) (catalog.Database, error)
+//	(s realDataService) ListDatabases(context.Context, auth.Principal, string, catalog.Page) ([]catalog.Database, ...
+//	... 另有 9 个顶层符号
+
 package api
 
 import (
@@ -17,6 +48,7 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/collection"
+	"github.com/linkxzhou/SimpleBase/internal/collection/query"
 )
 
 type staticSchemas struct{ schema *collection.Collection }
@@ -47,13 +79,13 @@ func TestCollectionFilterTypesAndInjection(t *testing.T) {
 			{`published>="2026-01-01T00:00:00Z"`, 1}, {`state in ["open","closed"]`, 2},
 			{`payload is null`, 0}, {`(title!="x" || priority<3) && active=false`, 3},
 		} {
-			_, args, err := compileFilter(test.filter, schema, dialect)
+			_, args, err := query.CompileFilter(test.filter, schema, dialect)
 			if err != nil || len(args) != test.args {
 				t.Fatalf("%s %s: args=%v err=%v", engine, test.filter, args, err)
 			}
 		}
 		for _, invalid := range []string{`unknown="x"`, `title="x"; DROP TABLE t`, `priority~"2"`, `payload={}`, `title in []`} {
-			if _, _, err := compileFilter(invalid, schema, dialect); err == nil {
+			if _, _, err := query.CompileFilter(invalid, schema, dialect); err == nil {
 				t.Fatalf("%s accepted %q", engine, invalid)
 			}
 		}
@@ -62,11 +94,11 @@ func TestCollectionFilterTypesAndInjection(t *testing.T) {
 
 func TestCollectionFieldsNested(t *testing.T) {
 	schema := &collection.Collection{Fields: []collection.Field{{Name: "title", Type: "text"}, {Name: "payload", Type: "json"}}}
-	fields, err := parseFields("title,payload.owner.name", schema)
+	fields, err := collection.ParseFields("title,payload.owner.name", schema)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := pickDocument(map[string]any{"title": "x", "payload": map[string]any{"owner": map[string]any{"name": "Ada", "secret": true}}}, fields)
+	got := collection.PickDocument(map[string]any{"title": "x", "payload": map[string]any{"owner": map[string]any{"name": "Ada", "secret": true}}}, fields)
 	if len(got) != 2 || got["payload"].(map[string]any)["owner"].(map[string]any)["name"] != "Ada" {
 		t.Fatalf("unexpected projection: %#v", got)
 	}

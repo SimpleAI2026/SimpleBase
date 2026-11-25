@@ -35,14 +35,15 @@
       </Field>
       <Field>
         <FieldLabel for="project-engine">{{ t('components.createProject.engine') }}</FieldLabel>
-        <select
-          id="project-engine"
-          v-model="engine"
-          class="border-input bg-background h-9 w-full rounded-md border px-3 text-sm"
-        >
-          <option value="duckdb">DuckDB</option>
-          <option value="sqlite">SQLite</option>
-        </select>
+        <Select v-model="engine">
+          <SelectTrigger id="project-engine" class="w-full" data-project-engine>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="duckdb">DuckDB</SelectItem>
+            <SelectItem value="sqlite">SQLite</SelectItem>
+          </SelectContent>
+        </Select>
         <FieldDescription>{{ t('components.createProject.engineHint') }}</FieldDescription>
       </Field>
     </FieldGroup>
@@ -56,9 +57,10 @@ import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { api } from '../../services/api'
-import type { ProjectItem } from '../../services/types'
-import SbModal from './SbModal.vue'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { api } from '@/services/api'
+import type { ProjectItem } from '@/services/types'
+import SbModal from '@/components/modal/SbModal.vue'
 
 const PROJECT_ID_RE = /^[A-Za-z0-9-]{8}$/
 

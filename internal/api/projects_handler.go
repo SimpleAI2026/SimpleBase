@@ -122,7 +122,7 @@ func (h *ProjectsHandler) CreateProject(c echo.Context) error {
 		Engine: req.Engine,
 	})
 	if err != nil {
-		rid := RequestIDFromContext(c.Request().Context())
+		rid := requestID(c)
 		if errors.Is(err, catalog.ErrAlreadyExists) {
 			return WriteError(c, NewAPIError(http.StatusConflict, "project_already_exists", "project already exists", rid))
 		}
@@ -196,7 +196,7 @@ func bindCreateProject(c echo.Context) (CreateProjectRequest, error) {
 	req.Name = strings.TrimSpace(req.Name)
 	req.ID = strings.TrimSpace(req.ID)
 	if req.Name == "" {
-		return CreateProjectRequest{}, NewAPIError(http.StatusBadRequest, "invalid_project_name", "name is required", RequestIDFromContext(c.Request().Context()))
+		return CreateProjectRequest{}, NewAPIError(http.StatusBadRequest, "invalid_project_name", "name is required", requestID(c))
 	}
 	return req, nil
 }

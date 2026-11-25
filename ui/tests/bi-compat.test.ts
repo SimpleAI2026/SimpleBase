@@ -6,7 +6,6 @@ import {
   checkFields,
   checkMetric,
   checkType,
-  compatibleTypes,
   dimensionKind,
   fieldMap,
   formatGroupBy,
@@ -199,11 +198,6 @@ describe('bi-compat type matrix', () => {
     expect(why('scatter', w({ groupBy: 'status' }))).toBe('scatter_needs_xy')
   })
 
-  it('lists compatible types for a widget', () => {
-    expect(compatibleTypes(w({ groupBy: 'placed:day' }), fields)).toEqual(['line', 'column', 'bar', 'table'])
-    expect(compatibleTypes(w({ groupBy: 'status', series: 'paid' }), fields)).toEqual(['line', 'table', 'grouped_bar', 'stacked_bar'])
-    expect(compatibleTypes(w({ metrics: [], x: 'amount', y: 'qty' }), fields)).toEqual(['table', 'scatter'])
-  })
 })
 
 describe('date metrics and series x multi-metric lines', () => {

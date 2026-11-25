@@ -31,11 +31,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/linkxzhou/SimpleBase/gocloudagent/agentcore"
@@ -44,10 +44,17 @@ import (
 
 // HTTPClient calls an OpenAI-compatible Chat Completions endpoint.
 // Endpoint is the complete API base URL, including any version or tenant path.
+//
+// HTTP 为空时，首次使用惰性创建一个默认客户端并在后续请求间复用（保持连接、TLS 会话），
+// 它是 HTTPClient 自己的资源：不再用时调用 CloseIdleConnections。调用方注入的 HTTP 优先，
+// 且永远不会被本类型替换或关闭。HTTPClient 创建后不应被复制（含 sync.Once）。
 type HTTPClient struct {
 	Endpoint string
 	Token    string
 	HTTP     *http.Client
+
+	defaultOnce   sync.Once
+	defaultClient *http.Client
 }
 
 var _ agentcore.ChatClient = (*HTTPClient)(nil)
@@ -60,121 +67,28 @@ func (c *HTTPClient) httpClient() *http.Client {
 	if c.HTTP != nil {
 		return c.HTTP
 	}
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.ResponseHeaderTimeout = clientTimeout
-	return &http.Client{Timeout: clientTimeout, Transport: transport}
+	c.defaultOnce.Do(func() {
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.ResponseHeaderTimeout = clientTimeout
+		c.defaultClient = &http.Client{Timeout: clientTimeout, Transport: transport}
+	})
+	return c.defaultClient
+}
+
+// CloseIdleConnections 关闭本类型自己创建的默认客户端上的空闲连接。
+// 调用方注入的 HTTP 客户端不受影响。
+func (c *HTTPClient) CloseIdleConnections() {
+	if c == nil || c.HTTP != nil {
+		return
+	}
+	if client := c.defaultClient; client != nil {
+		client.CloseIdleConnections()
+	}
 }
 
 // url appends an OpenAI resource path to the configured base URL.
 func (c *HTTPClient) url(path string) string {
 	return strings.TrimRight(c.Endpoint, "/") + path
-}
-
-// ---------------------------------------------------------------------------
-// 请求（OpenAI 标准形状）
-// ---------------------------------------------------------------------------
-
-type wireMessage struct {
-	Role       string         `json:"role"`
-	Content    string         `json:"content"`
-	ToolCalls  []wireToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string         `json:"tool_call_id,omitempty"`
-}
-
-// wireToolCall 是 OpenAI 的嵌套形状：{id, type, function:{name, arguments}}。
-// 旧版是平铺的 {id, name, arguments}——那是自定义协议，已随旧端点一并废弃。
-type wireToolCall struct {
-	ID       string           `json:"id"`
-	Type     string           `json:"type"`
-	Function wireCallFunction `json:"function"`
-}
-
-type wireCallFunction struct {
-	Name string `json:"name"`
-	// Arguments 是 JSON 字符串而不是对象，这是 OpenAI 的既有约定。
-	Arguments string `json:"arguments"`
-}
-
-type wireRequest struct {
-	Model         string            `json:"model,omitempty"`
-	Messages      []wireMessage     `json:"messages"`
-	MaxTokens     *int              `json:"max_tokens,omitempty"`
-	Temperature   *float64          `json:"temperature,omitempty"`
-	Tools         []wireTool        `json:"tools,omitempty"`
-	Stream        bool              `json:"stream,omitempty"`
-	StreamOptions *wireStreamOption `json:"stream_options,omitempty"`
-}
-
-// wireStreamOption 要求服务端在流末尾带上 usage，CLI 据此统计 token。
-type wireStreamOption struct {
-	IncludeUsage bool `json:"include_usage"`
-}
-
-// wireTool 是 OpenAI 的工具声明：{type:"function", function:{name, description, parameters}}。
-// 旧版是平铺的 {name, description, parameters}。
-type wireTool struct {
-	Type     string       `json:"type"`
-	Function wireFunction `json:"function"`
-}
-
-type wireFunction struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	Parameters  json.RawMessage `json:"parameters,omitempty"`
-}
-
-func toWire(req agentcore.ChatRequest) wireRequest {
-	out := wireRequest{Model: req.Model, MaxTokens: req.MaxTokens, Temperature: req.Temperature}
-	for _, m := range req.Messages {
-		wm := wireMessage{Role: m.Role, Content: m.Content, ToolCallID: m.ToolCallID}
-		for _, tc := range m.ToolCalls {
-			wm.ToolCalls = append(wm.ToolCalls, wireToolCall{
-				ID: tc.ID, Type: "function",
-				Function: wireCallFunction{Name: tc.Name, Arguments: tc.Arguments},
-			})
-		}
-		out.Messages = append(out.Messages, wm)
-	}
-	for _, t := range req.Tools {
-		out.Tools = append(out.Tools, wireTool{
-			Type:     "function",
-			Function: wireFunction{Name: t.Name, Description: t.Description, Parameters: t.Parameters},
-		})
-	}
-	return out
-}
-
-// ---------------------------------------------------------------------------
-// 响应（非流式）
-// ---------------------------------------------------------------------------
-
-type wireChatResponse struct {
-	Model   string `json:"model"`
-	Choices []struct {
-		Message struct {
-			Content   string         `json:"content"`
-			ToolCalls []wireToolCall `json:"tool_calls"`
-		} `json:"message"`
-		FinishReason string `json:"finish_reason"`
-	} `json:"choices"`
-	Usage wireUsage `json:"usage"`
-}
-
-type wireUsage struct {
-	PromptTokens            int `json:"prompt_tokens"`
-	CompletionTokens        int `json:"completion_tokens"`
-	TotalTokens             int `json:"total_tokens"`
-	CompletionTokensDetails *struct {
-		ReasoningTokens int `json:"reasoning_tokens"`
-	} `json:"completion_tokens_details"`
-}
-
-func (u wireUsage) toChatUsage() agentcore.ChatUsage {
-	out := agentcore.ChatUsage{PromptTokens: u.PromptTokens, CompletionTokens: u.CompletionTokens}
-	if u.CompletionTokensDetails != nil {
-		out.ReasoningTokens = u.CompletionTokensDetails.ReasoningTokens
-	}
-	return out
 }
 
 // Chat 走 POST .../v1/chat/completions（非流式）。
@@ -184,14 +98,9 @@ func (c *HTTPClient) Chat(ctx context.Context, _ string, req agentcore.ChatReque
 	if err != nil {
 		return agentcore.ChatResponse{}, err
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/chat/completions"), bytes.NewReader(body))
+	resp, err := c.do(ctx, http.MethodPost, "/chat/completions", body, "")
 	if err != nil {
 		return agentcore.ChatResponse{}, err
-	}
-	c.setHeaders(httpReq)
-	resp, err := c.httpClient().Do(httpReq)
-	if err != nil {
-		return agentcore.ChatResponse{}, fmt.Errorf("call %s: %w", c.Endpoint, err)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
@@ -216,123 +125,6 @@ func (c *HTTPClient) Chat(ctx context.Context, _ string, req agentcore.ChatReque
 	return out, nil
 }
 
-// ---------------------------------------------------------------------------
-// 流式（SSE）
-// ---------------------------------------------------------------------------
-
-// wireChunk 是 chat.completion.chunk 帧。
-type wireChunk struct {
-	Model   string `json:"model"`
-	Choices []struct {
-		Delta struct {
-			Content   string `json:"content"`
-			ToolCalls []struct {
-				Index    int    `json:"index"`
-				ID       string `json:"id"`
-				Function struct {
-					Name      string `json:"name"`
-					Arguments string `json:"arguments"`
-				} `json:"function"`
-			} `json:"tool_calls"`
-		} `json:"delta"`
-		FinishReason *string `json:"finish_reason"`
-	} `json:"choices"`
-	Usage *wireUsage `json:"usage"`
-}
-
-// httpTokenStream 把 OpenAI SSE 读取器包成 agentcore.TokenStream，并实现 DeltaStream。
-//
-// 必须实现 NextDelta：agentcore.Model 只有在拿到 DeltaStream 时才会读取工具调用增量
-// 与 usage，退化成 Next() 就只剩正文——工具调用会被整个丢掉。
-type httpTokenStream struct {
-	body   io.ReadCloser
-	reader *bufio.Reader
-	closed bool
-	// pending 缓存一帧里拆出的多个增量（一帧可能同时带正文与多个工具分片）。
-	pending []agentcore.StreamDelta
-	done    bool
-}
-
-// NextDelta 返回下一个增量；流结束返回 io.EOF。
-func (s *httpTokenStream) NextDelta() (agentcore.StreamDelta, error) {
-	for {
-		if len(s.pending) > 0 {
-			d := s.pending[0]
-			s.pending = s.pending[1:]
-			return d, nil
-		}
-		if s.done {
-			return agentcore.StreamDelta{Finish: true}, io.EOF
-		}
-		line, err := s.reader.ReadString('\n')
-		if err != nil {
-			s.done = true
-			if errors.Is(err, io.EOF) {
-				return agentcore.StreamDelta{Finish: true}, io.EOF
-			}
-			return agentcore.StreamDelta{}, err
-		}
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "data:") {
-			continue // 空行、注释行（": ping"）、event:/id: 行都忽略
-		}
-		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if payload == "" {
-			continue
-		}
-		if payload == "[DONE]" {
-			s.done = true
-			return agentcore.StreamDelta{Finish: true}, io.EOF
-		}
-		var chunk wireChunk
-		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
-			continue // 非 JSON 帧忽略，与前端解析器的口径一致
-		}
-		s.pending = append(s.pending, deltasFromChunk(chunk)...)
-	}
-}
-
-// deltasFromChunk 把一帧拆成若干增量。
-func deltasFromChunk(chunk wireChunk) []agentcore.StreamDelta {
-	var out []agentcore.StreamDelta
-	for _, ch := range chunk.Choices {
-		if ch.Delta.Content != "" {
-			out = append(out, agentcore.StreamDelta{Content: ch.Delta.Content})
-		}
-		for _, tc := range ch.Delta.ToolCalls {
-			out = append(out, agentcore.StreamDelta{ToolCall: &agentcore.ToolCallDelta{
-				Index: tc.Index, ID: tc.ID, Name: tc.Function.Name, ArgsDelta: tc.Function.Arguments,
-			}})
-		}
-	}
-	if chunk.Usage != nil {
-		u := chunk.Usage.toChatUsage()
-		out = append(out, agentcore.StreamDelta{Usage: &u})
-	}
-	return out
-}
-
-// Next 是 TokenStream 的兼容形态：只返回正文增量。
-func (s *httpTokenStream) Next() (string, bool, error) {
-	for {
-		d, err := s.NextDelta()
-		if err != nil {
-			return "", true, err
-		}
-		if d.Content != "" {
-			return d.Content, false, nil
-		}
-	}
-}
-
-func (s *httpTokenStream) Close() error {
-	if s.closed {
-		return nil
-	}
-	s.closed = true
-	return s.body.Close()
-}
-
 // Stream 走 POST .../v1/chat/completions，stream:true（SSE）。
 func (c *HTTPClient) Stream(ctx context.Context, _ string, req agentcore.ChatRequest) (agentcore.TokenStream, error) {
 	wire := toWire(req)
@@ -342,15 +134,9 @@ func (c *HTTPClient) Stream(ctx context.Context, _ string, req agentcore.ChatReq
 	if err != nil {
 		return nil, err
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/chat/completions"), bytes.NewReader(body))
+	resp, err := c.do(ctx, http.MethodPost, "/chat/completions", body, "text/event-stream")
 	if err != nil {
 		return nil, err
-	}
-	c.setHeaders(httpReq)
-	httpReq.Header.Set("Accept", "text/event-stream")
-	resp, err := c.httpClient().Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("call %s: %w", c.Endpoint, err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
@@ -360,10 +146,28 @@ func (c *HTTPClient) Stream(ctx context.Context, _ string, req agentcore.ChatReq
 	return &httpTokenStream{body: resp.Body, reader: bufio.NewReader(resp.Body)}, nil
 }
 
-func (c *HTTPClient) setHeaders(req *http.Request) {
+// do 发送一次请求并返回响应；响应体由调用方关闭。accept 非空时覆盖默认的 application/json。
+// 传输层错误统一包成 "call <endpoint>: ..."；状态码检查与响应体读取上限由各调用方决定。
+func (c *HTTPClient) do(ctx context.Context, method, path string, body []byte, accept string) (*http.Response, error) {
+	var reader io.Reader
+	if body != nil {
+		reader = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.url(path), reader)
+	if err != nil {
+		return nil, err
+	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.Token)
 	req.Header.Set("Accept", "application/json")
+	if accept != "" {
+		req.Header.Set("Accept", accept)
+	}
+	resp, err := c.httpClient().Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("call %s: %w", c.Endpoint, err)
+	}
+	return resp, nil
 }
 
 // apiError 把服务端错误信封转成可读错误（携带 code 便于脚本判断）。
@@ -371,6 +175,13 @@ func (c *HTTPClient) setHeaders(req *http.Request) {
 // 新端点返回 OpenAI 错误形状 {"error":{"message","type","param","code"}}。
 // 服务端其余路由仍是 {"error":{"code","message","request_id"}}，两者 message 与 code
 // 字段同名，因此同一份解析即可兼容。
+//
+// 一律返回 *providers.LiteLLMError 并保留 StatusCode：agentcore 的回退判定只认这个类型，
+//   - tools_not_supported（400/422 且文案含 tool）→ native→text 回退；
+//   - 其余带状态的错误（401/403/429/5xx…）→ 不得再退化为第二次 Chat 请求。
+//
+// Error() 文本保持 "<code> (http <status>): <message>"，调用方与脚本看到的文案不变
+// （见 statusError：不加 "[litellm:...]" 前缀）。
 func apiError(status int, raw []byte) error {
 	var envelope struct {
 		Error struct {
@@ -383,16 +194,14 @@ func apiError(status int, raw []byte) error {
 		if code == "" {
 			code = "api_error"
 		}
-		// 服务端用稳定错误码声明「上游模型不支持工具调用」。agentcore 的 auto 协议只认
-		// *providers.LiteLLMError（400/422 且文案含 tool），所以必须还原成该类型，
-		// 否则降级到文本工具协议的路径对 CLI 永远不会触发，对话直接失败。
+		// 服务端用稳定错误码声明「上游模型不支持工具调用」。
 		if code == "tools_not_supported" {
 			return &providers.LiteLLMError{
 				Type: providers.ErrorTypeValidation, Code: code,
 				Message: envelope.Error.Message, StatusCode: status,
 			}
 		}
-		return fmt.Errorf("%s (http %d): %s", code, status, envelope.Error.Message)
+		return httpStatusError(status, code, fmt.Sprintf("%s (http %d): %s", code, status, envelope.Error.Message))
 	}
 	msg := strings.TrimSpace(string(raw))
 	if len(msg) > 300 {
@@ -401,21 +210,31 @@ func apiError(status int, raw []byte) error {
 	if msg == "" {
 		msg = http.StatusText(status)
 	}
-	return fmt.Errorf("api_error (http %d): %s", status, msg)
+	return httpStatusError(status, "api_error", fmt.Sprintf("api_error (http %d): %s", status, msg))
 }
+
+// httpStatusError 构造带状态码的 LiteLLMError；text 是对外展示的完整文案。
+func httpStatusError(status int, code, text string) error {
+	return &statusError{LiteLLMError: providers.LiteLLMError{
+		Type: providers.ErrorTypeProvider, Code: code, Message: text, StatusCode: status,
+	}}
+}
+
+// statusError 只改变 Error() 的呈现：直接输出 text，不加 "[litellm:...]" 前缀。
+// errors.As 到 *providers.LiteLLMError 仍然成立（经 Unwrap 暴露内嵌值）。
+type statusError struct{ providers.LiteLLMError }
+
+func (e *statusError) Error() string { return e.Message }
+
+func (e *statusError) Unwrap() error { return &e.LiteLLMError }
 
 // Probe 用一次最小请求验证凭证与项目是否可用（`gocloudagent config test`）。
 // 打 GET .../v1/models：它与对话共用 llm:invoke 权限，因此「probe 通过」意味着
 // 这个 Key 真的有权调用模型，而不只是能读项目。
 func (c *HTTPClient) Probe(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url("/models"), nil)
+	resp, err := c.do(ctx, http.MethodGet, "/models", nil, "")
 	if err != nil {
 		return err
-	}
-	c.setHeaders(req)
-	resp, err := c.httpClient().Do(req)
-	if err != nil {
-		return fmt.Errorf("call %s: %w", c.Endpoint, err)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))

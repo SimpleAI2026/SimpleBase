@@ -1,3 +1,34 @@
+// 文件说明：set.go — godatabase/kv 中 SetRepo 等符号的实现
+//
+// 用法
+//
+//	type SetRepo struct{…}  // SetRepo 是 set 类型仓库（事务版，由 Tx.Set() 返回）
+//	同包调用：placeholders() → hash.go, key.go
+//
+// 调用架构
+//
+//	[上游] godatabase/cmd, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/kv/set.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] bugfix_test.go, collections_test.go, conn_schema_test.go, core.go, executor.go 等 20 个
+//	[关键引用] SetRepo ← executor.go；placeholders ← hash.go, key.go
+//
+// 主要符号
+//
+//	type SetRepo struct{…}
+//	(r *SetRepo) Add(ctx context.Context, key string, elems ...[]byte) (int, error)
+//	(r *SetRepo) Delete(ctx context.Context, key string, elems ...[]byte) (int, error)
+//	(r *SetRepo) IsMember(ctx context.Context, key string, elem []byte) (bool, error)
+//	(r *SetRepo) Members(ctx context.Context, key string) ([][]byte, error)
+//	(r *SetRepo) membersOf(ctx context.Context, key string) ([][]byte, error)
+//	(r *SetRepo) Pop(ctx context.Context, key string) ([]byte, error)
+//	(r *SetRepo) validSetKeys(ctx context.Context, keys []string) ([]string, error)
+//	... 另有 10 个顶层符号
+
 package kv
 
 import (
@@ -69,33 +100,11 @@ func (r *SetRepo) Delete(ctx context.Context, key string, elems ...[]byte) (int,
 	if len(elems) == 0 {
 		return 0, ErrArgument
 	}
-	kr := r.t.Key()
-	if _, err := kr.getMetaOf(ctx, key, TypeSet); errors.Is(err, ErrNotFound) {
-		return 0, nil
-	} else if err != nil {
-		return 0, err
+	members := make([]any, len(elems))
+	for i, e := range elems {
+		members[i] = e
 	}
-	args := make([]any, 0, len(elems)+1)
-	args = append(args, key)
-	for _, e := range elems {
-		args = append(args, e)
-	}
-	res, err := r.t.tx.ExecContext(ctx,
-		fmt.Sprintf(`DELETE FROM __sb_kv_sets WHERE "key" = ? AND elem IN (%s)`, placeholders(len(elems))),
-		args...)
-	if err != nil {
-		return 0, fmt.Errorf("kv: set delete: %w", err)
-	}
-	aff, _ := res.RowsAffected()
-	if aff > 0 {
-		if err := kr.touchAfterWrite(ctx, key, -aff); err != nil {
-			return 0, err
-		}
-		if _, err := kr.deleteIfEmpty(ctx, key); err != nil {
-			return 0, err
-		}
-	}
-	return int(aff), nil
+	return r.t.Key().deleteCollectionMembers(ctx, key, TypeSet, "__sb_kv_sets", "elem", "set delete", members)
 }
 
 // IsMember 判断成员存在性（SISMEMBER）。key 不存在返回 false。
@@ -161,10 +170,7 @@ func (r *SetRepo) Pop(ctx context.Context, key string) ([]byte, error) {
 		`DELETE FROM __sb_kv_sets WHERE "key" = ? AND elem = ?`, key, elem); err != nil {
 		return nil, fmt.Errorf("kv: set pop delete: %w", err)
 	}
-	if err := kr.touchAfterWrite(ctx, key, -1); err != nil {
-		return nil, err
-	}
-	if _, err := kr.deleteIfEmpty(ctx, key); err != nil {
+	if err := kr.afterCollectionDelete(ctx, key, -1); err != nil {
 		return nil, err
 	}
 	return elem, nil
@@ -261,12 +267,19 @@ func (r *SetRepo) Diff(ctx context.Context, keys ...string) ([][]byte, error) {
 	if len(keys) == 0 {
 		return nil, nil
 	}
+	// B19：SDIFF a a = ∅（第一个 key 也出现在减数中时差集为空）。
+	// validSetKeys 会去重导致减数中的 first 被折叠，旧实现误返回整个 first。
+	first := keys[0]
+	for _, k := range keys[1:] {
+		if k == first {
+			return nil, nil
+		}
+	}
 	valid, err := r.validSetKeys(ctx, keys)
 	if err != nil {
 		return nil, err
 	}
 	// 第一个 key 必须在有效集合里（否则结果为空）
-	first := keys[0]
 	inValid := false
 	for _, k := range valid {
 		if k == first {

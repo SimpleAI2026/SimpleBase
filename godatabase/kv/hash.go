@@ -1,3 +1,32 @@
+// 文件说明：hash.go — godatabase/kv 中 HashRepo 等符号的实现
+//
+// 用法
+//
+//	type HashRepo struct{…}  // HashRepo 是 hash 类型仓库（事务版，由 Tx.Hash() 返回）
+//
+// 调用架构
+//
+//	[上游] godatabase/cmd, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/kv/hash.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] bugfix_test.go, collections_test.go, conn_schema_test.go, core.go, executor.go 等 20 个
+//	[关键引用] HashRepo ← executor.go
+//
+// 主要符号
+//
+//	type HashRepo struct{…}
+//	(r *HashRepo) Get(ctx context.Context, key, field string) ([]byte, error)
+//	(r *HashRepo) GetMany(ctx context.Context, key string, fields ...string) ([][]byte, []bool, error)
+//	(r *HashRepo) Set(ctx context.Context, key string, fields map[string][]byte) (int, error)
+//	(r *HashRepo) Delete(ctx context.Context, key string, fields ...string) (int, error)
+//	(r *HashRepo) Items(ctx context.Context, key string) (map[string][]byte, error)
+//	(r *HashRepo) Incr(ctx context.Context, key, field string, delta int64) (int64, error)
+//	(r *HashRepo) Scan(ctx context.Context, key, cursor, pattern string, count int) (map[string][]byte, string, er...
+
 package kv
 
 import (
@@ -5,9 +34,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"math"
 	"strconv"
-	"strings"
 )
 
 // HashRepo 是 hash 类型仓库（事务版，由 Tx.Hash() 返回）。
@@ -55,11 +82,11 @@ func (r *HashRepo) GetMany(ctx context.Context, key string, fields ...string) ([
 		return nil, nil, fmt.Errorf("kv: hash get many: %w", err)
 	}
 	defer rows.Close()
-	idx := make(map[string]int, len(fields))
+	// B18：同一 field 重复出现时按下标全量回填（对齐 Redis HMGET 的重复
+	// 输入语义；旧实现 name→单索引只填首次位置，其余误报 not-found）。
+	idx := make(map[string][]int, len(fields))
 	for i, f := range fields {
-		if _, dup := idx[f]; !dup {
-			idx[f] = i
-		}
+		idx[f] = append(idx[f], i)
 	}
 	for rows.Next() {
 		var f string
@@ -67,7 +94,7 @@ func (r *HashRepo) GetMany(ctx context.Context, key string, fields ...string) ([
 		if err := rows.Scan(&f, &v); err != nil {
 			return nil, nil, fmt.Errorf("kv: hash get many row: %w", err)
 		}
-		if i, ok := idx[f]; ok {
+		for _, i := range idx[f] {
 			values[i] = v
 			found[i] = true
 		}
@@ -107,22 +134,19 @@ func (r *HashRepo) Set(ctx context.Context, key string, fields map[string][]byte
 	for _, f := range names {
 		v := fields[f]
 		if exists {
+			// K4：已存在的 field 先 UPDATE，非零即完成；剩余路径统一 INSERT。
 			res, err := r.t.tx.ExecContext(ctx,
 				`UPDATE __sb_kv_hashes SET value = ? WHERE "key" = ? AND field = ?`, v, key, f)
 			if err != nil {
 				return 0, fmt.Errorf("kv: hash set update: %w", err)
 			}
-			if aff, _ := res.RowsAffected(); aff == 0 {
-				if _, err := r.t.tx.ExecContext(ctx,
-					`INSERT INTO __sb_kv_hashes ("key", field, value) VALUES (?, ?, ?)`, key, f, v); err != nil {
-					return 0, fmt.Errorf("kv: hash set insert: %w", err)
-				}
+			if aff, _ := res.RowsAffected(); aff != 0 {
+				continue
 			}
-		} else {
-			if _, err := r.t.tx.ExecContext(ctx,
-				`INSERT INTO __sb_kv_hashes ("key", field, value) VALUES (?, ?, ?)`, key, f, v); err != nil {
-				return 0, fmt.Errorf("kv: hash set insert: %w", err)
-			}
+		}
+		if _, err := r.t.tx.ExecContext(ctx,
+			`INSERT INTO __sb_kv_hashes ("key", field, value) VALUES (?, ?, ?)`, key, f, v); err != nil {
+			return 0, fmt.Errorf("kv: hash set insert: %w", err)
 		}
 	}
 	if exists {
@@ -143,33 +167,11 @@ func (r *HashRepo) Delete(ctx context.Context, key string, fields ...string) (in
 	if len(fields) == 0 {
 		return 0, ErrArgument
 	}
-	kr := r.t.Key()
-	if _, err := kr.getMetaOf(ctx, key, TypeHash); errors.Is(err, ErrNotFound) {
-		return 0, nil
-	} else if err != nil {
-		return 0, err
+	members := make([]any, len(fields))
+	for i, f := range fields {
+		members[i] = f
 	}
-	args := make([]any, 0, len(fields)+1)
-	args = append(args, key)
-	for _, f := range fields {
-		args = append(args, f)
-	}
-	res, err := r.t.tx.ExecContext(ctx,
-		fmt.Sprintf(`DELETE FROM __sb_kv_hashes WHERE "key" = ? AND field IN (%s)`, placeholders(len(fields))),
-		args...)
-	if err != nil {
-		return 0, fmt.Errorf("kv: hash delete: %w", err)
-	}
-	aff, _ := res.RowsAffected()
-	if aff > 0 {
-		if err := kr.touchAfterWrite(ctx, key, -aff); err != nil {
-			return 0, err
-		}
-		if _, err := kr.deleteIfEmpty(ctx, key); err != nil {
-			return 0, err
-		}
-	}
-	return int(aff), nil
+	return r.t.Key().deleteCollectionMembers(ctx, key, TypeHash, "__sb_kv_hashes", "field", "hash delete", members)
 }
 
 // Items 返回全部 field→value（HGETALL）。key 不存在返回空 map。
@@ -215,16 +217,15 @@ func (r *HashRepo) Incr(ctx context.Context, key, field string, delta int64) (in
 			return 0, err
 		default:
 			fieldExists = true
-			cur, err = strconv.ParseInt(strings.TrimSpace(string(v)), 10, 64)
-			if err != nil {
-				return 0, ErrValueType
+			if cur, err = parseInt64(v); err != nil {
+				return 0, err
 			}
 		}
 	}
-	if (delta > 0 && cur > math.MaxInt64-delta) || (delta < 0 && cur < math.MinInt64-delta) {
-		return 0, ErrValueType
+	next, err := addInt64(cur, delta)
+	if err != nil {
+		return 0, err
 	}
-	next := cur + delta
 	raw := []byte(strconv.FormatInt(next, 10))
 	if fieldExists {
 		if _, err := r.t.tx.ExecContext(ctx,
@@ -258,12 +259,7 @@ func (r *HashRepo) Scan(ctx context.Context, key, cursor, pattern string, count 
 	if _, err := r.t.Key().getMetaOf(ctx, key, TypeHash); err != nil {
 		return nil, "", err
 	}
-	if pattern == "" {
-		pattern = "*"
-	}
-	if count <= 0 {
-		count = 100
-	}
+	pattern, count = scanParams(pattern, count)
 	rows, err := r.t.tx.QueryContext(ctx,
 		`SELECT field, value FROM __sb_kv_hashes
 		 WHERE "key" = ? AND field > ? AND field GLOB ?

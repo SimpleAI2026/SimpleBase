@@ -1,3 +1,29 @@
+// 文件说明：multidir.go — gosandbox/snapshot 的内部实现（packEntry、packAll 等）
+//
+// 用法
+//
+//	同包调用：packEntry → snapshot.go；packAll() → snapshot.go；unpackAll() → snapshot.go
+//
+// 调用架构
+//
+//	[上游] gosandbox/vm/box, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/snapshot/multidir.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] paths.go, snapshot.go, snapshot_test.go
+//	[关键引用] packEntry ← snapshot.go；packAll ← snapshot.go；unpackAll ← snapshot.go
+//
+// 主要符号
+//
+//	type packEntry struct{…}
+//	packAll(ctx context.Context, entries []packEntry, w io.Writer) error
+//	walkPrefixed(src, prefix string, tw *tar.Writer) error
+//	unpackAll(ctx context.Context, archivePath, boxDir string) error
+//	writeEntry(tr *tar.Reader, hdr *tar.Header, target string) error
+
 package snapshot
 
 import (

@@ -1,3 +1,38 @@
+// 文件说明：mcp.go — internal/agentbridge 中 MCPOptions、BuiltinMCP 等符号的实现
+//
+// 用法
+//
+//	type MCPOptions struct{…}  // MCPOptions 是连接器的构造参数
+//	type BuiltinMCP interface{…}  // BuiltinMCP 由宿主 api 层实现：按主体与项目构造进程内内置 Server（planv6.7 §3.6）
+//	type MCPConnector struct{…}  // MCPConnector 从系统库读项目配置并建立会话
+//	NewMCPConnector(store *systemdb.Store, opts MCPOptions) *MCPConnector  // NewMCPConnector 构造连接器
+//	TestMCPServer(ctx context.Context, srv systemdb.MCPServer, opts MCPOptions) ([]string, error)  // TestMCPServer 建立一次临时连接并列出工具名（API 的连通性测试用）
+//	type MCPPolicy struct{…}  // MCPPolicy 从系统库的工具策略表判定只读/破坏性
+//
+// 调用架构
+//
+//	[上游] internal/agentrun, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/agentbridge/mcp.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] access_db.go, access_llm.go, access_object.go, access_test.go, bridge_test.go 等 33 个
+//	[关键引用] MCPOptions ← mcp_test.go；NewMCPConnector ← mcp_test.go；NewMCPPolicy ← mcp_test.go
+//
+// 主要符号
+//
+//	type MCPOptions struct{…}
+//	type BuiltinMCP interface{…}
+//	type MCPConnector struct{…}
+//	NewMCPConnector(store *systemdb.Store, opts MCPOptions) *MCPConnector
+//	(c *MCPConnector) SetBuiltin(b BuiltinMCP)
+//	(c *MCPConnector) Connect(ctx context.Context, req cloudagent.RunRequest, serverIDs []string) (mcp.SessionSet,...
+//	(c *MCPConnector) httpClient(srv systemdb.MCPServer) (*http.Client, error)
+//	TestMCPServer(ctx context.Context, srv systemdb.MCPServer, opts MCPOptions) ([]string, error)
+//	... 另有 4 个顶层符号
+
 // mcp.go — 宿主侧 MCP 连接器实现（planv6.2 §4.2-5、§6-3）。
 //
 // 分工：模块（gocloudagent）只认 MCPConnector/MCPPolicy 两个接口，
@@ -14,18 +49,16 @@ package agentbridge
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 	"github.com/linkxzhou/SimpleBase/gocloudagent/mcp"
+	"github.com/linkxzhou/SimpleBase/gocloudagent/tools"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
@@ -145,46 +178,21 @@ func (c *MCPConnector) httpClient(srv systemdb.MCPServer) (*http.Client, error) 
 	default:
 		return nil, fmt.Errorf("mcp: unsupported scheme %q", u.Scheme)
 	}
-	headers := systemdb.ParseMCPHeaders(srv.HeadersJSON)
-	transport := &http.Transport{
-		// 每个请求都新建连接：per-run 连接本来就不复用，也让 IP 校验无法被缓存绕过。
-		DisableKeepAlives: true,
-		TLSClientConfig:   &tls.Config{MinVersion: tls.VersionTLS12},
-		DialContext:       guardDialContext(),
+	headers := http.Header{}
+	for k, v := range systemdb.ParseMCPHeaders(srv.HeadersJSON) {
+		headers.Set(k, v)
 	}
+	// 加固 Transport 已下沉到 gocloudagent/tools（planv6.8 §13.7）：
+	// 不复用连接、TLS ≥ 1.2、拨号时校验实际 IP（挡 DNS rebinding）。
+	transport := (tools.NetPolicy{}).NewGuardedTransport()
 	return &http.Client{
-		Transport: &headerRoundTripper{base: transport, headers: headers},
+		Transport: &mcp.HeaderTransport{Base: transport, Headers: headers, MaxResponseBytes: mcp.MaxEventBytes},
 		Timeout:   time.Duration(srv.TimeoutS) * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			// 禁止跟随重定向：SSRF 最常用的绕过手段。
 			return http.ErrUseLastResponse
 		},
 	}, nil
-}
-
-// guardDialContext 返回一个在**实际连接 IP** 上做校验的 DialContext。
-//
-// 校验放在 Control 里而不是解析阶段：即便 DNS 两次解析结果不同
-// （rebinding），被拦的也是真正要连的地址。
-func guardDialContext() func(ctx context.Context, network, addr string) (net.Conn, error) {
-	dialer := &net.Dialer{
-		Timeout: 10 * time.Second,
-		Control: func(network, address string, _ syscall.RawConn) error {
-			host, _, err := net.SplitHostPort(address)
-			if err != nil {
-				return err
-			}
-			ip := net.ParseIP(host)
-			if ip == nil {
-				return fmt.Errorf("mcp: cannot resolve %q", host)
-			}
-			if isBlockedIP(ip) {
-				return fmt.Errorf("mcp: address %s is not allowed", ip)
-			}
-			return nil
-		},
-	}
-	return dialer.DialContext
 }
 
 // TestMCPServer 建立一次临时连接并列出工具名（API 的连通性测试用）。
@@ -216,73 +224,8 @@ func TestMCPServer(ctx context.Context, srv systemdb.MCPServer, opts MCPOptions)
 	return out, nil
 }
 
-// isBlockedIP 判定回环 / 私网 / 链路本地 / 元数据 / 未指定地址。
-func isBlockedIP(ip net.IP) bool {
-	if ip == nil {
-		return true
-	}
-	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
-		ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() ||
-		ip.IsMulticast() || ip.IsUnspecified() {
-		return true
-	}
-	// 云元数据地址 169.254.169.254 已被 IsLinkLocalUnicast 覆盖；
-	// 这里额外挡住 IPv4-mapped IPv6 与 0.0.0.0/8。
-	if v4 := ip.To4(); v4 != nil {
-		if v4[0] == 0 {
-			return true
-		}
-	}
-	return false
-}
-
-// headerRoundTripper 注入静态 Header（凭据只存在于这个闭包里）。
-type headerRoundTripper struct {
-	base    http.RoundTripper
-	headers map[string]string
-}
-
-func (h *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	if len(h.headers) > 0 {
-		clone := req.Clone(req.Context())
-		for k, v := range h.headers {
-			clone.Header.Set(k, v)
-		}
-		req = clone
-	}
-	res, err := h.base.RoundTrip(req)
-	if err != nil {
-		return nil, err
-	}
-	// 响应体大小受限：SDK 会把整个结果解码进内存，截断只保护上下文。
-	if res.Body != nil {
-		res.Body = &limitedBody{r: res.Body, remain: mcp.MaxEventBytes}
-	}
-	return res, nil
-}
-
-// limitedBody 在读取超过上限时返回错误，阻止无限响应体。
-type limitedBody struct {
-	r interface {
-		Read([]byte) (int, error)
-		Close() error
-	}
-	remain int
-}
-
-func (l *limitedBody) Read(p []byte) (int, error) {
-	if l.remain <= 0 {
-		return 0, errors.New("mcp: response body exceeds size limit")
-	}
-	if len(p) > l.remain {
-		p = p[:l.remain]
-	}
-	n, err := l.r.Read(p)
-	l.remain -= n
-	return n, err
-}
-
-func (l *limitedBody) Close() error { return l.r.Close() }
+// isBlockedIP 判定已下沉到 gocloudagent/tools.IsBlockedIP（planv6.8 §13.7），
+// 宿主不再保留副本；表驱动断言见 tools/netguard_test.go。
 
 // MCPPolicy 从系统库的工具策略表判定只读/破坏性。
 //

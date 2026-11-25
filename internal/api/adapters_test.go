@@ -1,3 +1,34 @@
+// 文件说明：adapters_test.go — internal/api 的单元测试（TestDatabaseServiceAdapter、TestSQLServiceAdapter 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestDatabaseServiceAdapter|TestSQLServiceAdapter|TestSystemLeaseAdapter|TestSQLLeaseAdapter_WithRegistry'
+//	同包调用：stubCatalog → agent_skills_router_e2e_test.go, oai_e2e_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/adapters_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go, agent_dto.go 等 207 个
+//	[关键引用] stubCatalog ← agent_skills_router_e2e_test.go, oai_e2e_test.go
+//
+// 主要符号
+//
+//	type stubCatalog struct{…}
+//	(s *stubCatalog) CreateDatabase(_ context.Context, in catalog.CreateDatabaseInput) (catalog.Database, error)
+//	(s *stubCatalog) GetDatabase(context.Context, auth.Principal, string, string) (catalog.Database, error)
+//	(s *stubCatalog) ListDatabases(context.Context, auth.Principal, string, catalog.Page) ([]catalog.Database, str...
+//	(s *stubCatalog) BeginDeleteDatabase(context.Context, auth.Principal, string, string) (catalog.Database, error...
+//	(s *stubCatalog) DeleteDatabaseSync(_ context.Context, _ auth.Principal, _, id string, closer func(context.Con...
+//	(s *stubCatalog) ResolveProjectTenant(context.Context, string) (string, error)
+//	(s *stubCatalog) ListProjects(context.Context, auth.Principal) ([]catalog.Project, error)
+//	... 另有 27 个顶层符号
+
 package api
 
 import (

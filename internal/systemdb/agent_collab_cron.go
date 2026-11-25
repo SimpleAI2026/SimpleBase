@@ -61,9 +61,11 @@ func scanAgentGroupCron(sc rowScanner) (AgentGroupCron, error) {
 
 // UpsertAgentGroupCron 新建或更新绑定（同 project + job 只保留一行）。
 func (s *Store) UpsertAgentGroupCron(ctx context.Context, c AgentGroupCron) (AgentGroupCron, error) {
-	if s == nil || s.db == nil {
-		return AgentGroupCron{}, ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return AgentGroupCron{}, connErr
 	}
+
 	if c.ThreadPolicy == "" {
 		c.ThreadPolicy = GroupCronReuseThread
 	}
@@ -78,7 +80,7 @@ func (s *Store) UpsertAgentGroupCron(ctx context.Context, c AgentGroupCron) (Age
 	}
 	if existing.JobID == "" {
 		c.CreatedAt = now
-		if _, err := s.db.ExecContext(ctx,
+		if _, err := sqlDB.ExecContext(ctx,
 			`INSERT INTO sys_agent_group_cron(project_id, job_id, tag_id, thread_policy, thread_kind,
 				thread_id, owner_user_id, prompt, created_at, updated_at, archived_at)
 			 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
@@ -89,7 +91,7 @@ func (s *Store) UpsertAgentGroupCron(ctx context.Context, c AgentGroupCron) (Age
 		s.notifyWrite(ctx)
 		return c, nil
 	}
-	if _, err := s.db.ExecContext(ctx,
+	if _, err := sqlDB.ExecContext(ctx,
 		`UPDATE sys_agent_group_cron SET tag_id=?, thread_policy=?, thread_kind=?, thread_id=?,
 			owner_user_id=?, prompt=?, updated_at=? WHERE project_id=? AND job_id=? AND archived_at IS NULL`,
 		c.TagID, c.ThreadPolicy, c.ThreadKind, c.ThreadID, c.OwnerUserID, c.Prompt,
@@ -102,14 +104,10 @@ func (s *Store) UpsertAgentGroupCron(ctx context.Context, c AgentGroupCron) (Age
 
 // GetAgentGroupCron 读取绑定；无行返回零值 + nil（表示普通 agent 定时任务）。
 func (s *Store) GetAgentGroupCron(ctx context.Context, projectID, jobID string) (AgentGroupCron, error) {
-	if s == nil || s.db == nil {
-		return AgentGroupCron{}, ErrUnavailable
-	}
-	row := s.db.QueryRowContext(ctx,
+	c, err := queryOne(ctx, s, scanAgentGroupCron,
 		`SELECT `+agentGroupCronColumns+` FROM sys_agent_group_cron
 		 WHERE project_id=? AND job_id=? AND archived_at IS NULL ORDER BY created_at, rowid LIMIT 1`,
 		projectID, jobID)
-	c, err := scanAgentGroupCron(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return AgentGroupCron{}, nil
 	}
@@ -118,63 +116,37 @@ func (s *Store) GetAgentGroupCron(ctx context.Context, projectID, jobID string) 
 
 // ListAgentGroupCrons 列出项目内全部未归档群定时绑定。
 func (s *Store) ListAgentGroupCrons(ctx context.Context, projectID string) ([]AgentGroupCron, error) {
-	if s == nil || s.db == nil {
-		return nil, ErrUnavailable
-	}
-	rows, err := s.db.QueryContext(ctx,
+	return queryList(ctx, s, scanAgentGroupCron,
 		`SELECT `+agentGroupCronColumns+` FROM sys_agent_group_cron
 		 WHERE project_id=? AND archived_at IS NULL ORDER BY created_at, job_id`, projectID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := make([]AgentGroupCron, 0, 8)
-	for rows.Next() {
-		c, err := scanAgentGroupCron(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, c)
-	}
-	return out, rows.Err()
 }
 
 // ArchiveAgentGroupCronsByTag 归档某个群的全部定时绑定（群归档时暂停调度）。
 func (s *Store) ArchiveAgentGroupCronsByTag(ctx context.Context, projectID, tagID string) error {
-	if s == nil || s.db == nil {
-		return ErrUnavailable
-	}
-	if _, err := s.db.ExecContext(ctx,
+	now := time.Now().UTC()
+	return s.execNotify(ctx,
 		`UPDATE sys_agent_group_cron SET archived_at=?, updated_at=? WHERE project_id=? AND tag_id=? AND archived_at IS NULL`,
-		time.Now().UTC(), time.Now().UTC(), projectID, tagID); err != nil {
-		return err
-	}
-	s.notifyWrite(ctx)
-	return nil
+		now, now, projectID, tagID)
 }
 
-// ArchiveAgentGroupCron 归档单条绑定。
+// ArchiveAgentGroupCron 幂等归档单条绑定。
 func (s *Store) ArchiveAgentGroupCron(ctx context.Context, projectID, jobID string) error {
-	if s == nil || s.db == nil {
-		return ErrUnavailable
-	}
-	if _, err := s.db.ExecContext(ctx,
+	now := time.Now().UTC()
+	return s.execNotify(ctx,
 		`UPDATE sys_agent_group_cron SET archived_at=?, updated_at=? WHERE project_id=? AND job_id=? AND archived_at IS NULL`,
-		time.Now().UTC(), time.Now().UTC(), projectID, jobID); err != nil {
-		return err
-	}
-	s.notifyWrite(ctx)
-	return nil
+		now, now, projectID, jobID)
 }
 
 // ClaimCronFire 抢占一次触发；已存在同 fire_key 时返回 false（本次跳过）。
 // 返回 true 表示由本次调用负责推进，调用方此后应写入 turn_id / thread_id。
 func (s *Store) ClaimCronFire(ctx context.Context, projectID, jobID, fireKey string) (bool, error) {
-	if s == nil || s.db == nil {
-		return false, ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return false, connErr
 	}
+
 	var n int
-	if err := s.db.QueryRowContext(ctx,
+	if err := sqlDB.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM sys_agent_cron_fires WHERE project_id=? AND job_id=? AND fire_key=?`,
 		projectID, jobID, fireKey).Scan(&n); err != nil {
 		return false, err
@@ -182,7 +154,7 @@ func (s *Store) ClaimCronFire(ctx context.Context, projectID, jobID, fireKey str
 	if n > 0 {
 		return false, nil
 	}
-	if _, err := s.db.ExecContext(ctx,
+	if _, err := sqlDB.ExecContext(ctx,
 		`INSERT INTO sys_agent_cron_fires(project_id, job_id, fire_key, turn_id, thread_id, created_at)
 		 VALUES(?, ?, ?, '', '', ?)`,
 		projectID, jobID, fireKey, time.Now().UTC()); err != nil {
@@ -194,10 +166,12 @@ func (s *Store) ClaimCronFire(ctx context.Context, projectID, jobID, fireKey str
 
 // CompleteCronFire 回填触发产生的轮次与会话。
 func (s *Store) CompleteCronFire(ctx context.Context, projectID, jobID, fireKey, turnID, threadID string) error {
-	if s == nil || s.db == nil {
-		return ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return connErr
 	}
-	if _, err := s.db.ExecContext(ctx,
+
+	if _, err := sqlDB.ExecContext(ctx,
 		`UPDATE sys_agent_cron_fires SET turn_id=?, thread_id=? WHERE project_id=? AND job_id=? AND fire_key=?`,
 		turnID, threadID, projectID, jobID, fireKey); err != nil {
 		return err

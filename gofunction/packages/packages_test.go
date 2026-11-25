@@ -1,3 +1,27 @@
+// 文件说明：packages_test.go — gofunction/packages 的单元测试（TestStdlibPackagesRegistered、TestFmtSprintRegistered 等）
+//
+// 用法
+//
+//	go test ./gofunction/packages -run 'TestStdlibPackagesRegistered|TestFmtSprintRegistered|TestMustRegisterDuplicatePanics|TestAtomicAddInt32Registered'
+//
+// 调用架构
+//
+//	[上游] gofunction/bench, gofunction/cmd, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/packages/packages_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] packages.go, std_encoding.go, std_fmt.go, std_http.go, std_math.go 等 8 个
+//
+// 主要符号
+//
+//	TestStdlibPackagesRegistered(t *testing.T)
+//	TestFmtSprintRegistered(t *testing.T)
+//	TestMustRegisterDuplicatePanics(t *testing.T)
+//	TestAtomicAddInt32Registered(t *testing.T)
+
 package packages
 
 import (

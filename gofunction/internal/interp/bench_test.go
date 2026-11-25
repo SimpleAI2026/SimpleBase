@@ -1,3 +1,32 @@
+// 文件说明：bench_test.go — gofunction/internal/interp 的单元测试（BenchmarkBuildProgram、BenchmarkBuildProgramWithImports 等）
+//
+// 用法
+//
+//	go test ./gofunction/internal/interp -run 'BenchmarkBuildProgram|BenchmarkBuildProgramWithImports|BenchmarkExecArithLoop|BenchmarkExecFib18'
+//
+// 调用架构
+//
+//	[上游] gofunction
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/internal/interp/bench_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] cachetest_test.go, call.go, call_test.go, cheap_test.go, compile.go 等 40 个
+//
+// 主要符号
+//
+//	const benchSeqID
+//	const fibSrc
+//	const arithSrc
+//	const callSrc
+//	const sliceSrc
+//	const mapSrc
+//	const stringSrc
+//	const externalSrc
+//	... 另有 26 个顶层符号
+
 package interp
 
 // 性能基准测试：覆盖编译、解释执行热路径、外部函数调用与并发场景。

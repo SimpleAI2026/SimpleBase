@@ -1,5 +1,34 @@
 //go:build linux
 
+// 文件说明：driver_test.go — gosandbox/vm/box 的单元测试（TestResolveLowerHost、TestResolveLowerWithoutSource 等）
+//
+// 用法
+//
+//	go test ./gosandbox/vm/box -run 'TestResolveLowerHost|TestResolveLowerWithoutSource|TestResolveLowerWithSource|TestResolveLowerEmptyPath'
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/vm/box/driver_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] capabilities.go, contracts_linux_test.go, diskuse_linux.go, driver_linux.go, driver_other.go 等 15 个
+//
+// 主要符号
+//
+//	type fakeImages struct{…}
+//	(f *fakeImages) Resolve(_ context.Context, ref string) (Lower, error)
+//	TestResolveLowerHost(t *testing.T)
+//	TestResolveLowerWithoutSource(t *testing.T)
+//	TestResolveLowerWithSource(t *testing.T)
+//	TestResolveLowerEmptyPath(t *testing.T)
+//	TestResolveLowerError(t *testing.T)
+//	TestResolveCwd(t *testing.T)
+//	... 另有 3 个顶层符号
+
 package box
 
 // driver_test.go：驱动层的镜像解析与配置校验（不需要 bwrap）。

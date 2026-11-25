@@ -1,3 +1,31 @@
+// 文件说明：program_test.go — gofunction/internal/interp 的单元测试（TestBuildProgramTypeError、TestAutoImportAlreadyImported 等）
+//
+// 用法
+//
+//	go test ./gofunction/internal/interp -run 'TestBuildProgramTypeError|TestAutoImportAlreadyImported|TestSetGetGlobalEdgeCases|TestExternalLookups'
+//
+// 调用架构
+//
+//	[上游] gofunction
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/internal/interp/program_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] bench_test.go, cachetest_test.go, call.go, call_test.go, cheap_test.go 等 40 个
+//
+// 主要符号
+//
+//	TestBuildProgramTypeError(t *testing.T)
+//	TestAutoImportAlreadyImported(t *testing.T)
+//	TestSetGetGlobalEdgeCases(t *testing.T)
+//	TestExternalLookups(t *testing.T)
+//	TestParseFuncList(t *testing.T)
+//	TestSetGetGlobalValue(t *testing.T)
+//	TestFunctionNotFoundAndBuildError(t *testing.T)
+//	TestSetGlobalConvert(t *testing.T)
+
 package interp
 
 // 本文件覆盖 Program 公共 API：构建、执行、全局变量读写、函数列表解析。

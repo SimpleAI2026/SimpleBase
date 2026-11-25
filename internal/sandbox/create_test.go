@@ -1,3 +1,32 @@
+// 文件说明：create_test.go — internal/sandbox 的单元测试（TestC2_NameConflictBeforeLimit、TestC2_RandomNameAndDefaults 等）
+//
+// 用法
+//
+//	go test ./internal/sandbox -run 'TestC2_NameConflictBeforeLimit|TestC2_RandomNameAndDefaults|TestC2_StartTrueRuns|TestC2_TimeoutClampedToMaxDuration'
+//
+// 调用架构
+//
+//	[上游] internal/api, internal/app, internal/sandbox/sshd
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/sandbox/create_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] errors.go, logs.go, manager.go, manager_exec.go, manager_lifecycle.go 等 13 个
+//
+// 主要符号
+//
+//	type c2Store struct{…}
+//	newC2Store() *c2Store
+//	(s *c2Store) CreateSandbox(_ context.Context, sb Sandbox) (Sandbox, error)
+//	(s *c2Store) GetSandbox(_ context.Context, projectID, id string) (Sandbox, error)
+//	(s *c2Store) GetSandboxByID(_ context.Context, id string) (Sandbox, error)
+//	(s *c2Store) GetSandboxByName(_ context.Context, projectID, name string) (Sandbox, error)
+//	(s *c2Store) GetSandboxByThread(ctx context.Context, projectID, threadID string) (Sandbox, error)
+//	(s *c2Store) ListSandboxes(_ context.Context, projectID, status, source, cursor string, limit int) ([]Sandbox,...
+//	... 另有 15 个顶层符号
+
 package sandbox
 
 // c2_create_test.go：Manager.Create 的可观察行为（E2B 兼容 API 之后的语义）。

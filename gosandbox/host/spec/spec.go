@@ -1,3 +1,27 @@
+// 文件说明：spec.go — gosandbox/host/spec 中 Spec 等符号的实现
+//
+// 用法
+//
+//	type Spec struct{…}  // Spec 是 helper 的输入，由父进程经 bwrap 的 --file 放入沙盒内的只读文件， 不进 argv（避免出现在 /proc/<pid>/cmd...
+//
+// 调用架构
+//
+//	[上游] gosandbox/box, gosandbox/host, gosandbox/host/inner
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/host/spec/spec.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] 无
+//
+// 主要符号
+//
+//	const ExitSetupFailed
+//	const FailPrefix
+//	type Spec struct{…}
+//	const SeccompHost / SeccompDefault
+
 package spec
 
 // ExitSetupFailed 是 helper 在 Landlock / seccomp 装载失败时的退出码。

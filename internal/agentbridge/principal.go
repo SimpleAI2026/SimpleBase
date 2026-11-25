@@ -1,9 +1,32 @@
+// 文件说明：principal.go — internal/agentbridge 中 Agent、Messages 等符号的实现
+//
+// 用法
+//
+//	Agent(a systemdb.CloudAgent) cloudagent.Agent  // Agent converts a stored SimpleBase agent to the generic runtime DTO.
+//	Messages(msgs []systemdb.AgentMessage) []cloudagent.Message
+//	Message(m systemdb.AgentMessage) cloudagent.Message
+//
+// 调用架构
+//
+//	[上游] internal/agentrun, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/agentbridge/principal.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] access_db.go, access_llm.go, access_object.go, access_test.go, bridge_test.go 等 33 个
+//	[关键引用] Agent ← cron_agent.go；Messages ← cron_agent.go
+//
+// 主要符号
+//
+//	Agent(a systemdb.CloudAgent) cloudagent.Agent
+//	Messages(msgs []systemdb.AgentMessage) []cloudagent.Message
+//	Message(m systemdb.AgentMessage) cloudagent.Message
+
 package agentbridge
 
 import (
-	"encoding/json"
-	"strings"
-
 	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
@@ -24,51 +47,6 @@ func Messages(msgs []systemdb.AgentMessage) []cloudagent.Message {
 	out := make([]cloudagent.Message, 0, len(msgs))
 	for _, m := range msgs {
 		out = append(out, Message(m))
-	}
-	return out
-}
-
-func MessagesFor(msgs []systemdb.AgentMessage, currentAgentID string, names map[string]string) []cloudagent.Message {
-	if msgs == nil {
-		return nil
-	}
-	out := make([]cloudagent.Message, 0, len(msgs))
-	for _, m := range msgs {
-		if m.Role != "assistant" || m.AgentID == "" || m.AgentID == currentAgentID {
-			out = append(out, Message(m))
-			continue
-		}
-		name := names[m.AgentID]
-		if name == "" {
-			name = "其他助手"
-		}
-		content := "[" + name + "] " + m.Content
-		if tools := toolNames(m.ToolCallsJSON); len(tools) > 0 {
-			content += "\n[" + name + "] 调用了 " + strings.Join(tools, "、")
-		}
-		out = append(out, cloudagent.Message{Role: "assistant", Content: content, ToolCallsJSON: "[]"})
-	}
-	return out
-}
-
-func toolNames(raw string) []string {
-	if strings.TrimSpace(raw) == "" || raw == "[]" {
-		return nil
-	}
-	var cards []struct {
-		Name string `json:"name"`
-	}
-	if err := json.Unmarshal([]byte(raw), &cards); err != nil {
-		return nil
-	}
-	seen := map[string]bool{}
-	out := make([]string, 0, len(cards))
-	for _, card := range cards {
-		if card.Name == "" || seen[card.Name] {
-			continue
-		}
-		seen[card.Name] = true
-		out = append(out, card.Name)
 	}
 	return out
 }

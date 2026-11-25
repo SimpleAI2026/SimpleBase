@@ -1,26 +1,54 @@
+// 文件说明：context.go — internal/agentbridge 中 RunContext 等符号的实现
+//
+// 用法
+//
+//	type RunContext struct{…}  // RunContext is SimpleBase's provider-owned request context. Skills 是本轮加载的技能（由助手所属...
+//	同包调用：hostContext() → cron_agent_test.go, mcp.go；requireRun() → skilltool.go, tools.go
+//
+// 调用架构
+//
+//	[上游] internal/agentrun, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/agentbridge/context.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] access_db.go, access_llm.go, access_object.go, access_test.go, bridge_test.go 等 33 个
+//	[关键引用] RunContext ← cron_agent.go, failclosed_test.go；hostContext ← cron_agent_test.go, mcp.go；requireRun ← skilltool.go, tools.go
+//
+// 主要符号
+//
+//	type RunContext struct{…}
+//	hostContext(value any) (RunContext, error)
+//	requireRun(ctx context.Context) (RunContext, error)
+
 package agentbridge
 
 import (
 	"context"
 	"fmt"
 
+	"github.com/cloudwego/eino/components/tool"
 	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 )
 
 // RunContext is SimpleBase's provider-owned request context.
+//
+// Skills 是本轮加载的技能（由助手所属 module 决定）；规划工具组不在这里：它由宿主 API 层
+// 按会话历史装配后经 ExtraTools 追加（planv6.8 B14：固定六阶段流水线已由 plan.Tools 取代）。
 type RunContext struct {
-	ProjectID      string
-	Principal      auth.Principal
-	Skills         []string
-	ReadOnlySkills []string
-	PlanStage      PlanStageID
+	ProjectID string
+	Principal auth.Principal
+	Skills    []string
 
-	RunID    string
-	ThreadID string
-	Headless bool
-	Writable bool
-	Emit     func(cloudagent.Event)
+	RunID      string
+	ThreadID   string
+	Headless   bool
+	Writable   bool
+	Emit       func(cloudagent.Event)
+	ExtraTools []tool.BaseTool
 }
 
 func hostContext(value any) (RunContext, error) {
@@ -33,12 +61,6 @@ func hostContext(value any) (RunContext, error) {
 		}
 	}
 	return RunContext{}, fmt.Errorf("simplebase agent run context missing")
-}
-
-func withRunContext(ctx context.Context, rc RunContext) context.Context {
-	return cloudagent.WithRunContext(ctx, cloudagent.RunContext{
-		RunID: rc.RunID, ThreadID: rc.ThreadID, Value: rc, Emit: rc.Emit,
-	})
 }
 
 func requireRun(ctx context.Context) (RunContext, error) {
@@ -54,14 +76,4 @@ func requireRun(ctx context.Context) (RunContext, error) {
 	rc.ThreadID = generic.ThreadID
 	rc.Emit = generic.Emit
 	return rc, nil
-}
-
-func principalKey(p auth.Principal) string {
-	if p.UserID != "" {
-		return p.UserID
-	}
-	if p.APIKeyID != "" {
-		return "apikey:" + p.APIKeyID
-	}
-	return ""
 }

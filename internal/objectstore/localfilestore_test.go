@@ -1,3 +1,26 @@
+// 文件说明：localfilestore_test.go — internal/objectstore 的单元测试（TestLocalFileStoreContentRange、TestLocalFileStore_CRUDAndPersist 等）
+//
+// 用法
+//
+//	go test ./internal/objectstore -run 'TestLocalFileStoreContentRange|TestLocalFileStore_CRUDAndPersist|TestLocalFileStore_InvalidKey'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/api, internal/app, internal/backup 等 6 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/objectstore/localfilestore_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] blob.go, blob_test.go, branches_test.go, client.go, client_test.go 等 24 个
+//
+// 主要符号
+//
+//	TestLocalFileStoreContentRange(t *testing.T)
+//	TestLocalFileStore_CRUDAndPersist(t *testing.T)
+//	TestLocalFileStore_InvalidKey(t *testing.T)
+
 package objectstore
 
 import (

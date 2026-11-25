@@ -1,5 +1,35 @@
 //go:build linux
 
+// 文件说明：launch_linux.go — gosandbox/box 的内部实现（policyFD、socketPair 等）
+//
+// 用法
+//
+//	同包调用：socketPair() → supervise_linux.go；buildArgs() → netx_e2e_test.go；rootArgs() → launch_args_test.go
+//
+// 调用架构
+//
+//	[上游] gosandbox/cmd, gosandbox/vm/box
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/box/launch_linux.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] backpressure_test.go, copytree.go, deadline.go, egress_e2e_test.go, files.go 等 26 个
+//	[关键引用] socketPair ← supervise_linux.go；buildArgs ← netx_e2e_test.go；rootArgs ← launch_args_test.go
+//
+// 主要符号
+//
+//	const policyFD / ctrlFD
+//	socketPair() (net.Conn, *os.File, error)
+//	networkModeOf(cfg Config) string
+//	buildArgs(cfg Config) ([]string, string, error)
+//	rootArgs(cfg Config) ([]string, error)
+//	overlaySupported(bwrap string) bool
+//	var overlayMu / overlayOK
+//	writePolicy(path string, p Policy, ws string) error
+//	... 另有 7 个顶层符号
+
 package box
 
 import (

@@ -11,14 +11,9 @@
           </TableRow>
         </TableHeader>
         <SbAsyncRegion
+          :state="loadState"
           as="tbody"
           :columns="4"
-          :pending="pending"
-          :show-skeleton="showSkeleton"
-          :show-empty="showEmpty"
-          :show-error="showError"
-          :refreshing="refreshing"
-          :error="error"
           :empty-description="readonly ? t('components.collectionPanel.emptyReadonly') : t('components.collectionPanel.empty')"
           :empty-action-text="readonly ? undefined : t('components.collectionPanel.create')"
           @retry="load"
@@ -75,9 +70,10 @@ const emit = defineEmits<{
 const rows = ref<CollectionInfo[]>([])
 const schemaOpen = ref(false)
 const schemaCollection = ref('')
-const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
+const loadState = useLoadState({
   fallback: 'components.collectionPanel.loadFailed'
 })
+const { run } = loadState
 function editSchema(name: string) {
   schemaCollection.value = name
   schemaOpen.value = true

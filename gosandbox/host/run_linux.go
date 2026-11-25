@@ -1,5 +1,35 @@
 //go:build linux
 
+// 文件说明：run_linux.go — gosandbox/host 中 Run 等符号的实现
+//
+// 用法
+//
+//	Run(ctx context.Context, p Policy, cmd Command) (Result, error)  // Run 在沙盒里执行 cmd
+//	同包调用：prepareBwrapCmd() → start_linux.go；prepareCgroup() → start_linux.go；joinCgroup() → start_linux.go
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/tools, gosandbox/box, gosandbox/vm/box 等 5 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/host/run_linux.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] bwrap_args.go, bwrap_args_extra_test.go, cgroup.go, cgroup_linux.go, cgroup_linux_test.go 等 36 个
+//	[关键引用] prepareBwrapCmd ← start_linux.go；prepareCgroup ← start_linux.go；joinCgroup ← start_linux.go
+//
+// 主要符号
+//
+//	const HelperName
+//	prepareBwrapCmd(ctx context.Context, p Policy, cmd Command, ctty bool) (*exec.Cmd, *os.File, Caps, error)
+//	prepareCgroup(p Policy, caps Caps) (*cgroupGroup, bool, error)
+//	joinCgroup(c *exec.Cmd, g *cgroupGroup) (*os.File, bool)
+//	Run(ctx context.Context, p Policy, cmd Command) (Result, error)
+//	afterPrefix(out []byte) string
+//	innerSpec(p Policy) spec.Spec
+//	resolveHelper(configured string) (string, error)
+
 package host
 
 import (

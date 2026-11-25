@@ -1,3 +1,36 @@
+// 文件说明：pull.go — gosandbox/image 中 Progress、PullOptions 等符号的实现
+//
+// 用法
+//
+//	type Progress struct{…}  // Progress 是一次拉取的进度回调参数
+//	type PullOptions struct{…}  // PullOptions 是拉取选项
+//	type Puller struct{…}  // Puller 负责拉取与解包
+//	NewPuller(s *Store) *Puller  // NewPuller 建一个 Puller
+//
+// 调用架构
+//
+//	[上游] gosandbox/vm/box, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/image/pull.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] arch.go, import.go, manifest.go, manifest_test.go, pull_test.go 等 16 个
+//	[关键引用] Progress ← pull_test.go；PullOptions ← pull_test.go；Puller ← import.go, pull_test.go
+//
+// 主要符号
+//
+//	type Progress struct{…}
+//	type PullOptions struct{…}
+//	type Puller struct{…}
+//	type pullCall struct{…}
+//	NewPuller(s *Store) *Puller
+//	(p *Puller) Client() *Client
+//	(p *Puller) Store() *Store
+//	(p *Puller) Unpack(ctx context.Context, img Image) (string, error)
+//	... 另有 6 个顶层符号
+
 package image
 
 import (

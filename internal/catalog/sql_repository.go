@@ -211,31 +211,25 @@ func (r *sqlRepository) HasDefaultDatabase(ctx context.Context, projectID string
 }
 
 func (r *sqlRepository) GetDatabase(ctx context.Context, projectID, databaseID string) (Database, error) {
-	row := r.db.QueryRowContext(ctx,
-		`SELECT `+databaseSelectList+`
-		 FROM sys_databases WHERE id = ? AND project_id = ?`,
-		databaseID, projectID)
-	d, err := scanDatabase(row)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return Database{}, fmt.Errorf("%w: database %s in project %s", ErrNotFound, databaseID, projectID)
-		}
-		return Database{}, err
-	}
-	return d, nil
+	return r.getDatabaseWhere(ctx, "id = ? AND project_id = ?", []any{databaseID, projectID},
+		fmt.Errorf("%w: database %s in project %s", ErrNotFound, databaseID, projectID))
 }
 
 // GetDatabaseByName 按 (projectID, name) 查未软删的库（含 kv 等 kind）。
 func (r *sqlRepository) GetDatabaseByName(ctx context.Context, projectID, name string) (Database, error) {
-	row := r.db.QueryRowContext(ctx,
-		`SELECT `+databaseSelectList+`
-		 FROM sys_databases WHERE project_id = ? AND name = ? AND deleted_at IS NULL`,
-		projectID, name)
+	return r.getDatabaseWhere(ctx, "project_id = ? AND name = ? AND deleted_at IS NULL", []any{projectID, name},
+		fmt.Errorf("%w: database %q in project %s", ErrNotFound, name, projectID))
+}
+
+// getDatabaseWhere 按条件查单个库；无行时返回调用方构造的 notFound。
+// 软删过滤由 where 自行决定：按 ID 查不排除软删行，按名称查排除。
+func (r *sqlRepository) getDatabaseWhere(ctx context.Context, where string, args []any, notFound error) (Database, error) {
+	row := r.db.QueryRowContext(ctx, `SELECT `+databaseSelectList+` FROM sys_databases WHERE `+where, args...)
 	d, err := scanDatabase(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Database{}, notFound
+	}
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return Database{}, fmt.Errorf("%w: database %q in project %s", ErrNotFound, name, projectID)
-		}
 		return Database{}, err
 	}
 	return d, nil

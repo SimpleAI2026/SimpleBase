@@ -1,7 +1,7 @@
 # 通用助手 Plan 模式与站点默认可发布
 
 - 日期：2026-11-19
-- 状态：待实现。本文件中的接口、类型和表名均为提案。
+- 状态：**已被取代（2026-11-25）**。§2–§5 的服务端驱动六阶段计划（`/agent-threads/:id/plans*`、`sys_agent_plans*`、阶段技能白名单与阶段完成判定）已按 [planv6.8 §13.15](../planv6.8/gocloudagent-simplify-refactor-plan.md) 整体下线：计划只由 `gocloudagent/plan` 的 `plan` 工具产生（群轮次经 `gocloudagent/group` 栅栏，可整份确认；固定助手单聊同样带 plan / explore / reflect）。§6 的站点默认开启部分仍然有效。下文仅作历史记录，不再是待实现项。
 - 关联：[首页示例搭建](../planv6.6/home-starter-prompts-plan.md)、[对象存储站点](../planv6.5/object-storage-sites-plan.md)。本方案接管前者的阶段编排，保留后者的站点隔离和访问规则。
 
 ## 1. 目标与边界

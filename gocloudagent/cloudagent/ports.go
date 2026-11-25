@@ -1,3 +1,38 @@
+// 文件说明：ports.go — gocloudagent/cloudagent 中 ChatMessage、ChatToolCall 等符号的实现
+//
+// 用法
+//
+//	type ChatMessage = agentcore.ChatMessage
+//	type ChatToolCall = agentcore.ChatToolCall
+//	type ChatRequest = agentcore.ChatRequest
+//	type ChatUsage = agentcore.ChatUsage
+//	type ChatResponse = agentcore.ChatResponse
+//	type TokenStream = agentcore.TokenStream
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/cloudagent/ports.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] callgate.go, callgate_test.go, confirmation.go, confirmation_test.go, errors.go 等 32 个
+//	[关键引用] ChatToolCall ← model_native_test.go；ChatRequest ← model_native_test.go, runtime_limits_test.go；ChatUsage ← model_native_test.go, runtime.go
+//
+// 主要符号
+//
+//	type ChatMessage = agentcore.ChatMessage
+//	type ChatToolCall = agentcore.ChatToolCall
+//	type ChatRequest = agentcore.ChatRequest
+//	type ChatUsage = agentcore.ChatUsage
+//	type ChatResponse = agentcore.ChatResponse
+//	type TokenStream = agentcore.TokenStream
+//	type StreamDelta = agentcore.StreamDelta
+//	type ToolCallDelta = agentcore.ToolCallDelta
+//	... 另有 9 个顶层符号
+
 package cloudagent
 
 import (

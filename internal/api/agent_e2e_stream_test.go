@@ -1,3 +1,29 @@
+// 文件说明：agent_e2e_stream_test.go — internal/api 的单元测试（TestAgentE2EPlainStreamIsRealStream、TestAgentE2ETextProtocolToolRoundtrip 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestAgentE2EPlainStreamIsRealStream|TestAgentE2ETextProtocolToolRoundtrip|TestAgentE2ENativeToolRoundtrip|TestAgentE2EAutoFallbackOnToolsUnsupported'
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/agent_e2e_stream_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//
+// 主要符号
+//
+//	plainChatScript(blocks int, delay time.Duration) fakellm.Script
+//	TestAgentE2EPlainStreamIsRealStream(t *testing.T)
+//	TestAgentE2ETextProtocolToolRoundtrip(t *testing.T)
+//	TestAgentE2ENativeToolRoundtrip(t *testing.T)
+//	TestAgentE2EAutoFallbackOnToolsUnsupported(t *testing.T)
+//	TestAgentE2ETwoTurnMemoryCarriesHistory(t *testing.T)
+
 package api
 
 // agent_e2e_stream_test.go：全链路流式回归（planv4.1 §5.2 E01–E05、E14）。

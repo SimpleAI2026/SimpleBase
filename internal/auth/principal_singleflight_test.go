@@ -1,3 +1,32 @@
+// 文件说明：principal_singleflight_test.go — internal/auth 的单元测试（TestSameUserSingleFlight、TestFollowerCancellationDoesNotWaitForOwner 等）
+//
+// 用法
+//
+//	go test ./internal/auth -run 'TestSameUserSingleFlight|TestFollowerCancellationDoesNotWaitForOwner|TestDifferentUsersParallel|TestInvalidateDuringLoadDropsStaleBackfill'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/api/perfbench 等 9 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/auth/principal_singleflight_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] api_key_repository.go, authenticate_middleware_test.go, cache.go, cache_test.go, cached_user_test.go 等 31 个
+//
+// 主要符号
+//
+//	type countingBlockRepo struct{…}
+//	(r *countingBlockRepo) GetByID(ctx context.Context, id string) (User, error)
+//	(r *countingBlockRepo) callCount() int
+//	type errorUserRepo struct{…}
+//	(r *errorUserRepo) GetByID(ctx context.Context, id string) (User, error)
+//	newSingleflightSessions(t *testing.T, repo UserRepository) *SessionService
+//	TestSameUserSingleFlight(t *testing.T)
+//	TestFollowerCancellationDoesNotWaitForOwner(t *testing.T)
+//	... 另有 8 个顶层符号
+
 // principal_singleflight_test.go 验证 planv5.0 §4 P1.1：
 // I/O 移出全局锁后的行为契约——同用户单飞、不同用户并行、
 // 失效代数阻止旧结果写回、错误不缓存且正确传播。

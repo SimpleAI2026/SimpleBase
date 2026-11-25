@@ -161,14 +161,7 @@ func ConsumeAssistant(mv *adk.MessageVariant, emit func(ConsumeEvent), acc *stri
 				continue
 			}
 			last = chunk
-			if chunk.Content != "" && len(chunk.ToolCalls) == 0 {
-				if acc != nil {
-					acc.WriteString(chunk.Content)
-				}
-				if emit != nil {
-					emit(ConsumeEvent{Type: "token", Content: chunk.Content})
-				}
-			}
+			emitToken(chunk, emit, acc)
 		}
 		if len(merged) > 0 {
 			return schema.AssistantMessage("", merged), nil
@@ -176,15 +169,21 @@ func ConsumeAssistant(mv *adk.MessageVariant, emit func(ConsumeEvent), acc *stri
 		return last, nil
 	}
 	if mv.Message != nil {
-		if mv.Message.Content != "" && len(mv.Message.ToolCalls) == 0 {
-			if acc != nil {
-				acc.WriteString(mv.Message.Content)
-			}
-			if emit != nil {
-				emit(ConsumeEvent{Type: "token", Content: mv.Message.Content})
-			}
-		}
+		emitToken(mv.Message, emit, acc)
 		return mv.Message, nil
 	}
 	return nil, nil
+}
+
+// emitToken 累积并发出一条纯正文消息；带工具调用的消息不产生 token。
+func emitToken(msg *schema.Message, emit func(ConsumeEvent), acc *strings.Builder) {
+	if msg.Content == "" || len(msg.ToolCalls) > 0 {
+		return
+	}
+	if acc != nil {
+		acc.WriteString(msg.Content)
+	}
+	if emit != nil {
+		emit(ConsumeEvent{Type: "token", Content: msg.Content})
+	}
 }

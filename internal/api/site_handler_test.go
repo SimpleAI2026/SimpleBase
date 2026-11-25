@@ -1,3 +1,34 @@
+// 文件说明：site_handler_test.go — internal/api 的单元测试（TestSiteServeRules、TestSiteHostDispatchBoundaries 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestSiteServeRules|TestSiteHostDispatchBoundaries|TestSiteWithoutDomainNotServed|TestSiteContentType'
+//	同包调用：siteCfg() → site_path_test.go；siteRouter() → site_path_test.go；siteGet() → site_path_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/site_handler_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] siteCfg ← site_path_test.go；siteRouter ← site_path_test.go；siteGet ← site_path_test.go
+//
+// 主要符号
+//
+//	const sitePID
+//	timeZero() time.Time
+//	siteCfg() config.SitesConfig
+//	siteRouter(t *testing.T, mutate func(*Dependencies)) (*echo.Echo, Dependencies, objectstore.FileStore)
+//	siteGet(e *echo.Echo, method, host, path string, hdr map[string]string) *httptest.ResponseRecorder
+//	TestSiteServeRules(t *testing.T)
+//	TestSiteHostDispatchBoundaries(t *testing.T)
+//	TestSiteWithoutDomainNotServed(t *testing.T)
+//	... 另有 6 个顶层符号
+
 package api
 
 import (
@@ -214,7 +245,7 @@ func siteAdminRouter(t *testing.T, perms []auth.Permission, writable bool, pid s
 		cfg.BaseDomain = ""
 	}
 	w := writable
-	h := &S3Handler{store: objectstore.NewMemoryFileStore(), index: store, writable: &w, sites: NewSiteStore(store, 0), sitesCfg: cfg}
+	h := &S3Handler{store: objectstore.NewMemoryFileStore(), index: store, writable: w, sites: NewSiteStore(store, 0), sitesCfg: cfg}
 	e := echo.New()
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {

@@ -44,9 +44,9 @@ import (
 type metricsHandler struct{ store *systemdb.Store }
 
 func (h *metricsHandler) Summary(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	sum, err := h.store.MetricsSummaryCached(c.Request().Context(), pc.ID)
 	if err != nil {
@@ -56,9 +56,9 @@ func (h *metricsHandler) Summary(c echo.Context) error {
 }
 
 func (h *metricsHandler) Trend(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	days := 7
 	if s := c.QueryParam("days"); s != "" {
@@ -76,9 +76,9 @@ func (h *metricsHandler) Trend(c echo.Context) error {
 type logsHTTPHandler struct{ store *systemdb.Store }
 
 func (h *logsHTTPHandler) List(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	q := systemdb.LogQuery{ProjectID: pc.ID, Level: c.QueryParam("level"), Q: c.QueryParam("q")}
 	if s := c.QueryParam("limit"); s != "" {
@@ -104,9 +104,9 @@ func (h *logsHTTPHandler) List(c echo.Context) error {
 }
 
 func (h *logsHTTPHandler) Stats(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	from, to, err := logTimeWindow(c)
 	if err != nil {
@@ -120,9 +120,9 @@ func (h *logsHTTPHandler) Stats(c echo.Context) error {
 }
 
 func (h *logsHTTPHandler) Export(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	from, to, err := logTimeWindow(c)
 	if err != nil {
@@ -155,15 +155,15 @@ func logTimeWindow(c echo.Context) (time.Time, time.Time, error) {
 		to, err = time.Parse(time.RFC3339, c.QueryParam("to"))
 	}
 	if err != nil || from.After(to) || to.Sub(from) > 30*24*time.Hour {
-		return time.Time{}, time.Time{}, NewAPIError(http.StatusBadRequest, "invalid_request", "invalid time window; maximum is 30 days", RequestIDFromContext(c.Request().Context()))
+		return time.Time{}, time.Time{}, badRequest(c, "invalid time window; maximum is 30 days")
 	}
 	return from, to, nil
 }
 
 func (h *logsHTTPHandler) GetRetention(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	r, err := h.store.GetRetention(c.Request().Context(), pc.ID)
 	if err != nil {
@@ -173,9 +173,9 @@ func (h *logsHTTPHandler) GetRetention(c echo.Context) error {
 }
 
 func (h *logsHTTPHandler) PutRetention(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	var body struct {
 		KeepDays int `json:"keep_days"`
@@ -192,9 +192,9 @@ func (h *logsHTTPHandler) PutRetention(c echo.Context) error {
 type settingsHandler struct{ store *systemdb.Store }
 
 func (h *settingsHandler) GetProject(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	rows, err := h.store.ListProjectSettings(c.Request().Context(), pc.ID)
 	if err != nil {
@@ -204,9 +204,9 @@ func (h *settingsHandler) GetProject(c echo.Context) error {
 }
 
 func (h *settingsHandler) PutProject(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	var body struct {
 		Key       string `json:"key"`
@@ -256,9 +256,9 @@ type llmSessionHandler struct{ store *systemdb.Store }
 
 // GetSettings 返回项目模型配置。api_key 只回掩码，原文不出网。
 func (h *llmSessionHandler) GetSettings(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	st, err := h.store.GetLLMSettings(c.Request().Context(), pc.ID)
 	if err != nil {
@@ -276,9 +276,9 @@ func (h *llmSessionHandler) GetSettings(c echo.Context) error {
 }
 
 func (h *llmSessionHandler) PutSettings(c echo.Context) error {
-	pc, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	pc, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	var body struct {
 		DefaultProvider string   `json:"default_provider"`

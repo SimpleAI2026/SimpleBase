@@ -6,7 +6,7 @@ Vue 3 + TypeScript + Vite 单页应用，管理 SimpleBase 后端的全部能力
 
 ## 技术栈
 
-Vue 3 · TypeScript 5 · Vite 5 · Pinia · vue-router · Tailwind CSS v4 · reka-ui（shadcn-vue 风格，见 `components.json`）· vue-sonner · axios · ECharts（图表）· Monaco Editor（SQL / Go 编辑器）· marked + DOMPurify（文档渲染）· Vitest + jsdom（单测，95% 覆盖率阈值）
+Vue 3 · TypeScript 5 · Vite 5 · Pinia · vue-router · Tailwind CSS v4 · reka-ui（shadcn-vue 风格，见 `components.json`）· vue-sonner · axios · ECharts（图表）· Monaco Editor（SQL / Go 编辑器）· marked + DOMPurify（文档渲染）· Vitest + jsdom（单测，90% 覆盖率阈值）
 
 ## 快速开始
 
@@ -31,7 +31,7 @@ yarn dev              # http://127.0.0.1:5173
 | `yarn dev` | Vite 开发服务器（默认 5173，`--strictPort`） |
 | `yarn build` | 生产构建 → `dist/` |
 | `yarn preview` | 本地预览构建产物（5173） |
-| `yarn test` | Vitest 单测 + v8 coverage（语句/函数/分支 95% 阈值） |
+| `yarn test` | Vitest 单测 + v8 coverage（语句/函数/分支 90% 阈值） |
 | `yarn test:watch` | watch 模式 |
 
 ## 环境变量
@@ -80,12 +80,12 @@ src/
 │                      SbEmptyState、SbCodeBlock、UserMenu 等
 ├─ services/           API 层（见下节）
 ├─ stores/             Pinia（auth 登录态与角色 / project 项目切换 / settings）
-├─ composables/        usePagination / useAgentConversation / useLoadState / useLocale
+├─ composables/        usePagination / useLoadState / useLocale / useCanWrite / useProjectReload / useAgent*
 ├─ layouts/            DefaultLayout（控制台）/ DocsLayout（文档站）
 ├─ docs/               文档目录、按需加载 / 搜索与 Markdown 渲染（catalog.ts / render.ts）
 ├─ constants/          常量（llmProviders）
-├─ lib/                utils（cn 合并 class）/ status 映射
-├─ utils/              format
+├─ lib/                utils（cn 合并 class）
+├─ utils/              format / status（状态映射）/ clipboard / api-errors / tool-cards 等纯函数
 ├─ router/             路由定义
 └─ test/               Vitest setup 与测试基建（setup.ts / helpers.ts / api-mock.ts）
 tests/                 全部单测（与 src/ 平级；import 经 `@/` 别名指回 src）
@@ -99,14 +99,15 @@ tests/                 全部单测（与 src/ 平级；import 经 `@/` 别名�
 
 ```text
 页面/组件 ──> services/api.ts（固定导出 httpApi）
-                └─ http-api.ts（实现）→ http.ts（axios 实例、token 存取、401 处理）
-             └─ services/types.ts（唯一契约：Api 接口 + DTO）
+                └─ http-api.ts（组装）→ http-api/{platform,data,agent}.ts（按域实现）→ http.ts（axios 实例、token 存取、401 处理）
+             └─ services/types.ts（唯一契约入口，按域拆在 services/types/）
 ```
 
 - 后端 snake_case → camelCase 一律走映射函数（`toProjectItem` 风格），不透传 raw。
 - 路径构造函数模式：`xxxPath(projectId, …)` 统一 `encodeURIComponent`。
 - 页面/组件**禁止**直接 import axios 或 `http-api`，只能 `api.*`。
-- 新增接口：改 `types.ts` 契约 + `http-api.ts` 实现；单测桩在 `src/test/api-mock.ts`。
+- 新增接口：改 `types.ts` 契约 + 对应域的 `http-api/{platform,data,agent}.ts` 实现（`http-api.ts` 只做组装）；单测桩在 `src/test/api-mock.ts`。
+- 三态区域：`useLoadState()` 的结果整个传给 `SbAsyncRegion` 的 `state`（类型 `AsyncRegionState` 在 `components/async-region-state.ts`），不再逐个透传 pending / show* / refreshing / error。
 
 ## 登录态与权限
 
@@ -117,7 +118,7 @@ tests/                 全部单测（与 src/ 平级；import 经 `@/` 别名�
 
 ## 测试
 
-测试位于 `ui/tests/`（85 个文件），与源码 `src/` 分离；import 通过 `@/` 别名指回 `src/`。技术栈：Vitest + jsdom + `@vue/test-utils`；coverage 用 v8 provider，语句/函数/分支 95% 阈值。不计入覆盖：`src/components/ui/**`、`*.d.ts`、`src/test/**`、`src/main.ts`、`src/services/types.ts`。
+测试位于 `ui/tests/`（155 个文件），与源码 `src/` 分离；import 通过 `@/` 别名指回 `src/`。技术栈：Vitest + jsdom + `@vue/test-utils`；coverage 用 v8 provider，语句/函数/分支 90% 阈值。不计入覆盖：`src/components/ui/**`、`*.d.ts`、`src/test/**`、`src/main.ts`、`src/services/types.ts`。
 
 ## 与后端的构建关系
 

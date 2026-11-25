@@ -1,3 +1,26 @@
+// 文件说明：shell_isolation_test.go — internal/config 的单元测试（TestShellIsolationDefaults、TestShellIsolationEnvOverrides 等）
+//
+// 用法
+//
+//	go test ./internal/config -run 'TestShellIsolationDefaults|TestShellIsolationEnvOverrides|TestShellIsolationValidation'
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/api, internal/api/perfbench, internal/app 等 6 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/config/shell_isolation_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] agent_config_test.go, backup.go, config.go, config_agent_types.go, config_example_test.go 等 24 个
+//
+// 主要符号
+//
+//	TestShellIsolationDefaults(t *testing.T)
+//	TestShellIsolationEnvOverrides(t *testing.T)
+//	TestShellIsolationValidation(t *testing.T)
+
 package config
 
 import (

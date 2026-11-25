@@ -1,3 +1,24 @@
+// 文件说明：delete_md5_test.go — internal/objectstore 的单元测试（TestDeleteManySendsContentMD5 等）
+//
+// 用法
+//
+//	go test ./internal/objectstore -run 'TestDeleteManySendsContentMD5'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/api, internal/app, internal/backup 等 6 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/objectstore/delete_md5_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] blob.go, blob_test.go, branches_test.go, client.go, client_test.go 等 24 个
+//
+// 主要符号
+//
+//	TestDeleteManySendsContentMD5(t *testing.T)
+
 package objectstore
 
 // COS 的 DeleteObjects 强制要求 Content-MD5；验证线上请求带了正确的头。

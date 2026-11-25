@@ -1,3 +1,32 @@
+// 文件说明：error_test.go — internal/api 的单元测试（TestAPIError_Error、TestError_Nil 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestAPIError_Error|TestError_Nil|TestError_DomainMapping|TestError_UnknownReturnsNil'
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/error_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//
+// 主要符号
+//
+//	TestAPIError_Error(t *testing.T)
+//	TestError_Nil(t *testing.T)
+//	TestError_DomainMapping(t *testing.T)
+//	TestError_UnknownReturnsNil(t *testing.T)
+//	TestError_APIErrorReuse(t *testing.T)
+//	TestError_EchoHTTPError(t *testing.T)
+//	TestMapEchoError(t *testing.T)
+//	TestHTTPStatusToCode(t *testing.T)
+//	... 另有 2 个顶层符号
+
 package api
 
 import (

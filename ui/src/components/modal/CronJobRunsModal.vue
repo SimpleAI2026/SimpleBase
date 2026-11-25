@@ -32,14 +32,9 @@
 
     <div class="max-h-[60vh] overflow-y-auto pt-3">
       <SbAsyncRegion
+        :state="loadState"
         class="space-y-3"
         block="spinner"
-        :pending="pending"
-        :show-skeleton="showSkeleton"
-        :show-empty="showEmpty"
-        :show-error="showError"
-        :refreshing="refreshing"
-        :error="error"
         :empty-title="statusFilter === 'all' ? t('components.cronRuns.emptyTitleAll') : t('components.cronRuns.emptyTitleFiltered')"
         :empty-description="statusFilter === 'all' ? t('components.cronRuns.emptyDescAll') : ''"
         @retry="load"
@@ -109,16 +104,16 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
-import SbModal from './SbModal.vue'
-import SbAsyncRegion from '../SbAsyncRegion.vue'
-import SbEmptyState from '../SbEmptyState.vue'
-import { useLoadState } from '../../composables/useLoadState'
-import { api } from '../../services/api'
-import type { CronJobItem, CronJobRunItem } from '../../services/api'
-import { useProjectStore } from '../../stores/project'
-import { runStatusVariant } from '@/lib/status'
+import SbModal from '@/components/modal/SbModal.vue'
+import SbAsyncRegion from '@/components/SbAsyncRegion.vue'
+import SbEmptyState from '@/components/SbEmptyState.vue'
+import { useLoadState } from '@/composables/useLoadState'
+import { api } from '@/services/api'
+import type { CronJobItem, CronJobRunItem } from '@/services/api'
+import { useProjectStore } from '@/stores/project'
+import { runStatusVariant } from '@/utils/status'
 import { copyText } from '@/utils/clipboard'
-import { formatTime } from '../../utils/format'
+import { formatTime } from '@/utils/format'
 
 const props = defineProps<{
   open: boolean
@@ -137,9 +132,10 @@ const projectId = computed(() => projectStore.projectId)
 
 const runs = ref<CronJobRunItem[]>([])
 const triggering = ref(false)
-const { pending, hasData, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
+const loadState = useLoadState({
   fallback: 'components.cronRuns.loadFailed'
 })
+const { pending, hasData, run } = loadState
 const statusFilter = ref<'all' | 'completed' | 'failed'>('all')
 
 const filteredRuns = computed(() => {

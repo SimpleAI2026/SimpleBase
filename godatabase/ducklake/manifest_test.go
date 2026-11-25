@@ -1,3 +1,34 @@
+// 文件说明：manifest_test.go — godatabase/ducklake 的单元测试（TestManifestWriteReadLatest、TestManifestRejectsKeyPayloadSeqMismatch 等）
+//
+// 用法
+//
+//	go test ./godatabase/ducklake -run 'TestManifestWriteReadLatest|TestManifestRejectsKeyPayloadSeqMismatch|TestManifestConflictIsSplitBrain|TestSnapshotKeyStructure'
+//	同包调用：testRemote() → c4_syncer_lease_test.go, c4_syncer_ordering_test.go；testMeta() → manifest_chain_test.go, orphan_ledger_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app, internal/systemdb
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/ducklake/manifest_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] c4_syncer_lease_test.go, c4_syncer_ordering_test.go, catalog_syncer.go, catalog_syncer_test.go, coverage_test.go 等 35 个
+//	[关键引用] testRemote ← c4_syncer_lease_test.go, c4_syncer_ordering_test.go；testMeta ← manifest_chain_test.go, orphan_ledger_test.go
+//
+// 主要符号
+//
+//	testRemote() RemoteStorage
+//	testMeta() godatabase.Spec
+//	TestManifestWriteReadLatest(t *testing.T)
+//	TestManifestRejectsKeyPayloadSeqMismatch(t *testing.T)
+//	TestManifestConflictIsSplitBrain(t *testing.T)
+//	TestSnapshotKeyStructure(t *testing.T)
+//	TestLocalStateRoundTrip(t *testing.T)
+//	TestEnsureLocalCatalogLocalAheadNotOverwritten(t *testing.T)
+//	... 另有 3 个顶层符号
+
 package ducklake
 
 import (

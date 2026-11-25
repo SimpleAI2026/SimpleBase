@@ -2,7 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import FunctionTriggerModal from '@/components/modal/FunctionTriggerModal.vue'
 import { api, resetApiMocks } from '@/test/api-mock'
-import { uiStubs } from '@/test/helpers'
+import { uiStubs, installJsdomPolyfills, pickSelectOption, realSelectStubs, selectTriggers, closeDialog, mountDialog, okModal, realDialogStubs, inDialog } from '@/test/helpers'
 import type { FunctionTriggerInput, GoFunctionItem } from '@/services/types'
 
 vi.mock('@/services/api', async () => {
@@ -35,27 +35,30 @@ function fn(name: string): GoFunctionItem {
   }
 }
 
-function setup() {
+async function setup() {
   api.gofunctions.list.mockResolvedValue([fn('handler')])
-  return mount(FunctionTriggerModal, {
+  return await mountDialog(FunctionTriggerModal, {
+    attachTo: document.body,
     props: { open: true, projectId: 'p1' },
-    global: { stubs: uiStubs }
+    global: { stubs: { ...uiStubs, ...realDialogStubs, ...realSelectStubs } }
   })
 }
+
+installJsdomPolyfills()
 
 describe('FunctionTriggerModal', () => {
   beforeEach(() => resetApiMocks())
 
   it('creates a trigger and applies HTTP target semantics', async () => {
-    const wrapper = setup()
+    const wrapper = await setup()
     await flushPromises()
     const vm = wrapper.vm as unknown as ModalVm
     expect(vm.form.funcFile).toBe('handler')
     expect(vm.form.funcExport).toBe('Handle')
 
-    await wrapper.get('#trigger-events').setValue('create, update, ,')
-    await wrapper.get('#trigger-filter').setValue('status="open"')
-    await wrapper.get('.sb-ok').trigger('click')
+    await inDialog().get('#trigger-events').setValue('create, update, ,')
+    await inDialog().get('#trigger-filter').setValue('status="open"')
+    await okModal()
     await flushPromises()
     expect(api.triggers.create).toHaveBeenCalledWith('p1', expect.objectContaining({
       kind: 'record_change',
@@ -72,33 +75,33 @@ describe('FunctionTriggerModal', () => {
     vm.selectKind('http')
     await flushPromises()
     expect(vm.form.target).toBe('')
-    expect(wrapper.find('#trigger-target').exists()).toBe(false)
-    await wrapper.get('.sb-ok').trigger('click')
+    expect(inDialog().find('#trigger-target').exists()).toBe(false)
+    await okModal()
     await flushPromises()
     expect(api.triggers.create).toHaveBeenLastCalledWith('p1', expect.objectContaining({ kind: 'http', target: '' }))
   })
 
   it('keeps the form and error after a failed save and resets on reopen', async () => {
     api.triggers.create.mockRejectedValueOnce(new Error('invalid trigger'))
-    const wrapper = setup()
+    const wrapper = await setup()
     await flushPromises()
-    await wrapper.get('.sb-ok').trigger('click')
+    await okModal()
     await flushPromises()
-    expect(wrapper.text()).toContain('invalid trigger')
+    expect(inDialog().text()).toContain('invalid trigger')
     expect(wrapper.emitted('saved')).toBeUndefined()
 
     await wrapper.setProps({ open: false })
     await wrapper.setProps({ open: true })
     await flushPromises()
-    expect(wrapper.text()).not.toContain('invalid trigger')
+    expect(inDialog().text()).not.toContain('invalid trigger')
     expect((wrapper.vm as unknown as ModalVm).form.kind).toBe('record_change')
   })
 
   it('loads functions with retry and ignores a previous project response', async () => {
     api.gofunctions.list.mockRejectedValueOnce(new Error('functions offline'))
-    const wrapper = setup()
+    const wrapper = await setup()
     await flushPromises()
-    expect(wrapper.text()).toContain('functions offline')
+    expect(inDialog().text()).toContain('functions offline')
     expect((wrapper.vm as unknown as ModalVm).canSave).toBe(false)
 
     let resolveFirst!: (value: GoFunctionItem[]) => void
@@ -115,22 +118,22 @@ describe('FunctionTriggerModal', () => {
     await flushPromises()
     expect((wrapper.vm as unknown as ModalVm).form.funcFile).toBe('second')
 
-    await wrapper.get('.sb-ok').trigger('click')
+    await okModal()
     await flushPromises()
     expect(api.triggers.create).toHaveBeenCalledWith('p2', expect.objectContaining({ funcFile: 'second' }))
   })
 
   it('disables saving when no published function is available', async () => {
-    const wrapper = setup()
+    const wrapper = await setup()
     await flushPromises()
     api.gofunctions.list.mockResolvedValue([{ ...fn('draft'), published: false, activeVersion: 0 }])
     await (wrapper.vm as unknown as ModalVm).loadFunctions()
-    expect(wrapper.text()).toContain('没有已发布的云函数')
+    expect(inDialog().text()).toContain('没有已发布的云函数')
     expect((wrapper.vm as unknown as ModalVm).canSave).toBe(false)
   })
 
   it('covers function selection, validation and empty-project branches', async () => {
-    const wrapper = setup()
+    const wrapper = await setup()
     await flushPromises()
     const vm = wrapper.vm as unknown as ModalVm
 
@@ -167,9 +170,9 @@ describe('FunctionTriggerModal', () => {
   it('does not emit saved into a different project after creation finishes', async () => {
     let resolveCreate!: () => void
     api.triggers.create.mockReturnValue(new Promise<void>((resolve) => { resolveCreate = resolve }))
-    const wrapper = setup()
+    const wrapper = await setup()
     await flushPromises()
-    await wrapper.get('.sb-ok').trigger('click')
+    await okModal()
     await wrapper.setProps({ projectId: 'p2' })
     resolveCreate()
     await flushPromises()
@@ -177,18 +180,19 @@ describe('FunctionTriggerModal', () => {
   })
 
   it('wires select, switch and close events through the modal template', async () => {
-    const wrapper = setup()
+    const wrapper = await setup()
     await flushPromises()
-    const selects = wrapper.findAll('.select-emit')
-    await selects[0].trigger('click')
-    await selects[1].trigger('click')
-    await wrapper.get('.switch').trigger('click')
-    await wrapper.get('.sb-modal-close').trigger('click')
+    // 真实 Select：触发器类型选 http，随后函数下拉可选 handler
+    await pickSelectOption(selectTriggers()[0], 'http')
+    expect((wrapper.vm as unknown as { form: { kind: string } }).form.kind).toBe('http')
+    await pickSelectOption(selectTriggers()[1], 'handler.go')
+    await inDialog().get('[data-slot="switch"]').trigger('click')
+    await closeDialog()
     expect(wrapper.emitted('update:open')?.at(-1)).toEqual([false])
   })
 
   it('ignores a rejected function request from the previous project', async () => {
-    const wrapper = setup()
+    const wrapper = await setup()
     await flushPromises()
     const vm = wrapper.vm as unknown as ModalVm
     let rejectFirst!: (reason: Error) => void
@@ -202,6 +206,6 @@ describe('FunctionTriggerModal', () => {
     await loading
     await flushPromises()
     expect(vm.form.funcFile).toBe('second')
-    expect(wrapper.text()).not.toContain('outdated failure')
+    expect(inDialog().text()).not.toContain('outdated failure')
   })
 })

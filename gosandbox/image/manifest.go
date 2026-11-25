@@ -1,3 +1,38 @@
+// 文件说明：manifest.go — gosandbox/image 中 Descriptor、PlatformRef 等符号的实现
+//
+// 用法
+//
+//	type Descriptor struct{…}  // Descriptor 是 manifest 里的一个对象引用
+//	type PlatformRef struct{…}  // PlatformRef 是索引里标注的平台
+//	type Manifest struct{…}  // Manifest 同时容纳索引与单平台 manifest：按 MediaType 区分
+//	DecodeManifest(body []byte) (Manifest, error)  // DecodeManifest 解析 manifest 字节
+//	type Config struct{…}  // Config 是镜像 config 里本运行时用到的字段
+//	DecodeConfig(body []byte) (Config, error)  // DecodeConfig 解析镜像 config JSON
+//
+// 调用架构
+//
+//	[上游] gosandbox/vm/box, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/image/manifest.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] arch.go, import.go, manifest_test.go, pull.go, pull_test.go 等 16 个
+//	[关键引用] Descriptor ← manifest_test.go, registry.go；PlatformRef ← manifest_test.go；Manifest ← registry.go
+//
+// 主要符号
+//
+//	const ManifestListType / DockerListType / ManifestType / DockerManifestType / LayerType / LayerTypeZstd / DockerLayerType / LayerTypePlain / ConfigType / DockerConfigType
+//	var ErrUnsupportedPlatform
+//	type Descriptor struct{…}
+//	type PlatformRef struct{…}
+//	type Manifest struct{…}
+//	(m Manifest) IsIndex() bool
+//	DecodeManifest(body []byte) (Manifest, error)
+//	(m Manifest) PickPlatform(arch, osName string) (Descriptor, bool)
+//	... 另有 3 个顶层符号
+
 package image
 
 import (

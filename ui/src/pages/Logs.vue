@@ -5,7 +5,7 @@
       <CardHeader class="border-b">
         <CardTitle>{{ t('pages.logs.cardTitle') }}</CardTitle>
         <CardDescription>{{ t('pages.logs.cardDesc') }}</CardDescription>
-        <!-- 保留策略是低频设置：收进卡片头的 Popover（planv6.7 ui-simplify-ux-plan X6） -->
+        <!-- 保留策略是低频设置：收进卡片头的 Popover -->
         <CardAction>
           <Popover>
             <PopoverTrigger as-child>
@@ -64,7 +64,7 @@
             <Input v-model="to" type="datetime-local" class="w-full" />
           </div>
         </div>
-        <!-- 主按钮按筛选条件查询（文案「查询」，planv6.7 ui-simplify-ux-plan X5） -->
+        <!-- 主按钮按筛选条件查询（文案「查询」） -->
         <Button size="sm" :disabled="pending" @click="load">
           <Spinner v-if="pending" data-icon="inline-start" />
           <SearchIcon v-else data-icon="inline-start" />
@@ -93,14 +93,9 @@
             </TableRow>
           </TableHeader>
           <SbAsyncRegion
+            :state="loadState"
             as="tbody"
             :columns="5"
-            :pending="pending"
-            :show-skeleton="showSkeleton"
-            :show-empty="showEmpty"
-            :show-error="showError"
-            :refreshing="refreshing"
-            :error="error"
             :empty-description="t('pages.logs.emptyDesc')"
             :empty-action-text="hasFilter ? t('pages.logs.clearFilter') : undefined"
             @retry="load"
@@ -160,19 +155,19 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { api } from '../services/api'
-import type { LogEvent, TrendPoint } from '../services/api'
-import TrendChart, { type ChartMode } from '../components/TrendChart.vue'
-import { useProjectStore } from '../stores/project'
-import { useLoadState } from '../composables/useLoadState'
-import { usePagination } from '../composables/usePagination'
-import { logLevelText, logLevelVariant } from '@/lib/status'
-import { errorMessage, formatTime } from '../utils/format'
-import { downloadBlob } from '../utils/download'
-import PageContainer from '../components/PageContainer.vue'
-import ProjectScope from '../components/ProjectScope.vue'
-import SbAsyncRegion from '../components/SbAsyncRegion.vue'
-import TablePager from '../components/TablePager.vue'
+import { api } from '@/services/api'
+import type { LogEvent, TrendPoint } from '@/services/api'
+import TrendChart, { type ChartMode } from '@/components/TrendChart.vue'
+import { useProjectStore } from '@/stores/project'
+import { useLoadState } from '@/composables/useLoadState'
+import { usePagination } from '@/composables/usePagination'
+import { logLevelText, logLevelVariant } from '@/utils/status'
+import { errorMessage, formatTime } from '@/utils/format'
+import { downloadBlob } from '@/utils/download'
+import PageContainer from '@/components/PageContainer.vue'
+import ProjectScope from '@/components/ProjectScope.vue'
+import SbAsyncRegion from '@/components/SbAsyncRegion.vue'
+import TablePager from '@/components/TablePager.vue'
 
 const POLL_MS = 10000
 const POLL_SEC = POLL_MS / 1000
@@ -191,9 +186,10 @@ const events = ref<LogEvent[]>([])
 const trendPoints = ref<TrendPoint[]>([])
 const trendMode = ref<ChartMode>('line')
 const { page, pageSize, total, pageCount, items: paged } = usePagination(events)
-const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
+const loadState = useLoadState({
   fallback: 'pages.logs.loadFailed'
 })
+const { pending, run } = loadState
 const autoRefresh = ref(false)
 const keepDays = ref(14)
 const keepDaysText = computed({
@@ -216,7 +212,7 @@ function queryParams() {
   return {
     level: level.value || undefined,
     q: keyword.value.trim() || undefined,
-    // 未指定开始时默认最近 24h，后端据此做文件剪枝（perf §1 P1-D）
+    // 未指定开始时默认最近 24h，后端据此做文件剪枝
     from: from.value
       ? new Date(from.value).toISOString()
       : new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
@@ -288,7 +284,7 @@ function stopPolling() {
 watch(autoRefresh, (on) => {
   stopPolling()
   if (on) {
-    // 页面隐藏时跳过本轮（与数据看板 F12 一致，B6）
+    // 页面隐藏时跳过本轮（与数据看板一致）
     timer = window.setInterval(() => {
       if (document.visibilityState !== 'hidden') void load()
     }, POLL_MS)

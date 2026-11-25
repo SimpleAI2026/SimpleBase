@@ -174,7 +174,7 @@ func NewAt(addr string, scripts []Script, defaultScript Script) *Server {
 		seq := s.seq
 		s.mu.Unlock()
 		script := pickScript(scripts, req, seq, defaultScript)
-		s.respond(w, req, script)
+		s.respond(w, r, req, script)
 	})
 	s.Server = httptest.NewServer(mux)
 	if addr != "" && addr != "127.0.0.1:0" && addr != ":0" {
@@ -227,7 +227,7 @@ func pickScript(scripts []Script, req Request, seq int, def Script) Script {
 	return def
 }
 
-func (s *Server) respond(w http.ResponseWriter, req Request, script Script) {
+func (s *Server) respond(w http.ResponseWriter, r *http.Request, req Request, script Script) {
 	if script.HTTPStatus != 0 {
 		w.WriteHeader(script.HTTPStatus)
 		_, _ = w.Write([]byte(script.Body))
@@ -242,7 +242,10 @@ func (s *Server) respond(w http.ResponseWriter, req Request, script Script) {
 		if flusher != nil {
 			flusher.Flush()
 		}
-		select {}
+		// 阻塞到客户端断开（超时 / 取消）或测试服务器关闭；不能 select {}，否则 Close 永远等不到处理器退出。
+		select {
+		case <-r.Context().Done():
+		}
 	}
 	if !req.Stream {
 		s.respondNonStream(w, req, script)

@@ -1,3 +1,28 @@
+// 文件说明：resilience_test.go — internal/llmgateway 的单元测试（TestServiceAppliesResilienceConfig 等）
+//
+// 用法
+//
+//	go test ./internal/llmgateway -run 'TestServiceAppliesResilienceConfig'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app 等 5 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/llmgateway/resilience_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_tools_test.go, catalog_resolver.go, client_chat_usage_test.go, fallback_resolver.go, fallback_resolver_test.go 等 14 个
+//
+// 主要符号
+//
+//	TestServiceAppliesResilienceConfig(t *testing.T)
+//	type fakeCatalog struct{…}
+//	(f *fakeCatalog) Resolve(_ context.Context, projectID string) (ProjectProviders, error)
+//	(f *fakeCatalog) GetLLMProviders(_ context.Context, projectID string) (ProjectProviders, error)
+//	(f *fakeCatalog) RecordLLM(_ context.Context, _, _, _ string, _ Usage) error
+
 package llmgateway
 
 import (

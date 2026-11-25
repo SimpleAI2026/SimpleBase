@@ -4,7 +4,7 @@ import { nextTick } from 'vue'
 import { toast } from 'vue-sonner'
 import BiWidgetRunner from '@/components/bi/BiWidgetRunner.vue'
 import { api, resetApiMocks } from '@/test/api-mock'
-import { uiStubs } from '@/test/helpers'
+import { chooseFromPopover, installJsdomPolyfills, realPopoverStubs, uiStubs } from '@/test/helpers'
 import type { BiWidget, CollectionField } from '@/services/types'
 
 vi.mock('@/services/api', async () => {
@@ -38,12 +38,14 @@ async function mountRunner(w: BiWidget, click = 'x', props: Record<string, unkno
   ;(globalThis as { __clickName?: string }).__clickName = click
   const wrapper = mount(BiWidgetRunner, {
     props: { widget: w, target, fields, globalFilter: '', refreshTick: 0, ...props } as never,
-    global: { stubs: { ...uiStubs, Button: false, Spinner: false } }
+    attachTo: document.body,
+    global: { stubs: { ...uiStubs, ...realPopoverStubs, Spinner: false } }
   })
   await flushPromises()
   return wrapper
 }
 
+installJsdomPolyfills()
 beforeEach(() => {
   resetApiMocks()
   api.db.aggregate.mockResolvedValue(agg(['x', 'count'], [['a', 2], ['b', 1]]))
@@ -306,9 +308,8 @@ describe('BiWidgetRunner events', () => {
   it('board mode forwards edit / duplicate / remove', async () => {
     const w = widget({ groupBy: 'status' })
     const wrapper = await mountRunner(w)
-    await wrapper.get('[data-action="edit"]').trigger('click')
-    await wrapper.get('[data-action="duplicate"]').trigger('click')
-    await wrapper.get('[data-action="remove"]').trigger('click')
+    // 「更多」菜单是真实 Popover：每项都要先打开
+    for (const action of ['edit', 'duplicate', 'remove']) await chooseFromPopover(wrapper, `[data-action="${action}"]`)
     expect(wrapper.emitted('edit')).toEqual([[w]])
     expect(wrapper.emitted('duplicate')).toEqual([['w1']])
     expect(wrapper.emitted('remove')).toEqual([[w]])

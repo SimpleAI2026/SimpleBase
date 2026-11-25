@@ -1,3 +1,30 @@
+// 文件说明：sandbox_e2e_test.go — internal/app 的单元测试（TestSandboxE2B_E2E、TestSandboxE2B_ReadOnlyAndLegacyGone 等）
+//
+// 用法
+//
+//	go test ./internal/app -run 'TestSandboxE2B_E2E|TestSandboxE2B_ReadOnlyAndLegacyGone|TestSandboxE2B_CrossProject'
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/api/perfbench
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/app/sandbox_e2e_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_shutdown_test.go, app.go, app_alerts.go, app_lease.go, app_test.go 等 41 个
+//
+// 主要符号
+//
+//	type e2bApp struct{…}
+//	newE2BApp(t *testing.T, max int) *e2bApp
+//	(v *e2bApp) do(t *testing.T, key, method, path, body string, hdr map[string]string) (int, http.Header, []byte)
+//	decode(t *testing.T, b []byte) map[string]any
+//	TestSandboxE2B_E2E(t *testing.T)
+//	TestSandboxE2B_ReadOnlyAndLegacyGone(t *testing.T)
+//	TestSandboxE2B_CrossProject(t *testing.T)
+
 package app
 
 import (

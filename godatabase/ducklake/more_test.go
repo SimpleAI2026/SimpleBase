@@ -1,3 +1,32 @@
+// 文件说明：more_test.go — godatabase/ducklake 的单元测试（TestBeforeCloseBindingAndAfterWriteError、TestInspectClosedDBAndListFiles 等）
+//
+// 用法
+//
+//	go test ./godatabase/ducklake -run 'TestBeforeCloseBindingAndAfterWriteError|TestInspectClosedDBAndListFiles|TestOpenCacheDirIsFile|TestCatalogSyncerCloseFlushesBound'
+//
+// 调用架构
+//
+//	[上游] internal/app, internal/systemdb
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/ducklake/more_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] c4_syncer_lease_test.go, c4_syncer_ordering_test.go, catalog_syncer.go, catalog_syncer_test.go, coverage_test.go 等 35 个
+//
+// 主要符号
+//
+//	TestBeforeCloseBindingAndAfterWriteError(t *testing.T)
+//	TestInspectClosedDBAndListFiles(t *testing.T)
+//	TestOpenCacheDirIsFile(t *testing.T)
+//	TestCatalogSyncerCloseFlushesBound(t *testing.T)
+//	TestEnsureLocalCatalogHeadError(t *testing.T)
+//	type errHeadStore struct{…}
+//	(e errHeadStore) Head(ctx context.Context, key string) (blob.ObjectInfo, error)
+//	(e errHeadStore) PutBytes(ctx context.Context, key string, data []byte, ct string) error
+//	... 另有 11 个顶层符号
+
 package ducklake
 
 import (

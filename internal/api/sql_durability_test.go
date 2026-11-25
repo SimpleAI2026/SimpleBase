@@ -1,3 +1,27 @@
+// 文件说明：sql_durability_test.go — internal/api 的单元测试（TestSQLHandler_DurabilitySemantics 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestSQLHandler_DurabilitySemantics'
+//	同包调用：runSQL() → sql_database_gate_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/sql_durability_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] runSQL ← sql_database_gate_test.go
+//
+// 主要符号
+//
+//	runSQL(t *testing.T, h *SQLHandler, method, path string, body any) (int, string)
+//	TestSQLHandler_DurabilitySemantics(t *testing.T)
+
 package api
 
 import (

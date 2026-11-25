@@ -2,9 +2,7 @@
 //
 // 用法
 //
-//	(l LLMConfig) EffectiveAgentToolProtocol() string  // EffectiveAgentToolProtocol 返回归一后的工具协议，空值视为 auto
-//	(l LLMConfig) EffectiveAgentMaxIterations() int  // EffectiveAgentMaxIterations 返回工具迭代上限，零值为 8
-//	同包调用：Config → env.go, http_boundary.go 等；ProviderConfig → env.go, yaml.go；defaults() → env.go
+//	Config、StorageConfig、HTTPConfig（包内使用，由同包 handler / 路由装配调用）
 //
 // 调用架构
 //
@@ -16,24 +14,23 @@
 //	         ▼
 //	[下游] internal/utils/strutil
 //	[同包] backup.go, env.go, http_boundary.go, yaml.go
-//	[关键引用] Config ← env.go, http_boundary.go, yaml.go
 //
 // 主要符号
 //
 //	type Config struct {…}
-//	const StorageModeLocal
-//	const StorageModeS3
-//	const DefaultDataDir
 //	type StorageConfig struct {…}
 //	type HTTPConfig struct {…}
-//	... 另有 63 个顶层符号
+//	type HTTPSecurityHeaders struct {…}
+//	func (h HTTPSecurityHeaders) EffectiveCSP() string
+//	type InstanceConfig struct {…}
+//	func (c Config) IsProduction() bool
+//	func (c Config) ProfileName() string
+//	... 另有 22 个顶层符号
 
 package config
 
 import (
-	"errors"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -265,15 +262,6 @@ type AuthConfig struct {
 	SessionSecretExplicit bool `yaml:"-"`
 }
 
-type LLMConfig struct {
-	Enabled   bool                      `yaml:"enabled"`
-	Providers map[string]ProviderConfig `yaml:"providers"`
-	// 云 Agent 运行参数（planv4.0 cloud-agent-optimization-plan §6）。零值表示默认。
-	AgentToolProtocol  string        `yaml:"agent_tool_protocol"`  // auto | native | text
-	AgentMaxIterations int           `yaml:"agent_max_iterations"` // 1–20
-	AgentRunTimeout    time.Duration `yaml:"agent_run_timeout"`    // 10s–15m
-}
-
 const (
 	AgentToolProtocolAuto   = "auto"
 	AgentToolProtocolNative = "native"
@@ -282,291 +270,6 @@ const (
 	defaultAgentMaxIterations = 8
 	defaultAgentRunTimeout    = 180 * time.Second
 )
-
-// EffectiveAgentToolProtocol 返回归一后的工具协议，空值视为 auto。
-func (l LLMConfig) EffectiveAgentToolProtocol() string {
-	switch p := strutil.Normalize(l.AgentToolProtocol); p {
-	case AgentToolProtocolNative, AgentToolProtocolText:
-		return p
-	default:
-		return AgentToolProtocolAuto
-	}
-}
-
-// EffectiveAgentMaxIterations 返回工具迭代上限，零值为 8。
-func (l LLMConfig) EffectiveAgentMaxIterations() int {
-	if l.AgentMaxIterations <= 0 {
-		return defaultAgentMaxIterations
-	}
-	return l.AgentMaxIterations
-}
-
-// EffectiveAgentRunTimeout 返回单次 run 总时限，零值为 180s。
-func (l LLMConfig) EffectiveAgentRunTimeout() time.Duration {
-	if l.AgentRunTimeout <= 0 {
-		return defaultAgentRunTimeout
-	}
-	return l.AgentRunTimeout
-}
-
-func validateLLMAgent(l LLMConfig) []error {
-	var errs []error
-	switch strutil.Normalize(l.AgentToolProtocol) {
-	case "", AgentToolProtocolAuto, AgentToolProtocolNative, AgentToolProtocolText:
-	default:
-		errs = append(errs, fmt.Errorf("llm.agent_tool_protocol must be auto, native or text (got %q)", l.AgentToolProtocol))
-	}
-	if l.AgentMaxIterations < 0 || l.AgentMaxIterations > 20 {
-		errs = append(errs, fmt.Errorf("llm.agent_max_iterations must be 1-20 (got %d)", l.AgentMaxIterations))
-	}
-	if l.AgentRunTimeout != 0 && (l.AgentRunTimeout < 10*time.Second || l.AgentRunTimeout > 15*time.Minute) {
-		errs = append(errs, fmt.Errorf("llm.agent_run_timeout must be 10s-15m (got %s)", l.AgentRunTimeout))
-	}
-	return errs
-}
-
-// AgentConfig 控制云助手 CLI skill（planv5.0 cloud-assistant-skills-cli）。
-type AgentConfig struct {
-	SkillsCLI      bool          `yaml:"skills_cli"`
-	CLIPath        string        `yaml:"cli_path"`
-	DelegationTTL  time.Duration `yaml:"delegation_ttl"`
-	ConfirmTimeout time.Duration `yaml:"confirm_timeout"`
-	// TraceLog 开启云助手的运行日志（planv6.0 v2 §5）。默认关闭：
-	// 开启后按「元数据层（默认 info）」+「内容层（脱敏 + 截断）」两级输出，
-	// 内容层是 internal/AGENTS.md 脱敏约定的显式例外，仅在此开关为真时生效。
-	TraceLog bool `yaml:"trace_log"`
-	// ShellIsolation 是本机 shell 的隔离策略（planv6.2）。默认关闭。
-	// 服务端云助手的 sandbox_shell 走云沙盒（sandbox.*），不经过它；
-	// 目前只有 gocloudagent CLI 会启动本机 shell，而 CLI 读的是 ~/.gocloudagent/config.json，
-	// 这一段在服务端只做解析与校验，供操作者对照抄写。
-	ShellIsolation ShellIsolationConfig `yaml:"shell_isolation"`
-	// MCP 是外部 MCP Server 接入开关（planv6.2 §6-4）。默认关闭：
-	// 关闭时 Agent 保存 mcp: 引用会被拒绝，run 也不会装配 MCP 工具。
-	MCP MCPConfig `yaml:"mcp"`
-}
-
-// MCPConfig 是 agent.mcp 段。
-type MCPConfig struct {
-	// Enabled 是总开关。默认 false。
-	Enabled bool `yaml:"enabled"`
-	// Builtin 是项目 API 封装的内置 MCP Server 开关（planv6.7 §3）。默认 true。
-	Builtin bool `yaml:"builtin"`
-	// AllowHTTP 允许 http:// 端点（默认只允许 https）。
-	AllowHTTP bool `yaml:"allow_http"`
-	// MaxServersPerProject 是单项目可配置的 Server 上限。
-	MaxServersPerProject int `yaml:"max_servers_per_project"`
-}
-
-// EffectiveMaxServersPerProject 返回生效上限；未配置取 10。
-func (m MCPConfig) EffectiveMaxServersPerProject() int {
-	if m.MaxServersPerProject <= 0 {
-		return 10
-	}
-	return m.MaxServersPerProject
-}
-
-// ShellIsolationConfig 是 agent.shell_isolation 段。字段含义见 gosandbox/host.Policy。
-// internal/config 不 import gosandbox，所以校验在本包内自行完成。
-type ShellIsolationConfig struct {
-	Enabled          bool          `yaml:"enabled"`
-	Mode             string        `yaml:"mode"` // read-only | workspace-write | danger-full-access
-	WritableRoots    []string      `yaml:"writable_roots"`
-	ReadOnlySubpaths []string      `yaml:"read_only_subpaths"`
-	DenyRead         []string      `yaml:"deny_read"`
-	MemoryMaxBytes   int64         `yaml:"memory_max_bytes"`
-	CPUMax           string        `yaml:"cpu_max"`
-	PidsMax          int64         `yaml:"pids_max"`
-	Timeout          time.Duration `yaml:"timeout"`
-	BwrapPath        string        `yaml:"bwrap_path"`
-	HelperPath       string        `yaml:"helper_path"`
-}
-
-// EffectiveMode 返回生效档位；未指定取 workspace-write。
-func (c ShellIsolationConfig) EffectiveMode() string {
-	if c.Mode == "" {
-		return "workspace-write"
-	}
-	return c.Mode
-}
-
-func validateShellIsolation(c ShellIsolationConfig) []error {
-	var errs []error
-	switch c.EffectiveMode() {
-	case "read-only", "workspace-write", "danger-full-access":
-	default:
-		errs = append(errs, fmt.Errorf("agent.shell_isolation.mode must be read-only, workspace-write or danger-full-access (got %q)", c.Mode))
-	}
-	if c.MemoryMaxBytes < 0 || c.PidsMax < 0 || c.Timeout < 0 {
-		errs = append(errs, errors.New("agent.shell_isolation.memory_max_bytes, pids_max and timeout must not be negative"))
-	}
-	if c.CPUMax != "" {
-		f := strings.Fields(c.CPUMax)
-		ok := len(f) >= 1 && len(f) <= 2
-		for i, tok := range f {
-			if tok == "max" && i == 0 {
-				continue
-			}
-			if tok == "" || strings.Trim(tok, "0123456789") != "" {
-				ok = false
-			}
-		}
-		if !ok {
-			errs = append(errs, fmt.Errorf("agent.shell_isolation.cpu_max must be \"<quota|max> [period]\" (got %q)", c.CPUMax))
-		}
-	}
-	for _, group := range []struct {
-		name  string
-		paths []string
-	}{{"writable_roots", c.WritableRoots}, {"deny_read", c.DenyRead}} {
-		for _, p := range group.paths {
-			if !strings.HasPrefix(p, "/") && p != "~" && !strings.HasPrefix(p, "~/") {
-				errs = append(errs, fmt.Errorf("agent.shell_isolation.%s entries must be absolute or start with ~ (got %q)", group.name, p))
-			}
-		}
-	}
-	for _, p := range []struct{ name, v string }{{"bwrap_path", c.BwrapPath}, {"helper_path", c.HelperPath}} {
-		if p.v != "" && !strings.HasPrefix(p.v, "/") {
-			errs = append(errs, fmt.Errorf("agent.shell_isolation.%s must be absolute (got %q)", p.name, p.v))
-		}
-	}
-	return errs
-}
-
-func (a AgentConfig) EffectiveDelegationTTL() time.Duration {
-	if a.DelegationTTL <= 0 {
-		return 15 * time.Minute
-	}
-	return a.DelegationTTL
-}
-
-func (a AgentConfig) EffectiveConfirmTimeout() time.Duration {
-	if a.ConfirmTimeout <= 0 {
-		return 2 * time.Minute
-	}
-	return a.ConfirmTimeout
-}
-
-func validateAgent(a AgentConfig) []error {
-	var errs []error
-	if a.DelegationTTL != 0 && (a.DelegationTTL < time.Minute || a.DelegationTTL > 30*time.Minute) {
-		errs = append(errs, fmt.Errorf("agent.delegation_ttl must be 1m-30m (got %s)", a.DelegationTTL))
-	}
-	if a.ConfirmTimeout != 0 && (a.ConfirmTimeout < 10*time.Second || a.ConfirmTimeout > 10*time.Minute) {
-		errs = append(errs, fmt.Errorf("agent.confirm_timeout must be 10s-10m (got %s)", a.ConfirmTimeout))
-	}
-	errs = append(errs, validateShellIsolation(a.ShellIsolation)...)
-	return errs
-}
-
-type ProviderConfig struct {
-	APIKey        string        `yaml:"api_key"`
-	BaseURL       string        `yaml:"base_url"`
-	DefaultModel  string        `yaml:"default_model"`
-	AllowedModels []string      `yaml:"allowed_models"`
-	Timeout       time.Duration `yaml:"timeout"`
-}
-
-// SandboxConfig 控制「云沙盒」：项目级的隔离命令环境。
-//
-// 后端只有两种：local（本机进程隔离，经 gosandbox/host：Linux bubblewrap + Landlock + seccomp，
-// macOS Seatbelt）与 fake（内存假后端，仅测试）。不再依赖任何外部沙盒服务，没有 API Key。
-// local 与宿主共享内核，不是 VM，只适合自托管 / 受信任用户。
-type SandboxConfig struct {
-	Enabled bool `yaml:"enabled"`
-	// Image 在 local 后端下只是展示用的标签（不拉取任何镜像），默认 "host"；
-	// 在 box 后端下是沙盒根来源：目前仍只支持 "host"（宿主根只读），
-	// 镜像根随 M2（gosandbox/image）落地。
-	Image       string        `yaml:"image"`
-	CPUs        int           `yaml:"cpus"`       // 1–4；cgroup 不可用时不会生效
-	MemoryMiB   int           `yaml:"memory_mib"` // 128–4096；cgroup 不可用时不会生效
-	MaxDuration time.Duration `yaml:"max_duration"`
-	IdleTimeout time.Duration `yaml:"idle_timeout"`
-	// FreezeAfter 是空闲多久后把沙盒冻结（cgroup.freeze）：进程与内存保留，
-	// 恢复是毫秒级。0 = 不冻结。只在驱动支持 vm.Pauser 时生效。
-	FreezeAfter    time.Duration `yaml:"freeze_after"`
-	ExecTimeout    time.Duration `yaml:"exec_timeout"`
-	MaxOutputBytes int           `yaml:"max_output_bytes"`
-	MaxFileBytes   int           `yaml:"max_file_bytes"`
-	// Network 是出网档位：none（默认）/ egress。
-	// none 时沙盒 netns 里只有 lo，入站仍可经 agent 中继访问。
-	//
-	// egress 档同样 unshare netns：pasta 在沙盒自己的 netns 里配网并做用户态转发，
-	// 元数据（169.254/16）、私网（10/8、172.16/12、192.168/16）、CGNAT（100.64/10）
-	// 与回环（127/8）由沙盒内的黑洞路由拦住，不做域名级白名单。
-	// pasta 不可用或进不去 netns 时该档没有出网（fail-closed），不会退回共享宿主网络。
-	// 曾有的 egress-allowlist 从未接入生产路径，已于 planv6.6 GSB-10 移除；配置里残留的
-	// network_allow / allow_experimental_network 会被忽略。
-	Network string `yaml:"network"`
-	// Supervise 为真时把沙盒交给独立的 supervisor 进程托管：
-	// 服务进程重启（升级、崩溃）后能重新接管，沙盒与其进程不丢。
-	//
-	// 代价：断开的那一刻，agent 正在发但还没被读走的帧会丢，调用方需要能重试。
-	Supervise bool `yaml:"supervise"`
-	// DiskLimitMiB 是每个沙盒可写部分（upper + ws）的上限；0 = 不限。
-	// rootless 下没有文件系统配额，超限时冻结沙盒而不是杀掉。
-	DiskLimitMiB int64  `yaml:"disk_limit_mib"`
-	Workdir      string `yaml:"workdir"`
-
-	Backend        string        `yaml:"backend"`          // local | box | fake（fake 仅测试环境，须 SIMPLEBASE_SANDBOX_ALLOW_FAKE=1）
-	Images         []string      `yaml:"images"`           // 展示用标签白名单；空 = 仅 Image
-	ExecTimeoutMax time.Duration `yaml:"exec_timeout_max"` // API 可自定 timeout 的上限
-	MaxPerProject  int           `yaml:"max_per_project"`  // 项目内未删除沙盒上限
-	ReapInterval   time.Duration `yaml:"reap_interval"`    // 过期清理周期；0 = 关闭
-	// Root 是沙盒工作区的父目录；空 = <storage.data_dir>/sandboxes。
-	Root string `yaml:"root"`
-	// ImagesDir 是镜像 store 的目录；空表示不分发镜像，只支持 image=host。
-	// 配置后按引用从该 store 取镜像并解包成沙盒根（需先拉取或导入）。
-	ImagesDir string `yaml:"images_dir"`
-	// PidsMax 是 cgroup pids.max；0 = 不限。cgroup 不可用时不会生效。
-	PidsMax int64 `yaml:"pids_max"`
-	// BwrapPath / HelperPath 见 gosandbox/host.Policy；macOS 忽略。
-	BwrapPath  string `yaml:"bwrap_path"`
-	HelperPath string `yaml:"helper_path"`
-
-	Terminal SandboxTerminalConfig `yaml:"terminal"`
-	SSH      SandboxSSHConfig      `yaml:"ssh"`
-	E2B      SandboxE2BConfig      `yaml:"e2b"`
-}
-
-// SandboxTerminalConfig 控制控制台的浏览器终端（WebSocket + 进程内 SSH，不占端口）。
-type SandboxTerminalConfig struct {
-	// Enabled 默认 true；后端不支持 PTY 时自动降级为 capabilities.terminal=false。
-	Enabled               bool          `yaml:"enabled"`
-	MaxSessionsPerSandbox int           `yaml:"max_sessions_per_sandbox"` // 1-32
-	IdleTimeout           time.Duration `yaml:"idle_timeout"`             // >= 1m
-}
-
-// EffectiveSessionsPerSandbox 返回每个沙盒的会话数上限，零值取默认 4。
-func (t SandboxTerminalConfig) EffectiveSessionsPerSandbox() int {
-	if t.MaxSessionsPerSandbox <= 0 {
-		return 4
-	}
-	return t.MaxSessionsPerSandbox
-}
-
-// EffectiveIdleTimeout 返回终端空闲断开时间，零值取默认 15 分钟。
-func (t SandboxTerminalConfig) EffectiveIdleTimeout() time.Duration {
-	if t.IdleTimeout <= 0 {
-		return 15 * time.Minute
-	}
-	return t.IdleTimeout
-}
-
-// SandboxSSHConfig 控制是否对外开放真实 SSH 端口。默认不开放：它会在宿主上新开一个能拿到 shell 的端口。
-type SandboxSSHConfig struct {
-	// Listen 为空 = 不开放。例：127.0.0.1:2222；对外开放必须由操作者显式写 0.0.0.0 或经反向代理。
-	Listen string `yaml:"listen"`
-	// HostKeyPath 为空 = <storage.data_dir>/sandbox_ssh_host_ed25519，不存在时生成。
-	HostKeyPath string `yaml:"host_key_path"`
-}
-
-// SandboxE2BConfig 是 E2B 兼容 API 的展示配置。E2B 面随 sandbox.enabled 开关，没有单独的开关。
-type SandboxE2BConfig struct {
-	// DefaultTemplate 是 templateID="base" 对应的镜像别名；空取 sandbox.image。
-	DefaultTemplate string `yaml:"default_template"`
-	// EnvdVersion 是响应里报告的 envd 版本，SDK 据此判断能力；空取内置值。
-	EnvdVersion string `yaml:"envd_version"`
-}
 
 // SandboxBackendLocal / SandboxBackendFake 是 sandbox.backend 的合法取值。
 const (
@@ -578,15 +281,6 @@ const (
 	// SandboxDefaultImage 是 local 后端的镜像标签。
 	SandboxDefaultImage = "host"
 )
-
-// EffectiveBackend 返回归一后的 backend（空 = local）。
-func (s SandboxConfig) EffectiveBackend() string {
-	b := strutil.Normalize(s.Backend)
-	if b == "" {
-		return SandboxBackendLocal
-	}
-	return b
-}
 
 type LimitsConfig struct {
 	MaxRequestBytes      int64         `yaml:"max_request_bytes"`
@@ -689,7 +383,7 @@ func Load() (Config, error) {
 
 	// 日志级别归一化：空值（YAML 显式写空 / env 覆盖成空）回落到默认 debug，
 	// 避免 observability.parseLevel 静默退化成 info 而丢掉排查信息。
-	cfg.Observability.LogLevel = normalizeLogLevel(cfg.Observability.LogLevel)
+	normalize(&cfg)
 
 	// production 档位：注入安全默认值（只填用户未显式设置的字段），再做校验。
 	applyProfileDefaults(&cfg, collectExplicitFields(ycExplicit))
@@ -704,6 +398,18 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+// defaultMaxConcurrentGoRuns 是 limits.max_concurrent_go_runs 为 0 时的回落值，与 defaults() 一致。
+const defaultMaxConcurrentGoRuns = 16
+
+// normalize 把 YAML / env 合并后的空值回落到默认值。
+// 归一化只能在 Load 里对指针做：Validate 是值接收者，在里面赋值对调用方无效。
+func normalize(cfg *Config) {
+	cfg.Observability.LogLevel = normalizeLogLevel(cfg.Observability.LogLevel)
+	if cfg.Limits.MaxConcurrentGoRuns == 0 {
+		cfg.Limits.MaxConcurrentGoRuns = defaultMaxConcurrentGoRuns
+	}
 }
 
 // ConfigFilePath 返回当前生效的 YAML 路径（可能为空：表示没有配置文件）。
@@ -834,7 +540,7 @@ func defaults() Config {
 			MaxConcurrentQueries: 64,
 			MaxBatchStatements:   100,
 			MaxSQLBytes:          65536,
-			MaxConcurrentGoRuns:  16,
+			MaxConcurrentGoRuns:  defaultMaxConcurrentGoRuns,
 			MaxFilterScanRows:    50000,
 			MaxImportBytes:       128 << 20,
 			RealtimeMaxConns:     200,
@@ -885,419 +591,3 @@ func (c Config) EffectiveDBMode() string { return c.effectiveStorage(c.Storage.D
 
 // EffectiveFilesMode 返回用户文件持久层的生效模式（空视为 local）。
 func (c Config) EffectiveFilesMode() string { return c.effectiveStorage(c.Storage.Files) }
-
-// Validate 聚合校验字段。
-// 只有 storage.database=s3 或 storage.files=s3 时才要求 S3 配置完整。
-func (c Config) Validate() error {
-	var errs []error
-
-	if c.HTTP.Address == "" {
-		errs = append(errs, errors.New("http.address is required"))
-	}
-	if c.HTTP.ReadTimeout <= 0 || c.HTTP.WriteTimeout <= 0 || c.HTTP.IdleTimeout <= 0 {
-		errs = append(errs, errors.New("http timeouts must be positive"))
-	}
-	if c.HTTP.ShutdownTimeout <= 0 {
-		errs = append(errs, errors.New("http.shutdown_timeout must be positive"))
-	}
-	if c.Instance.ID == "" {
-		errs = append(errs, errors.New("instance.id is required"))
-	}
-	switch strutil.Normalize(c.Instance.Profile) {
-	case "", ProfileDevelopment, ProfileProduction:
-	default:
-		errs = append(errs, fmt.Errorf("instance.profile must be development or production (got %q)", c.Instance.Profile))
-	}
-	switch strings.ToLower(c.Instance.Lease.OnLost) {
-	case "", "release_db", "exit":
-	default:
-		errs = append(errs, fmt.Errorf("instance.lease.on_lost must be release_db or exit (got %q)", c.Instance.Lease.OnLost))
-	}
-	if c.Instance.Lease.TTL < 0 || c.Instance.Lease.Grace < 0 || c.Instance.Lease.RenewInterval < 0 {
-		errs = append(errs, errors.New("instance.lease durations must be non-negative"))
-	}
-	switch strutil.Normalize(c.Database.Engine) {
-	case "", EngineDuckDB, EngineSQLite:
-	default:
-		errs = append(errs, fmt.Errorf("database.engine must be duckdb or sqlite (got %q)", c.Database.Engine))
-	}
-	if c.Database.DuckLake.Threads < 0 {
-		errs = append(errs, errors.New("database.ducklake.threads must be non-negative"))
-	}
-	switch strutil.Normalize(c.Database.DuckLake.CatalogEngine) {
-	case "", CatalogEngineDuckDB, CatalogEngineSQLite:
-	default:
-		errs = append(errs, fmt.Errorf("database.ducklake.catalog_engine must be duckdb or sqlite (got %q)", c.Database.DuckLake.CatalogEngine))
-	}
-	if c.Database.CacheDir == "" {
-		errs = append(errs, errors.New("database.cache_dir is required"))
-	}
-	if c.Database.CacheMaxBytes <= 0 {
-		errs = append(errs, errors.New("database.cache_max_bytes must be positive"))
-	}
-	if c.Database.CacheMaxDatabases <= 0 {
-		errs = append(errs, errors.New("database.cache_max_databases must be positive"))
-	}
-	if c.Database.IdleTimeout <= 0 {
-		errs = append(errs, errors.New("database.idle_timeout must be positive"))
-	}
-	if c.Database.MaxOpen <= 0 {
-		errs = append(errs, errors.New("database.max_open must be positive"))
-	}
-	if c.Auth.APIKeyHashSecret == "" {
-		errs = append(errs, errors.New("auth.api_key_hash_secret is required"))
-	}
-	if c.Limits.MaxRequestBytes <= 0 || c.Limits.MaxQueryRows <= 0 ||
-		c.Limits.QueryTimeout <= 0 || c.Limits.MaxConcurrentQueries <= 0 ||
-		c.Limits.MaxBatchStatements <= 0 || c.Limits.MaxSQLBytes <= 0 {
-		errs = append(errs, errors.New("limits fields must be positive"))
-	}
-	// GF-RUN-04：0 用默认值兜底，负数拒绝。
-	if c.Limits.MaxConcurrentGoRuns < 0 {
-		errs = append(errs, errors.New("limits.max_concurrent_go_runs must not be negative"))
-	} else if c.Limits.MaxConcurrentGoRuns == 0 {
-		c.Limits.MaxConcurrentGoRuns = 16
-	}
-	switch strings.ToLower(c.Observability.LogFormat) {
-	case "", "json", "console":
-	default:
-		errs = append(errs, fmt.Errorf("observability.log_format must be json or console (got %q)", c.Observability.LogFormat))
-	}
-	switch strings.ToLower(c.Observability.LogOutput) {
-	case "", "stderr", "stdout":
-	default:
-		errs = append(errs, fmt.Errorf("observability.log_output must be stderr or stdout (got %q)", c.Observability.LogOutput))
-	}
-	if c.SystemDatabase.LogKeepDays <= 0 {
-		errs = append(errs, errors.New("system_database.log_keep_days must be positive"))
-	}
-	if err := validateSandbox(c.Sandbox); err != nil {
-		errs = append(errs, err)
-	}
-	errs = append(errs, validateLLMAgent(c.LLM)...)
-	errs = append(errs, validateAgent(c.Agent)...)
-	errs = append(errs, validateHTTPBoundary(c)...)
-	if err := validateBackup(c.Backup); err != nil {
-		errs = append(errs, err)
-	}
-	errs = append(errs, validateSites(c.Sites)...)
-
-	if err := validateStorage(c.Storage, c.Database.CacheDir); err != nil {
-		errs = append(errs, err)
-	}
-
-	// 只要有任一持久层走对象存储，就必须具备完整的 S3 连接信息。
-	if c.IsDBRemote() || c.IsFilesRemote() {
-		if c.S3.Bucket == "" {
-			errs = append(errs, errors.New("s3.bucket is required when storage.database or storage.files is s3"))
-		}
-		if c.S3.Region == "" {
-			errs = append(errs, errors.New("s3.region is required when storage.database or storage.files is s3"))
-		}
-		if c.S3.AccessKey != "" && c.S3.SecretKey == "" {
-			errs = append(errs, errors.New("s3.secret_key is required when s3.access_key is set"))
-		}
-		if c.S3.SecretKey != "" && c.S3.AccessKey == "" {
-			errs = append(errs, errors.New("s3.access_key is required when s3.secret_key is set"))
-		}
-	}
-
-	if len(errs) > 0 {
-		return fmt.Errorf("config validation failed: %w", joinErrors(errs))
-	}
-	return nil
-}
-
-// validateStorage 校验 storage 段：模式取值合法，且两个目录不重叠。
-// cache_dir 会被缓存淘汰整体删除，因此绝不能落在 data_dir 之内（反之亦然）。
-func validateStorage(s StorageConfig, cacheDir string) error {
-	var errs []error
-	switch strutil.Normalize(s.Database) {
-	case "", StorageModeLocal, StorageModeS3:
-	default:
-		errs = append(errs, fmt.Errorf("storage.database must be local or s3 (got %q)", s.Database))
-	}
-	switch strutil.Normalize(s.Files) {
-	case "", StorageModeLocal, StorageModeS3:
-	default:
-		errs = append(errs, fmt.Errorf("storage.files must be local or s3 (got %q)", s.Files))
-	}
-	if strings.TrimSpace(s.DataDir) == "" {
-		errs = append(errs, errors.New("storage.data_dir is required"))
-	}
-	if err := validateDirDisjoint(s.DataDir, cacheDir); err != nil {
-		errs = append(errs, err)
-	}
-	if len(errs) > 0 {
-		return fmt.Errorf("storage validation failed: %w", joinErrors(errs))
-	}
-	return nil
-}
-
-// validateDirDisjoint 拒绝两个目录相等或互为父子目录。
-// 缓存目录在容量不足时会被整体删除（cache.Manager.Evict），落在数据目录里会丢数据。
-func validateDirDisjoint(dataDir, cacheDir string) error {
-	d := filepath.Clean(strings.TrimSpace(dataDir))
-	c := filepath.Clean(strings.TrimSpace(cacheDir))
-	if d == "" || c == "" || d == "." || c == "." {
-		return nil
-	}
-	if d == c {
-		return fmt.Errorf("storage.data_dir and database.cache_dir must differ (both %q)", d)
-	}
-	if isWithin(d, c) || isWithin(c, d) {
-		return fmt.Errorf("storage.data_dir (%q) and database.cache_dir (%q) must not contain each other", d, c)
-	}
-	return nil
-}
-
-// isWithin 返回 inner 是否位于 outer 之内（含相等）。
-// 用 filepath.Rel 判断，避免前缀字符串误判（如 /data2 与 /data）。
-func isWithin(inner, outer string) bool {
-	rel, err := filepath.Rel(outer, inner)
-	if err != nil {
-		return false
-	}
-	if rel == "." {
-		return true
-	}
-	return !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && rel != ".."
-}
-
-// validateSandbox 校验 sandbox 配置段。enabled=false 时忽略。
-func validateSandbox(s SandboxConfig) error {
-	if !s.Enabled {
-		return nil
-	}
-	var errs []error
-	switch s.EffectiveBackend() {
-	case SandboxBackendLocal, SandboxBackendBox:
-		if s.BwrapPath != "" && !filepath.IsAbs(s.BwrapPath) {
-			errs = append(errs, errors.New("sandbox.bwrap_path must be an absolute path"))
-		}
-		if s.HelperPath != "" && !filepath.IsAbs(s.HelperPath) {
-			errs = append(errs, errors.New("sandbox.helper_path must be an absolute path"))
-		}
-		if s.Root != "" && !filepath.IsAbs(s.Root) {
-			errs = append(errs, errors.New("sandbox.root must be an absolute path"))
-		}
-	case SandboxBackendFake:
-		if !allowFakeSandbox() {
-			errs = append(errs, errors.New("sandbox.backend=fake is only allowed when SIMPLEBASE_SANDBOX_ALLOW_FAKE=1 (e2e / unit tests)"))
-		}
-	default:
-		errs = append(errs, fmt.Errorf("sandbox.backend must be local or fake (got %q)", s.Backend))
-	}
-	if s.PidsMax < 0 {
-		errs = append(errs, errors.New("sandbox.pids_max must not be negative"))
-	}
-	if len(s.Images) > 0 && strings.TrimSpace(s.Image) != "" {
-		found := false
-		for _, img := range s.Images {
-			if strings.TrimSpace(img) == strings.TrimSpace(s.Image) {
-				found = true
-				break
-			}
-		}
-		if !found {
-			errs = append(errs, fmt.Errorf("sandbox.images must contain sandbox.image (%q)", s.Image))
-		}
-	}
-	if s.ExecTimeoutMax != 0 && s.ExecTimeoutMax < s.ExecTimeout {
-		errs = append(errs, errors.New("sandbox.exec_timeout must not exceed sandbox.exec_timeout_max"))
-	}
-	if s.MaxPerProject < 0 || s.MaxPerProject > 100 {
-		errs = append(errs, fmt.Errorf("sandbox.max_per_project must be 1-100 (got %d)", s.MaxPerProject))
-	}
-	if s.ReapInterval < 0 {
-		errs = append(errs, errors.New("sandbox.reap_interval must not be negative"))
-	}
-	switch strutil.Normalize(s.Network) {
-	case "", "none", "egress":
-	case "egress-allowlist", "allowlist":
-		// 给出明确的迁移说明：悄悄降级成 egress 会让人以为白名单还在生效。
-		errs = append(errs, fmt.Errorf("sandbox.network=%q has been removed (the domain allowlist was never enforced); "+
-			"use none or egress", s.Network))
-	default:
-		errs = append(errs, fmt.Errorf("sandbox.network must be none or egress (got %q)", s.Network))
-	}
-	if s.DiskLimitMiB < 0 {
-		errs = append(errs, fmt.Errorf("sandbox.disk_limit_mib must not be negative (got %d)", s.DiskLimitMiB))
-	}
-	if s.CPUs < 1 || s.CPUs > 4 {
-		errs = append(errs, fmt.Errorf("sandbox.cpus must be 1-4 (got %d)", s.CPUs))
-	}
-	if s.MemoryMiB < 128 || s.MemoryMiB > 4096 {
-		errs = append(errs, fmt.Errorf("sandbox.memory_mib must be 128-4096 (got %d)", s.MemoryMiB))
-	}
-	if s.ExecTimeout < time.Second {
-		errs = append(errs, errors.New("sandbox.exec_timeout must be at least 1s"))
-	}
-	if s.MaxDuration <= 0 || s.IdleTimeout <= 0 {
-		errs = append(errs, errors.New("sandbox.max_duration and sandbox.idle_timeout must be positive"))
-	}
-	if s.MaxOutputBytes <= 0 || s.MaxFileBytes <= 0 {
-		errs = append(errs, errors.New("sandbox.max_output_bytes and sandbox.max_file_bytes must be positive"))
-	}
-	// 终端子段零值 = 取默认（EffectiveTerminal），所以只校验显式设置过的值。
-	if n := s.Terminal.MaxSessionsPerSandbox; n != 0 && (n < 1 || n > 32) {
-		errs = append(errs, fmt.Errorf("sandbox.terminal.max_sessions_per_sandbox must be 1-32 (got %d)", n))
-	}
-	if d := s.Terminal.IdleTimeout; d != 0 && d < time.Minute {
-		errs = append(errs, errors.New("sandbox.terminal.idle_timeout must be at least 1m"))
-	}
-	if l := strings.TrimSpace(s.SSH.Listen); l != "" {
-		if _, port, err := net.SplitHostPort(l); err != nil || port == "" {
-			errs = append(errs, fmt.Errorf("sandbox.ssh.listen must be host:port (got %q)", s.SSH.Listen))
-		}
-	}
-	if s.SSH.HostKeyPath != "" && !filepath.IsAbs(s.SSH.HostKeyPath) {
-		errs = append(errs, errors.New("sandbox.ssh.host_key_path must be an absolute path"))
-	}
-	if len(errs) > 0 {
-		return fmt.Errorf("sandbox validation failed: %w", joinErrors(errs))
-	}
-	return nil
-}
-
-// Redacted 返回用于启动日志的安全视图。绝不包含密钥/DSN。
-func (c Config) Redacted() map[string]any {
-	providers := make(map[string]any, len(c.LLM.Providers))
-	for name, p := range c.LLM.Providers {
-		entry := map[string]any{
-			"has_api_key":    p.APIKey != "",
-			"base_url":       p.BaseURL,
-			"default_model":  p.DefaultModel,
-			"allowed_models": p.AllowedModels,
-		}
-		providers[name] = entry
-	}
-	return map[string]any{
-		"http": map[string]any{
-			"address":          c.HTTP.Address,
-			"read_timeout":     c.HTTP.ReadTimeout.String(),
-			"write_timeout":    c.HTTP.WriteTimeout.String(),
-			"idle_timeout":     c.HTTP.IdleTimeout.String(),
-			"shutdown_timeout": c.HTTP.ShutdownTimeout.String(),
-		},
-		"instance": map[string]any{
-			"id":       c.Instance.ID,
-			"writable": c.Instance.Writable,
-			"lease": map[string]any{
-				"enabled":        c.Instance.Lease.Enabled,
-				"ttl":            c.Instance.Lease.TTL.String(),
-				"renew_interval": c.Instance.Lease.RenewInterval.String(),
-				"grace":          c.Instance.Lease.Grace.String(),
-				"on_lost":        c.Instance.Lease.OnLost,
-			},
-		},
-		"database": map[string]any{
-			"engine":              c.Database.Engine,
-			"cache_dir":           c.Database.CacheDir,
-			"cache_max_bytes":     c.Database.CacheMaxBytes,
-			"cache_max_databases": c.Database.CacheMaxDatabases,
-			"idle_timeout":        c.Database.IdleTimeout.String(),
-			"max_open":            c.Database.MaxOpen,
-			"ducklake": map[string]any{
-				"catalog_engine":             c.Database.DuckLake.CatalogEngine,
-				"memory_limit":               c.Database.DuckLake.MemoryLimit,
-				"threads":                    c.Database.DuckLake.Threads,
-				"extension_dir":              c.Database.DuckLake.ExtensionDir,
-				"data_inlining_row_limit":    c.Database.DuckLake.DataInliningRowLimit,
-				"parquet_compression":        c.Database.DuckLake.ParquetCompression,
-				"target_file_size":           c.Database.DuckLake.TargetFileSize,
-				"require_commit_message":     c.Database.DuckLake.RequireCommitMessage,
-				"catalog_sync_mode":          c.Database.DuckLake.CatalogSync.Mode,
-				"catalog_sync_debounce":      c.Database.DuckLake.CatalogSync.Debounce.String(),
-				"catalog_sync_interval":      c.Database.DuckLake.CatalogSync.Interval.String(),
-				"catalog_sync_max_lag":       c.Database.DuckLake.CatalogSync.MaxLag.String(),
-				"catalog_sync_keep_versions": c.Database.DuckLake.CatalogSync.KeepVersions,
-			},
-		},
-		"s3": map[string]any{
-			"endpoint":         c.S3.Endpoint,
-			"region":           c.S3.Region,
-			"bucket":           c.S3.Bucket,
-			"prefix":           c.S3.Prefix,
-			"force_path_style": c.S3.ForcePathStyle,
-			"has_access_key":   c.S3.AccessKey != "",
-			"has_secret_key":   c.S3.SecretKey != "",
-			"kms_key_id":       c.S3.KMSKeyID,
-		},
-		"system_database": map[string]any{
-			"name":                   c.SystemDatabase.Name,
-			"metrics_flush_interval": c.SystemDatabase.MetricsFlushInterval.String(),
-			"log_flush_interval":     c.SystemDatabase.LogFlushInterval.String(),
-			"log_keep_days":          c.SystemDatabase.LogKeepDays,
-		},
-		"limits": map[string]any{
-			"max_request_bytes":      c.Limits.MaxRequestBytes,
-			"max_query_rows":         c.Limits.MaxQueryRows,
-			"query_timeout":          c.Limits.QueryTimeout.String(),
-			"max_concurrent_queries": c.Limits.MaxConcurrentQueries,
-			"max_batch_statements":   c.Limits.MaxBatchStatements,
-			"max_sql_bytes":          c.Limits.MaxSQLBytes,
-		},
-		"llm": map[string]any{
-			"enabled":   c.LLM.Enabled,
-			"providers": providers,
-		},
-		"sandbox": map[string]any{
-			"enabled":          c.Sandbox.Enabled,
-			"backend":          c.Sandbox.EffectiveBackend(),
-			"images":           c.Sandbox.Images,
-			"exec_timeout_max": c.Sandbox.ExecTimeoutMax.String(),
-			"max_per_project":  c.Sandbox.MaxPerProject,
-			"reap_interval":    c.Sandbox.ReapInterval.String(),
-			"root":             c.Sandbox.Root,
-			"pids_max":         c.Sandbox.PidsMax,
-			"image":            c.Sandbox.Image,
-			"cpus":             c.Sandbox.CPUs,
-			"memory_mib":       c.Sandbox.MemoryMiB,
-			"max_duration":     c.Sandbox.MaxDuration.String(),
-			"idle_timeout":     c.Sandbox.IdleTimeout.String(),
-			"exec_timeout":     c.Sandbox.ExecTimeout.String(),
-			"max_output_bytes": c.Sandbox.MaxOutputBytes,
-			"max_file_bytes":   c.Sandbox.MaxFileBytes,
-			"network":          c.Sandbox.Network,
-			"workdir":          c.Sandbox.Workdir,
-		},
-		"storage": map[string]any{
-			"database":           c.effectiveStorage(c.Storage.Database),
-			"files":              c.effectiveStorage(c.Storage.Files),
-			"data_dir":           c.Storage.DataDir,
-			"database_is_remote": c.IsDBRemote(),
-			"files_is_remote":    c.IsFilesRemote(),
-		},
-		"sites": map[string]any{
-			"base_domain": c.Sites.BaseDomain,
-			"url_scheme":  c.Sites.URLScheme,
-			"url_port":    c.Sites.URLPort,
-		},
-		"observability": map[string]any{
-			"log_level":         c.Observability.LogLevel,
-			"log_format":        c.Observability.LogFormat,
-			"log_output":        c.Observability.LogOutput,
-			"metrics_path":      c.Observability.MetricsPath,
-			"metrics_address":   c.Observability.MetricsAddress,
-			"pprof":             c.Observability.PProf,
-			"perf_stage_timing": c.Observability.PerfStageTiming,
-		},
-	}
-}
-
-// allowFakeSandbox 返回是否显式允许 fake 沙盒后端（e2e / 单测）。
-func allowFakeSandbox() bool {
-	return os.Getenv("SIMPLEBASE_SANDBOX_ALLOW_FAKE") == "1"
-}
-
-func joinErrors(errs []error) error {
-	var b strings.Builder
-	for i, e := range errs {
-		if i > 0 {
-			b.WriteString("; ")
-		}
-		b.WriteString(e.Error())
-	}
-	return errors.New(b.String())
-}

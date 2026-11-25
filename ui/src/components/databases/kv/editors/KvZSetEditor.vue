@@ -12,17 +12,7 @@
         @click="desc = true"
       >{{ t('components.kvZset.sortDesc') }}</Button>
     </div>
-    <SbAsyncRegion
-      class="flex flex-col gap-3"
-      block="spinner"
-      :pending="pending"
-      :show-skeleton="showSkeleton"
-      :show-empty="false"
-      :show-error="showError"
-      :refreshing="refreshing"
-      :error="error"
-      @retry="load"
-    >
+    <SbAsyncRegion class="flex flex-col gap-3" block="spinner" :state="state" @retry="load">
       <div class="overflow-x-auto rounded-md border border-border/70">
         <Table>
           <TableHeader>
@@ -65,16 +55,13 @@
 </template>
 
 <script setup lang="ts">
-import { errorMessage } from '@/utils/format'
 import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { toast } from 'vue-sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import SbAsyncRegion from '../../../SbAsyncRegion.vue'
-import { useLoadState } from '@/composables/useLoadState'
-import { api } from '../../../../services/api'
+import { useKvEditor } from '@/composables/useKvEditor'
+
 import ConfirmAction from '../../../ConfirmAction.vue'
 
 const props = defineProps<{
@@ -87,80 +74,69 @@ const emit = defineEmits<{ changed: [] }>()
 
 const { t } = useI18n()
 
-const items = ref<{ elem: string; score: number }[]>([])
+interface ZSetItem {
+  elem: string
+  score: number
+}
+
+const items = ref<ZSetItem[]>([])
 const desc = ref(false)
-const { pending, showSkeleton, showError, refreshing, error, run } = useLoadState({ fallback: 'components.kvZset.loadFailed' })
 const newElem = ref('')
 const newScore = ref('')
 const editElem = ref('')
 const editScore = ref('')
 
-function load() {
-  return run(async () => {
-    // ZRANGE WITHSCORES：member/score 交替扁平数组
-    const argv = ['ZRANGE', props.kvKey, '0', '199', 'WITHSCORES']
-    if (desc.value) argv.push('REV')
-    const flat = (await api.kv.exec(props.projectId, { type: 'cmd', argvs: argv })) as (string | number)[]
-    const out: { elem: string; score: number }[] = []
+const { state, load, mutate } = useKvEditor({
+  projectId: () => props.projectId,
+  kvKey: () => props.kvKey,
+  fallback: 'components.kvZset.loadFailed',
+  // ZRANGE WITHSCORES：member/score 交替扁平数组；只取前 200 个。
+  read: () => ({ type: 'cmd', argvs: ['ZRANGE', props.kvKey, '0', '199', 'WITHSCORES', ...(desc.value ? ['REV'] : [])] }),
+  parse: (flat) => {
+    const out: ZSetItem[] = []
     if (Array.isArray(flat)) {
-      for (let i = 0; i + 1 < flat.length; i += 2) {
-        out.push({ elem: String(flat[i]), score: Number(flat[i + 1]) })
-      }
+      for (let i = 0; i + 1 < flat.length; i += 2) out.push({ elem: String(flat[i]), score: Number(flat[i + 1]) })
     }
-    items.value = out
-    return true
-  })
-}
+    return out
+  },
+  apply: (list) => {
+    items.value = list
+  },
+  changed: () => emit('changed')
+})
 
-async function addMember() {
+watch(desc, () => void load())
+
+function addMember() {
   const v = newElem.value.trim()
   const s = Number(newScore.value)
   if (!v || !Number.isFinite(s)) return
-  try {
-    await api.kv.exec(props.projectId, {
-      type: 'ZSet',
-      args: { key: props.kvKey, items: [{ elem: v, score: s }] }
-    })
-    newElem.value = ''
-    newScore.value = ''
-    await load()
-    emit('changed')
-  } catch (e) {
-    toast.error(errorMessage(e, t('components.kvZset.addFailed')))
-  }
+  void mutate({ type: 'ZSet', args: { key: props.kvKey, items: [{ elem: v, score: s }] } }, {
+    failKey: 'components.kvZset.addFailed',
+    onSuccess: () => {
+      newElem.value = ''
+      newScore.value = ''
+    }
+  })
 }
 
-function startEdit(it: { elem: string; score: number }) {
+function startEdit(it: ZSetItem) {
   editElem.value = it.elem
   editScore.value = String(it.score)
 }
 
-async function saveScore(elem: string) {
+function saveScore(elem: string) {
   const s = Number(editScore.value)
   if (!Number.isFinite(s)) return
-  try {
-    await api.kv.exec(props.projectId, {
-      type: 'ZSet',
-      args: { key: props.kvKey, items: [{ elem, score: s }] }
-    })
-    editElem.value = ''
-    await load()
-    emit('changed')
-  } catch (e) {
-    toast.error(errorMessage(e, t('components.kvZset.saveFailed')))
-  }
+  void mutate({ type: 'ZSet', args: { key: props.kvKey, items: [{ elem, score: s }] } }, {
+    failKey: 'components.kvZset.saveFailed',
+    onSuccess: () => {
+      editElem.value = ''
+    }
+  })
 }
 
-async function removeMember(elem: string) {
-  try {
-    await api.kv.exec(props.projectId, { type: 'cmd', argvs: ['ZREM', props.kvKey, elem] })
-    await load()
-    emit('changed')
-  } catch (e) {
-    toast.error(errorMessage(e, t('components.kvZset.deleteFailed')))
-  }
+function removeMember(elem: string) {
+  void mutate({ type: 'cmd', argvs: ['ZREM', props.kvKey, elem] }, { failKey: 'components.kvZset.deleteFailed' })
 }
-
-watch(desc, () => void load())
-watch(() => props.kvKey, () => void load(), { immediate: true })
 </script>

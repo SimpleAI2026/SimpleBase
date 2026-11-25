@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { defineComponent } from 'vue'
 import { i18n, setI18nLocale, t } from '@/locales'
-import { uiStubs, sampleCron, sampleGoFn } from '@/test/helpers'
+import { installJsdomPolyfills, pickSelectOption, realSelectStubs, selectTriggers, uiStubs, sampleCron, sampleGoFn, realDialogStubs, confirmAction, realAlertDialogStubs } from '@/test/helpers'
 import { resetApiMocks } from '@/test/api-mock'
 import KvKeyListPanel from '@/components/databases/kv/KvKeyListPanel.vue'
 import SqlResultPanel from '@/components/modal/SqlResultPanel.vue'
@@ -32,26 +32,27 @@ const keyMeta = [
   { key: 'user:1', type: 'string' as const, len: null, ttl_ms: 60_000 }
 ]
 
+/** KvKeyListPanel 的 `state`：useLoadState() 六个字段的静态快照。 */
+const idleState = { pending: false, showSkeleton: false, showEmpty: false, showError: false, refreshing: false, error: '' }
+
 const listProps = {
   rows: keyMeta,
   pattern: '',
   typeFilter: 'all',
   hasMore: true,
   loadingMore: false,
-  pending: false,
-  showSkeleton: false,
-  showEmpty: false,
-  showError: false,
-  refreshing: false,
-  error: '',
+  state: idleState,
   ttlText: (m: { ttl_ms: number | null }) => (m.ttl_ms == null ? '永久' : '60s 后过期')
 }
+
+installJsdomPolyfills()
 
 describe('KvKeyListPanel', () => {
   const mountList = (overrides: Record<string, unknown> = {}) =>
     mount(KvKeyListPanel, {
+      attachTo: document.body,
       props: { ...listProps, ...overrides },
-      global: { stubs: uiStubs, plugins: [i18n] }
+      global: { stubs: { ...uiStubs, ...realDialogStubs, ...realAlertDialogStubs, ...realSelectStubs }, plugins: [i18n] }
     })
 
   it('搜索与类型过滤通过 v-model 事件回传宿主', async () => {
@@ -62,8 +63,9 @@ describe('KvKeyListPanel', () => {
     // 回车触发重载
     await input.trigger('keydown.enter')
     expect(w.emitted('reload')).toHaveLength(1)
-    await w.get('.select-emit').trigger('click')
-    expect(w.emitted('update:typeFilter')).toBeTruthy()
+    // 真实 Select：类型过滤选 hash，回传 'hash'
+    await pickSelectOption(selectTriggers(w)[0], 'hash')
+    expect(w.emitted('update:typeFilter')?.at(-1)).toEqual(['hash'])
     w.unmount()
   })
 
@@ -76,8 +78,8 @@ describe('KvKeyListPanel', () => {
     expect(w.emitted('ttl')).toHaveLength(1)
     expect(w.emitted('rename')).toHaveLength(1)
 
-    // 删除经 ConfirmAction 桩：桩在点击包装元素时抛 confirm
-    await firstRow.find('.confirm-action').trigger('click')
+    // 删除经真实 ConfirmAction：点「删除」弹确认，点「确定」后才抛 remove
+    await confirmAction(firstRow, '删除')
     expect(w.emitted('remove')).toHaveLength(1)
 
     // 点击行本体打开详情
@@ -87,7 +89,7 @@ describe('KvKeyListPanel', () => {
   })
 
   it('readonly 时隐藏写操作，空态不带新建入口', () => {
-    const w = mountList({ readonly: true, rows: [], showEmpty: true })
+    const w = mountList({ readonly: true, rows: [], state: { ...idleState, showEmpty: true } })
     expect(w.text()).toContain('只读')
     expect(w.text()).not.toContain('重命名')
     const region = w.findComponent({ name: 'SbAsyncRegion' })
@@ -109,11 +111,11 @@ describe('KvKeyListPanel', () => {
   })
 
   it('空态新建与重试事件透传', async () => {
-    const w = mountList({ rows: [], showEmpty: true })
+    const w = mountList({ rows: [], state: { ...idleState, showEmpty: true } })
     await w.get('.empty-action').trigger('click')
     expect(w.emitted('create')).toHaveLength(1)
 
-    const err = mountList({ showError: true, error: 'boom' })
+    const err = mountList({ state: { ...idleState, showError: true, error: 'boom' } })
     err.findComponent({ name: 'SbAsyncRegion' }).vm.$emit('retry')
     expect(err.emitted('retry')).toHaveLength(1)
     w.unmount()
@@ -216,6 +218,7 @@ describe('SqlResultPanel', () => {
 describe('CronJobScheduleFields', () => {
   const mountFields = (kind: string, extra: Record<string, unknown> = {}) =>
     mount(CronJobScheduleFields, {
+      attachTo: document.body,
       props: {
         scheduleKind: kind,
         cronExpr: '0 2 * * *',
@@ -225,28 +228,32 @@ describe('CronJobScheduleFields', () => {
         preset: undefined,
         ...extra
       },
-      global: { stubs: uiStubs, plugins: [i18n] }
+      global: { stubs: { ...uiStubs, ...realDialogStubs, ...realAlertDialogStubs, ...realSelectStubs }, plugins: [i18n] }
     })
 
   it('cron 模式渲染表达式与预设下拉，选中预设回传 cronExpr', async () => {
     const w = mountFields('cron')
     expect(w.get('label[for="cron-expression"]').text()).toContain('cron 表达式')
-    await w.get('.select-emit').trigger('click')
-    // 桩抛 'info'，不是合法表达式，仍应落到 preset
-    expect(w.emitted('update:preset')).toBeTruthy()
+    // 真实 Select：预设来自 CRON_PRESETS；选中后回传的是 preset（表达式写回由宿主 CronJobModal 完成）
+    await pickSelectOption(selectTriggers(w)[0], '每小时')
+    expect(w.emitted('update:preset')?.at(-1)).toEqual(['0 * * * *'])
     w.unmount()
   })
 
   it('预设为空时不报错（presetValue 计算属性兜底）', async () => {
     const w = mountFields('cron', { preset: undefined })
-    expect(w.find('.select-emit').exists()).toBe(true)
+    // 没有 preset 时下拉仍在，只是显示占位
+    expect(selectTriggers(w)).toHaveLength(1)
+    expect(selectTriggers(w)[0].textContent).toContain('常用预设')
     w.unmount()
   })
 
-  it('interval 模式渲染间隔与单位', () => {
+  it('interval 模式渲染间隔与单位', async () => {
     const w = mountFields('interval', { intervalUnit: 'hour' })
     expect(w.get('label[for="cron-interval-value"]').text()).toContain('执行间隔')
-    expect(w.findAll('.select-emit').length).toBeGreaterThan(0)
+    // 真实 Select：改选「天」回传 'day'（SelectValue 的文字在弹层选项挂载后才有，故不断言初始文字）
+    await pickSelectOption(selectTriggers(w)[0], '天')
+    expect(w.emitted('update:intervalUnit')?.at(-1)).toEqual(['day'])
     w.unmount()
   })
 

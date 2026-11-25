@@ -1,3 +1,33 @@
+// 文件说明：fs.go — gosandbox/agent 的内部实现（maxReadChunk、maxListEntries 等）
+//
+// 用法
+//
+//	同包调用：errText() → stats.go
+//
+// 调用架构
+//
+//	[上游] gosandbox/cmd
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/agent/fs.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent.go, agent_test.go, loopback_linux.go, loopback_other.go, netfilter_linux.go 等 16 个
+//	[关键引用] errText ← stats.go
+//
+// 主要符号
+//
+//	const maxReadChunk
+//	const maxListEntries
+//	(s *Server) fsOp(m proto.Msg)
+//	(s *Server) fsReply(seq uint32, err error)
+//	(s *Server) fsStat(seq uint32, m proto.Msg)
+//	protocolEntry(seq uint32, st os.FileInfo) proto.Msg
+//	fileKindOf(m fs.FileMode) proto.FileKind
+//	(s *Server) fsList(seq uint32, m proto.Msg)
+//	... 另有 3 个顶层符号
+
 package agent
 
 import (

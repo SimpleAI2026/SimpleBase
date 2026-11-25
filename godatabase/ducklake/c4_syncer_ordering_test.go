@@ -1,3 +1,25 @@
+// 文件说明：c4_syncer_ordering_test.go — godatabase/ducklake 的单元测试（TestC4_WatermarkAndLocalStateAdvanceAfterManifest、TestC4_LocalStateFailureDoesNotFailSync 等）
+//
+// 用法
+//
+//	go test ./godatabase/ducklake -run 'TestC4_WatermarkAndLocalStateAdvanceAfterManifest|TestC4_LocalStateFailureDoesNotFailSync'
+//
+// 调用架构
+//
+//	[上游] internal/app, internal/systemdb
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/ducklake/c4_syncer_ordering_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] c4_syncer_lease_test.go, catalog_syncer.go, catalog_syncer_test.go, coverage_test.go, edge_test.go 等 35 个
+//
+// 主要符号
+//
+//	TestC4_WatermarkAndLocalStateAdvanceAfterManifest(t *testing.T)
+//	TestC4_LocalStateFailureDoesNotFailSync(t *testing.T)
+
 package ducklake
 
 // c4_syncer_ordering_test.go：planv6.0 C4-syncer 保序表征测试（提取前先行）。

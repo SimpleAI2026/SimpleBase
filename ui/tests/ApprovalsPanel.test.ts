@@ -2,7 +2,7 @@ import { flushPromises } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ApprovalsPanel from '@/components/settings/ApprovalsPanel.vue'
 import { api, resetApiMocks } from '@/test/api-mock'
-import { clickText, mountWithApp } from '@/test/helpers'
+import { clickText, installJsdomPolyfills, mountWithApp, pickSelectOption, realSelectStubs, selectTriggers } from '@/test/helpers'
 import { ADMIN_PROJECT_ID } from '@/stores/project'
 
 vi.mock('@/services/api', async () => {
@@ -33,6 +33,8 @@ const resolvedApproval = {
   resolved_by: 'u1',
   resolved_at: '2026-01-01T00:01:00Z'
 }
+
+installJsdomPolyfills()
 
 describe('ApprovalsPanel', () => {
   beforeEach(() => {
@@ -182,11 +184,13 @@ describe('ApprovalsPanel', () => {
       })),
       pending: 12
     })
-    const { wrapper } = await mountWithApp(ApprovalsPanel, { projectId: 'p1' })
-    // Select 桩点击后 emit 'info'，走模板里的 update:model-value 处理器。
-    await wrapper.get('.select-emit').trigger('click')
-    await flushPromises()
-    expect(api.agentApprovals.list).toHaveBeenLastCalledWith('p1', 'info')
+    const { wrapper } = await mountWithApp(ApprovalsPanel, { projectId: 'p1', attachTo: document.body, stubs: realSelectStubs })
+    // 真实 Select：选「待处理」，列表按 pending 重新请求
+    await pickSelectOption(selectTriggers(wrapper)[0], '待处理')
+    expect(api.agentApprovals.list).toHaveBeenLastCalledWith('p1', 'pending')
+    // 再选回「全部」：状态筛选清空
+    await pickSelectOption(selectTriggers(wrapper)[0], '全部')
+    expect(api.agentApprovals.list.mock.calls.at(-1)?.[1]).toBe('')
 
     // 12 条 / 每页 10 条 → 有第二页，pager 的 update:page 处理器被触发。
     await wrapper.get('.pager-next').trigger('click')

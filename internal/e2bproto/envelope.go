@@ -124,18 +124,6 @@ func ReadFrame(r io.Reader) (Frame, error) {
 	return Frame{EndStream: hdr[0]&flagEndStream != 0, Body: body}, nil
 }
 
-// DecodeFrame 读一个数据 envelope 并解成 v；读到 end-stream 返回 io.EOF（其中的错误体被忽略）。
-func DecodeFrame(r io.Reader, v any) error {
-	f, err := ReadFrame(r)
-	if err != nil {
-		return err
-	}
-	if f.EndStream {
-		return io.EOF
-	}
-	return decodeStrict(f.Body, v)
-}
-
 // DecodeUnary 解一元请求体。空体视为空消息（Connect 允许省略全零消息）。
 func DecodeUnary(body []byte, v any) error {
 	body = bytes.TrimSpace(body)

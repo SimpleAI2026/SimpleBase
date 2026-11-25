@@ -1,14 +1,39 @@
+// 文件说明：godb-cli.go — godatabase/cmd 的内部实现（usageText、main 等）
+//
+// 用法
+//
+//	包内实现，无导出与跨文件调用
+//
+// 调用架构
+//
+//	[上游] 无（可执行入口）
+//	[本文件] godatabase/cmd/godb-cli.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] cli_env.go, cli_output.go, godb-cli_test.go
+//
+// 主要符号
+//
+//	const usageText
+//	main()
+//	sanitize(err error) string
+//	cmdOpen(ctx context.Context, args []string) error
+//	cmdSQL(ctx context.Context, args []string) error
+//	cmdKV(ctx context.Context, args []string) error
+//	cmdSnapshot(ctx context.Context, args []string) error
+//	cmdInspect(ctx context.Context, args []string) error
+//	... 另有 1 个顶层符号
+
 package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -17,7 +42,6 @@ import (
 	"github.com/linkxzhou/SimpleBase/godatabase/blob"
 	"github.com/linkxzhou/SimpleBase/godatabase/filedb"
 	"github.com/linkxzhou/SimpleBase/godatabase/kv"
-	"github.com/linkxzhou/SimpleBase/godatabase/registry"
 	"github.com/linkxzhou/SimpleBase/godatabase/sqlguard"
 )
 
@@ -71,100 +95,15 @@ func main() {
 func sanitize(err error) string {
 	msg := err.Error()
 	for _, root := range dataRoots() {
+		if root == "" {
+			continue
+		}
 		msg = strings.ReplaceAll(msg, root, "<data-root>")
 	}
 	if home, e := os.UserHomeDir(); e == nil {
 		msg = strings.ReplaceAll(msg, home, "~")
 	}
 	return msg
-}
-
-// —— 公共装配 ——
-
-// env 返回数据根目录与缓存目录（环境变量 GODB_DATA_ROOT / GODB_CACHE_DIR，
-// 默认 ./godb-data 与 ./godb-cache）。
-type env struct {
-	dataRoot string
-	cacheDir string
-	jsonOut  bool
-}
-
-func dataRoots() []string {
-	return []string{
-		os.Getenv("GODB_DATA_ROOT"),
-		filepath.Join(".", "godb-data"),
-	}
-}
-
-func parseEnv(jsonOut bool) env {
-	root := os.Getenv("GODB_DATA_ROOT")
-	if root == "" {
-		root = filepath.Join(".", "godb-data")
-	}
-	cache := os.Getenv("GODB_CACHE_DIR")
-	if cache == "" {
-		cache = filepath.Join(".", "godb-cache")
-	}
-	return env{dataRoot: root, cacheDir: cache, jsonOut: jsonOut}
-}
-
-func (e env) spec(projectID string) (godatabase.Spec, error) {
-	if err := blob.ValidateProjectID(projectID); err != nil {
-		return godatabase.Spec{}, fmt.Errorf("invalid project id: %w", errors.Unwrap(err))
-	}
-	path, err := godatabase.PathForProject(projectID, e.engine())
-	if err != nil {
-		return godatabase.Spec{}, err
-	}
-	return godatabase.Spec{
-		ID:           "db-" + projectID,
-		ProjectID:    projectID,
-		Kind:         godatabase.KindUser,
-		Status:       godatabase.StatusReady,
-		DatabasePath: path,
-	}, nil
-}
-
-// engine 由数据根目录下已存在的文件推断；未打开过的项目默认 duckdb。
-func (e env) engine() string {
-	if p := os.Getenv("GODB_ENGINE"); p != "" {
-		return p
-	}
-	return godatabase.EngineDuckDB
-}
-
-// openReg 组装本地模式的 Factory+Registry 并 Acquire 一个租约。
-// 用完必须 Release + Shutdown。
-func (e env) openReg(ctx context.Context, projectID string, rw bool) (*registry.Registry, *registry.Lease, func(), error) {
-	spec, err := e.spec(projectID)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	factory := &filedb.Factory{
-		DataRoot: e.dataRoot,
-		CacheDir: e.cacheDir,
-		Remote:   false,
-	}
-	reg := registry.New(factory, nil, registry.Options{Writable: true}, nil, nil)
-	mode := godatabase.ReadOnly
-	if rw {
-		mode = godatabase.ReadWrite
-	}
-	lease, err := reg.Acquire(ctx, spec, mode)
-	if err != nil {
-		_ = reg.Shutdown(ctx)
-		return nil, nil, nil, err
-	}
-	cleanup := func() {
-		lease.Release()
-		_ = reg.Shutdown(context.Background())
-	}
-	return reg, lease, cleanup, nil
-}
-
-// dbFilePath 返回项目主文件的绝对路径（DataRoot + Spec.DatabasePath）。
-func dbFilePath(e env, h *registry.Handle) string {
-	return filepath.Join(e.dataRoot, h.Database.DatabasePath)
 }
 
 // —— 子命令 ——
@@ -181,7 +120,7 @@ func cmdOpen(ctx context.Context, args []string) error {
 	if *path == "" {
 		*path = os.Getenv("GODB_DATA_ROOT")
 		if *path == "" {
-			*path = filepath.Join(".", "godb-data")
+			*path = fileDefaultRoot()
 		}
 	}
 	if err := blob.ValidateProjectID(*project); err != nil {
@@ -195,18 +134,11 @@ func cmdOpen(ctx context.Context, args []string) error {
 	os.Setenv("GODB_DATA_ROOT", *path)
 	os.Setenv("GODB_ENGINE", *engine)
 	e := parseEnv(*jsonOut)
-	spec, err := e.spec(*project)
+	_, lease, cleanup, err := e.openReg(ctx, *project, true)
 	if err != nil {
 		return err
 	}
-	factory := &filedb.Factory{DataRoot: e.dataRoot, CacheDir: e.cacheDir, Remote: false}
-	reg := registry.New(factory, nil, registry.Options{Writable: true}, nil, nil)
-	defer func() { _ = reg.Shutdown(context.Background()) }()
-	lease, err := reg.Acquire(ctx, spec, godatabase.ReadWrite)
-	if err != nil {
-		return err
-	}
-	defer lease.Release()
+	defer cleanup()
 
 	h := lease.Handle
 	fi, err := os.Stat(dbFilePath(e, h))
@@ -258,7 +190,6 @@ func cmdSQL(ctx context.Context, args []string) error {
 	}
 	defer cleanup()
 	h := lease.Handle
-	start := time.Now()
 	if looksLikeQuery(query) {
 		res, err := h.Query(ctx, godatabase.Statement{SQL: query}, 100)
 		if err != nil {
@@ -277,7 +208,6 @@ func cmdSQL(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	_ = start
 	if *jsonOut {
 		return printJSON(map[string]any{"rows_affected": res.RowsAffected, "duration_ms": ms(res.Duration)})
 	}
@@ -499,6 +429,9 @@ func cmdBench(ctx context.Context, args []string) error {
 	if *project == "" {
 		return errors.New("usage: godb bench --project <id> --ops <n>")
 	}
+	if *ops <= 0 {
+		return fmt.Errorf("godb: bench ops must be positive, got %d", *ops)
+	}
 	e := parseEnv(*jsonOut)
 	_, lease, cleanup, err := e.openReg(ctx, *project, true)
 	if err != nil {
@@ -510,14 +443,17 @@ func cmdBench(ctx context.Context, args []string) error {
 	ctx2 := ctx
 
 	// SET（走事务闭包，一次事务写一个 key）
-	setDur := benchLoop(*ops, func(i int) error {
+	setDur, err := benchLoop(*ops, func(i int) error {
 		return store.Update(ctx2, func(tx *kv.Tx) error {
 			_, err := tx.Str().SetWith(ctx2, benchKey(i), []byte(fmt.Sprintf("v%d", i)), kv.SetOptions{})
 			return err
 		})
 	})
+	if err != nil {
+		return err
+	}
 	// GET
-	getDur := benchLoop(*ops, func(i int) error {
+	getDur, err := benchLoop(*ops, func(i int) error {
 		return store.View(ctx2, func(tx *kv.Tx) error {
 			_, err := tx.Str().Get(ctx2, benchKey(i))
 			if err != nil && !errors.Is(err, kv.ErrNotFound) {
@@ -526,23 +462,32 @@ func cmdBench(ctx context.Context, args []string) error {
 			return nil
 		})
 	})
+	if err != nil {
+		return err
+	}
 	// 批量 EXISTS / DEL：一次调用覆盖全部 ops 个 key（K3：单条 IN 查询）
 	keys := make([]string, *ops)
 	for i := range keys {
 		keys[i] = benchKey(i)
 	}
-	existsDur := benchLoop(1, func(int) error {
+	existsDur, err := benchLoop(1, func(int) error {
 		return store.View(ctx2, func(tx *kv.Tx) error {
 			_, err := tx.Key().Exists(ctx2, keys...)
 			return err
 		})
 	})
-	delDur := benchLoop(1, func(int) error {
+	if err != nil {
+		return err
+	}
+	delDur, err := benchLoop(1, func(int) error {
 		return store.Update(ctx2, func(tx *kv.Tx) error {
 			_, err := tx.Key().Delete(ctx2, keys...)
 			return err
 		})
 	})
+	if err != nil {
+		return err
+	}
 	h.NotifyWrite(ctx)
 	setP50, setP99 := percentile(setDur)
 	getP50, getP99 := percentile(getDur)
@@ -557,122 +502,4 @@ func cmdBench(ctx context.Context, args []string) error {
 	fmt.Printf("ops=%d\nset: p50=%s p99=%s\nget: p50=%s p99=%s\nexists(%d keys): %s\ndel(%d keys): %s\n",
 		*ops, setP50, setP99, getP50, getP99, *ops, existsDur[0], *ops, delDur[0])
 	return nil
-}
-
-// —— 辅助 ——
-
-func benchKey(i int) string { return fmt.Sprintf("godb:bench:%06d", i) }
-
-func benchLoop(n int, fn func(i int) error) []time.Duration {
-	durs := make([]time.Duration, 0, n)
-	for i := 0; i < n; i++ {
-		start := time.Now()
-		if err := fn(i); err != nil {
-			fmt.Fprintf(os.Stderr, "godb: bench op failed: %v\n", sanitize(err))
-			os.Exit(1)
-		}
-		durs = append(durs, time.Since(start))
-	}
-	return durs
-}
-
-// percentile 计算一组耗时的 p50 与 p99（字符串形式）。
-func percentile(durs []time.Duration) (string, string) {
-	if len(durs) == 0 {
-		return "n/a", "n/a"
-	}
-	sorted := append([]time.Duration(nil), durs...)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
-	p := func(q float64) time.Duration {
-		idx := int(q * float64(len(sorted)-1))
-		return sorted[idx]
-	}
-	return p(0.50).Round(time.Microsecond).String(), p(0.99).Round(time.Microsecond).String()
-}
-
-func ttlMs(d time.Duration) int64 { return d.Milliseconds() }
-
-func ms(d time.Duration) float64 { return float64(d.Microseconds()) / 1000 }
-
-func asInt(v any) int64 {
-	switch x := v.(type) {
-	case int64:
-		return x
-	case float64:
-		return int64(x)
-	case []byte:
-		var n int64
-		fmt.Sscanf(string(x), "%d", &n)
-		return n
-	case string:
-		var n int64
-		fmt.Sscanf(x, "%d", &n)
-		return n
-	}
-	return 0
-}
-
-func looksLikeQuery(q string) bool {
-	switch sqlguard.FirstKeyword(q) {
-	case "SELECT", "WITH", "EXPLAIN", "SHOW", "DESCRIBE", "PRAGMA":
-		return true
-	}
-	return false
-}
-
-func sanitizeGuard(err error) error {
-	msg := strings.ReplaceAll(err.Error(), "\n", "; ")
-	return errors.New(msg)
-}
-
-func tableListSQL(e env) string {
-	if e.engine() == godatabase.EngineSQLite {
-		return "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
-	}
-	return "SELECT table_name FROM information_schema.tables WHERE table_schema='main' ORDER BY table_name"
-}
-
-func tableNames(res godatabase.QueryResult) []string {
-	names := make([]string, 0, len(res.Rows))
-	for _, row := range res.Rows {
-		for _, cell := range row {
-			if s, ok := cell.(string); ok {
-				names = append(names, s)
-			}
-		}
-	}
-	return names
-}
-
-func printTable(cols []string, rows [][]any) {
-	if len(cols) == 0 {
-		return
-	}
-	fmt.Println(strings.Join(cols, "\t"))
-	for _, r := range rows {
-		cells := make([]string, 0, len(r))
-		for _, c := range r {
-			cells = append(cells, fmtCell(c))
-		}
-		fmt.Println(strings.Join(cells, "\t"))
-	}
-}
-
-func fmtCell(v any) string {
-	switch x := v.(type) {
-	case nil:
-		return "NULL"
-	case []byte:
-		return string(x)
-	case time.Time:
-		return x.Format(time.RFC3339)
-	default:
-		return fmt.Sprintf("%v", x)
-	}
-}
-
-func printJSON(v any) error {
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	return enc.Encode(v)
 }

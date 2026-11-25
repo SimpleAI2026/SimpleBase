@@ -149,7 +149,7 @@ API 响应里 `processes=false` 明说这一点。
 `Session.DialPort` 返回的是全双工隧道（`net.Conn`）：
 
 ```go
-conn, _ := sess.DialPort(8080)
+conn, _ := sess.DialPort(ctx, 8080)
 go io.Copy(conn, body)
 conn.(interface{ CloseWrite() error }).CloseWrite()  // 请求体发完
 io.Copy(w, conn)                                     // 读响应直到 EOF
@@ -227,6 +227,10 @@ sandbox:
 **代价**：断开那一刻 agent 正在发但还没被读走的帧会丢，调用方需要能重试。
 
 ## proto：宿主 ↔ agent
+
+当前协议为 **v3**：`Exited`、`Stats`、`RelayClose` 的全部字段必须存在，旧短帧返回截断错误。宿主与 `gosandbox-inner` 必须同步升级；宿主拒绝旧版本 Hello，旧 supervisor 托管的 agent 需要由运维停止并重建，不自动兼容或迁移。
+
+`box.Session.DialPort(ctx, port)` 的 context 覆盖拨号和连接生命周期，连接关闭后取消监听退出。Watch 只提供一个稳定事件通道，关闭允许放弃未转交事件；控制队列满时关闭通知由同一 writer 延迟发送，不另起永久阻塞的发送者。
 
 帧 `len u32 LE | kind u16 LE | payload`，上限 1 MiB。大块数据（文件写入）跟在帧后以裸字节发送，不复制进帧。
 

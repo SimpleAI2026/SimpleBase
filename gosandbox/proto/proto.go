@@ -1,3 +1,37 @@
+// 文件说明：proto.go — gosandbox/proto 中 Kind、Stream 等符号的实现
+//
+// 用法
+//
+//	type Kind uint16  // Kind 是帧类型
+//	type Stream uint8  // Stream 区分 stdout 与 stderr；PTY 模式下只有 Stdout
+//	type Signal int32  // Signal 是 Signal 帧里的信号编号（与 syscall 数值一致）
+//	type Rlimit struct{…}  // Rlimit 是一条资源上限
+//	type ExitReason uint8  // ExitReason 说明进程为什么结束
+//
+// 调用架构
+//
+//	[上游] gosandbox/agent, gosandbox/box, gosandbox/vm/box
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/proto/proto.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] codec.go, codec_contract_test.go, codec_test.go, frame.go, message.go
+//	[关键引用] Kind ← codec.go, frame.go；Stream ← message.go；Signal ← message.go
+//
+// 主要符号
+//
+//	const Version / MaxFrame / Header / MaxOutputChunk / InputWindow / MaxPathLen / MaxArgLen / MaxArgs / MaxEnv
+//	type Kind uint16
+//	const KindHello / KindPing / KindPong / KindShutdown / KindError / KindAck / KindStart / KindStarted / KindOutput / KindExited / KindInput / KindInputConsumed / KindCloseStdin / KindResize / KindSignal / KindFsStat / KindFsStatReply / KindFsList / KindFsListReply / KindFsRead / KindFsReadReply / KindFsWrite / KindFsRemove / KindFsMkdir / KindFsRename / KindFsWriteAck / KindWatch / KindUnwatch / KindWatchEvent / KindStatsQuery / KindStats / KindTopQuery / KindTop / KindListenQuery / KindListening / KindRelay / KindRelayData / KindRelayHalfClose / KindRelayClose
+//	const RelayConnectFailed
+//	type Stream uint8
+//	const StreamStdout / StreamStderr
+//	(s Stream) String() string
+//	type Signal int32
+//	... 另有 3 个顶层符号
+
 // Package proto 是宿主与沙盒内 agent 之间的线协议。
 //
 // 帧格式：len u32 LE | kind u16 LE | payload，len 计 kind + payload。
@@ -12,10 +46,9 @@ package proto
 const (
 	// Version 是线协议版本；Hello 里带上，两侧不一致直接拒绝。
 	//
-	// v2：Ack / FsWriteAck / Error 带上 Seq（宿主按 Seq 关联请求，缺了它们
-	// 所有文件操作都会等到超时）；RelayClose 带上 Flags（区分「连不上」与
-	// 「对端正常关闭」）。
-	Version uint16 = 2
+	// v3：Exited、Stats、RelayClose 必须包含全部字段，不再接受旧短帧。
+	// 宿主与 helper 必须同步升级；旧常驻 agent 的 Hello 会被拒绝。
+	Version uint16 = 3
 	// MaxFrame 是单帧上限（1 MiB）。超过视为协议错误，避免对端无限申请内存。
 	MaxFrame = 1 << 20
 	// Header 是 payload 之前的字节数：len(4) + kind(2)。

@@ -1,3 +1,34 @@
+// 文件说明：api_keys_handler_test.go — internal/api 的单元测试（TestAPIKeys_CreateAndAuthenticate、TestAPIKeys_CreateDefaultFullPermissions 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestAPIKeys_CreateAndAuthenticate|TestAPIKeys_CreateDefaultFullPermissions|TestAPIKeys_CreateInvalidPermission|TestAPIKeys_AdminRoleForbidden'
+//	同包调用：newAPIKeyTestDB() → e2e_apikeys_check_test.go；setupAPIKeyRouter() → api_keys_issue_security_test.go, api_keys_revoke_security_test.go；superPrincipal() → api_keys_revoke_security_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/api_keys_handler_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] newAPIKeyTestDB ← e2e_apikeys_check_test.go；setupAPIKeyRouter ← api_keys_issue_security_test.go, api_keys_revoke_security_test.go；superPrincipal ← api_keys_revoke_security_test.go
+//
+// 主要符号
+//
+//	newAPIKeyTestDB(t *testing.T) *sql.DB
+//	setupAPIKeyRouter(t *testing.T, principal auth.Principal) (*echo.Echo, *sql.DB, *auth.Service)
+//	superPrincipal() auth.Principal
+//	adminRolePrincipal() auth.Principal
+//	TestAPIKeys_CreateAndAuthenticate(t *testing.T)
+//	TestAPIKeys_CreateDefaultFullPermissions(t *testing.T)
+//	TestAPIKeys_CreateInvalidPermission(t *testing.T)
+//	TestAPIKeys_AdminRoleForbidden(t *testing.T)
+//	... 另有 4 个顶层符号
+
 package api
 
 import (

@@ -1,3 +1,29 @@
+// 文件说明：gate_test.go — godatabase/lease 的单元测试（TestGateSerializesSameKey、TestGatePropagatesError 等）
+//
+// 用法
+//
+//	go test ./godatabase/lease -run 'TestGateSerializesSameKey|TestGatePropagatesError|TestGateDifferentKeysParallel|TestGateNilReceiver'
+//
+// 调用架构
+//
+//	[上游] internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/lease/gate_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] gate.go, lease.go, lease_test.go
+//
+// 主要符号
+//
+//	TestGateSerializesSameKey(t *testing.T)
+//	TestGatePropagatesError(t *testing.T)
+//	TestGateDifferentKeysParallel(t *testing.T)
+//	TestGateNilReceiver(t *testing.T)
+//	TestGateTryDoBusy(t *testing.T)
+//	TestGateTryDoDistinctKeys(t *testing.T)
+
 package lease
 
 import (

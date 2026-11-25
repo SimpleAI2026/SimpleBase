@@ -1,5 +1,34 @@
 //go:build unix
 
+// 文件说明：start_test.go — gosandbox/vm/local 的单元测试（TestStartBuildsArgvAndEnv、TestStartKeepsCallerTERM 等）
+//
+// 用法
+//
+//	go test ./gosandbox/vm/local -run 'TestStartBuildsArgvAndEnv|TestStartKeepsCallerTERM|TestStartFailClosed|TestStartRejectsPublicNetworkAndBadCwd'
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/vm/local/start_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] exec.go, export_test.go, files.go, local.go, local_test.go 等 8 个
+//
+// 主要符号
+//
+//	type stubProc struct{…}
+//	(*stubProc) PID() int
+//	(*stubProc) Stdin() io.WriteCloser
+//	(*stubProc) Output() io.Reader
+//	(*stubProc) Resize(host.PTYSize) error
+//	(*stubProc) Signal(syscall.Signal) error
+//	(*stubProc) Wait() host.ExitInfo
+//	(*stubProc) Done() <-chan struct{}
+//	... 另有 8 个顶层符号
+
 package local
 
 import (

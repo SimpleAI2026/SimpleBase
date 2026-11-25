@@ -1,3 +1,26 @@
+// 文件说明：delegation_registry_test.go — internal/auth 的单元测试（TestDelegationRegistry_RevokeRetentionUsesExp、TestDelegationRegistry_ZeroExpFallsBack 等）
+//
+// 用法
+//
+//	go test ./internal/auth -run 'TestDelegationRegistry_RevokeRetentionUsesExp|TestDelegationRegistry_ZeroExpFallsBack|TestDelegationRegistry_ReIssueAfterRevoke'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/api/perfbench 等 9 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/auth/delegation_registry_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] api_key_repository.go, authenticate_middleware_test.go, cache.go, cache_test.go, cached_user_test.go 等 31 个
+//
+// 主要符号
+//
+//	TestDelegationRegistry_RevokeRetentionUsesExp(t *testing.T)
+//	TestDelegationRegistry_ZeroExpFallsBack(t *testing.T)
+//	TestDelegationRegistry_ReIssueAfterRevoke(t *testing.T)
+
 package auth
 
 import (

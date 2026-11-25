@@ -1,5 +1,34 @@
 //go:build linux
 
+// 文件说明：watch_linux.go — gosandbox/agent 的内部实现（watchBatch、maxWatches 等）
+//
+// 用法
+//
+//	包内实现，无导出与跨文件调用
+//
+// 调用架构
+//
+//	[上游] gosandbox/cmd
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/agent/watch_linux.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent.go, agent_test.go, fs.go, loopback_linux.go, loopback_other.go 等 16 个
+//
+// 主要符号
+//
+//	const watchBatch
+//	const maxWatches
+//	type watcher struct{…}
+//	(s *Server) watch(m proto.Msg)
+//	(s *Server) watchLoop(w *watcher, recursive bool, mask uint32)
+//	le32(b []byte) uint32
+//	trimNul(s string) string
+//	(s *Server) unwatch(m proto.Msg)
+//	... 另有 2 个顶层符号
+
 package agent
 
 import (

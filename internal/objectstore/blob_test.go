@@ -1,3 +1,24 @@
+// 文件说明：blob_test.go — internal/objectstore 的单元测试（TestMemoryBlobStoreRoundTrip 等）
+//
+// 用法
+//
+//	go test ./internal/objectstore -run 'TestMemoryBlobStoreRoundTrip'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/api, internal/app, internal/backup 等 6 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/objectstore/blob_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] blob.go, branches_test.go, client.go, client_test.go, content.go 等 24 个
+//
+// 主要符号
+//
+//	TestMemoryBlobStoreRoundTrip(t *testing.T)
+
 package objectstore
 
 import (

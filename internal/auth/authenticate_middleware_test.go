@@ -1,3 +1,32 @@
+// 文件说明：authenticate_middleware_test.go — internal/auth 的单元测试（TestAuthenticate_NilRepository、TestAuthenticate_HashMismatch 等）
+//
+// 用法
+//
+//	go test ./internal/auth -run 'TestAuthenticate_NilRepository|TestAuthenticate_HashMismatch|TestPrincipalNilMaps|TestParseAndJoinPermissions'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/api/perfbench 等 9 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/auth/authenticate_middleware_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] api_key_repository.go, cache.go, cache_test.go, cached_user_test.go, delegation.go 等 31 个
+//
+// 主要符号
+//
+//	TestAuthenticate_NilRepository(t *testing.T)
+//	TestAuthenticate_HashMismatch(t *testing.T)
+//	TestPrincipalNilMaps(t *testing.T)
+//	TestParseAndJoinPermissions(t *testing.T)
+//	TestAPIKeyMiddleware_Revoked(t *testing.T)
+//	TestRequire_MissingPrincipal(t *testing.T)
+//	TestSQLAPIKeyRepository(t *testing.T)
+//	TestExtractBearerToken_Whitespace(t *testing.T)
+//	... 另有 1 个顶层符号
+
 package auth
 
 import (

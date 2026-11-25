@@ -1,3 +1,34 @@
+// 文件说明：llm_handler_test.go — internal/api 的单元测试（TestChatCompletions_NonStream、TestChatCompletions_ToolsRoundTrip 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestChatCompletions_NonStream|TestChatCompletions_ToolsRoundTrip|TestChatCompletions_ToolArgumentsAreAString|TestChatCompletions_FinishReasonInferredFromToolCalls'
+//	同包调用：fakeLLMSvc → agent_skills_router_e2e_test.go, oai_responses_test.go；seqStream → oai_responses_test.go；setupLLMRouter() → oai_responses_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/llm_handler_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] fakeLLMSvc ← agent_skills_router_e2e_test.go, oai_responses_test.go；seqStream ← oai_responses_test.go；setupLLMRouter ← oai_responses_test.go
+//
+// 主要符号
+//
+//	type fakeLLMSvc struct{…}
+//	(f *fakeLLMSvc) Chat(_ context.Context, _ string, req LLMRequest) (LLMResponse, error)
+//	(f *fakeLLMSvc) Stream(_ context.Context, _ string, req LLMRequest) (LLMStreamReader, error)
+//	(f *fakeLLMSvc) ListProviders(context.Context, string) ([]string, error)
+//	(f *fakeLLMSvc) ProviderModels(context.Context, string) (map[string][]string, error)
+//	type seqStream struct{…}
+//	(s *seqStream) Next() (*LLMStreamChunk, error)
+//	(s *seqStream) Close() error
+//	... 另有 21 个顶层符号
+
 package api
 
 import (
@@ -222,7 +253,7 @@ func TestChatCompletions_NonStream(t *testing.T) {
 		if out.Usage.PromptTokens != 2 || out.Usage.CompletionTokens != 3 || out.Usage.TotalTokens != 5 {
 			t.Fatalf("usage=%+v", out.Usage)
 		}
-		if aud.last.Kind != "llm_chat_completions" || aud.last.Status != "ok" || aud.last.PrincipalID != "key-llm" {
+		if aud.last.Kind != "llm_chat_completions" || aud.last.Status != "ok" || aud.last.PrincipalID != "key:key-llm" {
 			t.Fatalf("audit=%+v", aud.last)
 		}
 		var n int

@@ -1,3 +1,38 @@
+// 文件说明：instance_format.go — godatabase/ducklake 中 InstanceFormat、FormatCheckInput 等符号的实现
+//
+// 用法
+//
+//	type InstanceFormat struct{…}  // InstanceFormat 是实例级 catalog 格式标记
+//	type FormatCheckInput struct{…}  // FormatCheckInput 是 EnsureInstanceFormat 的入参
+//	LocalInstanceFormatPath(dataRoot string) string  // LocalInstanceFormatPath 返回本地标记路径（持久根下，随数据一起搬迁）
+//	EnsureInstanceFormat(ctx context.Context, in FormatCheckInput) (InstanceFormat, error)  // EnsureInstanceFormat 启动兼容性校验（§4.2）： 读远端标记（Store != nil 时）/ 本地标记 ├─ 两者都不存在： │ ├─ ...
+//	DetectLocalData(cacheDir string) (bool, string)  // DetectLocalData 探测本地缓存是否已有库数据（§4.3）
+//	同包调用：writeLocalFormat() → instance_format_v2_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app, internal/systemdb
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/ducklake/instance_format.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] c4_syncer_lease_test.go, c4_syncer_ordering_test.go, catalog_syncer.go, catalog_syncer_test.go, coverage_test.go 等 35 个
+//	[关键引用] InstanceFormat ← instance_format_v2_test.go；FormatCheckInput ← instance_format_v2_test.go；EnsureInstanceFormat ← instance_format_v2_test.go
+//
+// 主要符号
+//
+//	const InstanceFormatVersion
+//	const instanceFormatFileName
+//	type InstanceFormat struct{…}
+//	type FormatCheckInput struct{…}
+//	LocalInstanceFormatPath(dataRoot string) string
+//	EnsureInstanceFormat(ctx context.Context, in FormatCheckInput) (InstanceFormat, error)
+//	compareFormat(in FormatCheckInput, engine string, f InstanceFormat, source string) error
+//	DetectLocalData(cacheDir string) (bool, string)
+//	... 另有 9 个顶层符号
+
 package ducklake
 
 import (
@@ -220,21 +255,29 @@ func DetectLocalData(cacheDir string) (bool, string) {
 // 无法区分"前缀为空"与"寻址/路由错误"（如 bucket 级 COS endpoint + path-style 寻址下
 // ListObjectsV2 被 COS 路由为 GetObject，恒 404 NoSuchKey），绝不能当成空前缀。
 // _system/ 下的平台标记（实例格式标记、reset 锁、CAS 探针）不算已有数据。
+// B24：必须遍历全部分页——旧实现只看前 100 项，首页全为 _system/ 前缀时会把
+// 第二页才出现的项目数据误判为 clean。
 func requireRemoteClean(ctx context.Context, in FormatCheckInput) error {
 	prefix := in.Keys.RootListingPrefix()
-	keys, _, err := in.Store.List(ctx, prefix, "", 100)
-	if err != nil {
-		return fmt.Errorf("ducklake: cannot verify remote prefix %s is empty (list failed, refusing to write instance-format marker): %w", prefix, err)
-	}
 	sysPrefix := blob.SystemPrefix + "/"
-	for _, k := range keys {
-		rest := strings.TrimPrefix(strings.TrimPrefix(k, prefix), "/")
-		if rest == "" || strings.HasPrefix(rest, sysPrefix) {
-			continue
+	cursor := ""
+	for {
+		keys, next, err := in.Store.List(ctx, prefix, cursor, 100)
+		if err != nil {
+			return fmt.Errorf("ducklake: cannot verify remote prefix %s is empty (list failed, refusing to write instance-format marker): %w", prefix, err)
 		}
-		return unknownErr(in, "remote prefix "+prefix+" contains existing objects (e.g. "+k+")")
+		for _, k := range keys {
+			rest := strings.TrimPrefix(strings.TrimPrefix(k, prefix), "/")
+			if rest == "" || strings.HasPrefix(rest, sysPrefix) {
+				continue
+			}
+			return unknownErr(in, "remote prefix "+prefix+" contains existing objects (e.g. "+k+")")
+		}
+		if next == "" {
+			return nil
+		}
+		cursor = next
 	}
-	return nil
 }
 
 func readLocalFormat(cacheDir string) (InstanceFormat, bool, error) {

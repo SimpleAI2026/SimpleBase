@@ -1,3 +1,32 @@
+// 文件说明：valuecache_test.go — gofunction/internal/interp 的单元测试（TestValueCacheImmutable、TestBoolValueSemantics 等）
+//
+// 用法
+//
+//	go test ./gofunction/internal/interp -run 'TestValueCacheImmutable|TestBoolValueSemantics|TestIntValueBoundary|TestConvTypedWidthFidelity'
+//
+// 调用架构
+//
+//	[上游] gofunction
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/internal/interp/valuecache_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] bench_test.go, cachetest_test.go, call.go, call_test.go, cheap_test.go 等 40 个
+//
+// 主要符号
+//
+//	TestValueCacheImmutable(t *testing.T)
+//	TestBoolValueSemantics(t *testing.T)
+//	TestIntValueBoundary(t *testing.T)
+//	truncInt32(v int64) int32
+//	truncInt16(v int64) int16
+//	truncInt8(v int64) int8
+//	truncUint32(v uint64) uint32
+//	truncUint16(v uint64) uint16
+//	... 另有 8 个顶层符号
+
 package interp
 
 // 本文件覆盖 P3 优化引入的不变量：常用值单例表的只读性、

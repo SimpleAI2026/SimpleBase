@@ -1,3 +1,31 @@
+// 文件说明：mcp_builtin_session_test.go — internal/api 的单元测试（TestBuiltinMCPSession_ReadWithContextPrincipal、TestBuiltinMCPSession_ReadOnlyPrincipalCannotWrite 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestBuiltinMCPSession_ReadWithContextPrincipal|TestBuiltinMCPSession_ReadOnlyPrincipalCannotWrite|TestBuiltinMCPSession_SpecGates|TestBuiltinMCPSession_PolicyTable'
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/mcp_builtin_session_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//
+// 主要符号
+//
+//	sessionPrincipal(perms ...auth.Permission) auth.Principal
+//	builtinForTest(t *testing.T) (*builtinMCPHandler, Dependencies)
+//	callSessionTool(t *testing.T, spec *mcp.ServerSpec, tool, args string) mcp.CallResult
+//	TestBuiltinMCPSession_ReadWithContextPrincipal(t *testing.T)
+//	TestBuiltinMCPSession_ReadOnlyPrincipalCannotWrite(t *testing.T)
+//	TestBuiltinMCPSession_SpecGates(t *testing.T)
+//	TestBuiltinMCPSession_PolicyTable(t *testing.T)
+//	TestInternalPrincipalCannotBeForgedFromHTTP(t *testing.T)
+
 package api
 
 import (

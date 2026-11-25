@@ -1,5 +1,30 @@
 //go:build linux
 
+// 文件说明：subid_test.go — gosandbox/box 的单元测试（TestSubIDMapSingleSegment、TestSubIDMapMultiSegment 等）
+//
+// 用法
+//
+//	go test ./gosandbox/box -run 'TestSubIDMapSingleSegment|TestSubIDMapMultiSegment|TestSubIDMapCapsTotal|TestSubIDMapRangesAreContiguous'
+//
+// 调用架构
+//
+//	[上游] gosandbox/cmd, gosandbox/vm/box
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/box/subid_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] backpressure_test.go, copytree.go, deadline.go, egress_e2e_test.go, files.go 等 26 个
+//
+// 主要符号
+//
+//	TestSubIDMapSingleSegment(t *testing.T)
+//	TestSubIDMapMultiSegment(t *testing.T)
+//	TestSubIDMapCapsTotal(t *testing.T)
+//	TestSubIDMapRangesAreContiguous(t *testing.T)
+//	TestSubIDSpec(t *testing.T)
+
 package box
 
 // subid_test.go：多段 uid 映射的计划生成。

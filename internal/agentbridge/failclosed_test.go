@@ -1,3 +1,32 @@
+// 文件说明：failclosed_test.go — internal/agentbridge 的单元测试（TestExecSimplebase_NilPolicyFailsClosed、TestExecSimplebase_PolicyErrorFailsClosed 等）
+//
+// 用法
+//
+//	go test ./internal/agentbridge -run 'TestExecSimplebase_NilPolicyFailsClosed|TestExecSimplebase_PolicyErrorFailsClosed|TestStripWritePermissionsDoesNotMutateSource|TestStartRunReadonlyAgentIssuesStrippedPrincipal'
+//
+// 调用架构
+//
+//	[上游] internal/agentrun, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/agentbridge/failclosed_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] access_db.go, access_llm.go, access_object.go, access_test.go, bridge_test.go 等 33 个
+//
+// 主要符号
+//
+//	type failingPolicy struct{…}
+//	(failingPolicy) Classify([]string, string) (cloudagent.ToolDecision, error)
+//	(failingPolicy) RedactArgv(a []string) []string
+//	TestExecSimplebase_NilPolicyFailsClosed(t *testing.T)
+//	TestExecSimplebase_PolicyErrorFailsClosed(t *testing.T)
+//	TestStripWritePermissionsDoesNotMutateSource(t *testing.T)
+//	type plainLLM struct{…}
+//	(plainLLM) Chat(context.Context, string, cloudagent.ChatRequest) (cloudagent.ChatResponse, error)
+//	... 另有 5 个顶层符号
+
 package agentbridge
 
 import (
@@ -14,8 +43,8 @@ import (
 // failingPolicy 的 Classify 总是报错，模拟策略不可用。
 type failingPolicy struct{}
 
-func (failingPolicy) Classify([]string, string) (ToolDecision, error) {
-	return ToolDecision{}, errors.New("policy down")
+func (failingPolicy) Classify([]string, string) (cloudagent.ToolDecision, error) {
+	return cloudagent.ToolDecision{}, errors.New("policy down")
 }
 func (failingPolicy) RedactArgv(a []string) []string { return a }
 
@@ -27,10 +56,10 @@ func TestExecSimplebase_NilPolicyFailsClosed(t *testing.T) {
 	r.rememberToken("r1", "tok")
 	for _, writable := range []bool{true, false} {
 		req := makeAgentRequest(writable)
-		var events []Event
+		var events []cloudagent.Event
 		ctx := withRunContext(context.Background(), RunContext{
 			Skills: []string{"database"}, Writable: writable,
-			Emit: func(e Event) { events = append(events, e) },
+			Emit: func(e cloudagent.Event) { events = append(events, e) },
 		})
 		out, err := r.execSimplebase(ctx, req, []string{"database", "list"}, "")
 		if err != nil {
@@ -86,10 +115,10 @@ func TestStripWritePermissionsDoesNotMutateSource(t *testing.T) {
 // plainLLM 直接给出最终回答，不产生工具调用。
 type plainLLM struct{}
 
-func (plainLLM) Chat(context.Context, string, ChatRequest) (ChatResponse, error) {
-	return ChatResponse{Content: "done"}, nil
+func (plainLLM) Chat(context.Context, string, cloudagent.ChatRequest) (cloudagent.ChatResponse, error) {
+	return cloudagent.ChatResponse{Content: "done"}, nil
 }
-func (plainLLM) Stream(ctx context.Context, p string, r ChatRequest) (TokenStream, error) {
+func (plainLLM) Stream(ctx context.Context, p string, r cloudagent.ChatRequest) (cloudagent.TokenStream, error) {
 	return &onceStream{content: "done"}, nil
 }
 
@@ -119,7 +148,7 @@ func TestStartRunReadonlyAgentIssuesStrippedPrincipal(t *testing.T) {
 				UserID: "u1", TenantID: "t1", Role: auth.RoleAdmin,
 				Permissions: map[auth.Permission]struct{}{auth.DatabaseRead: {}, auth.DatabaseWrite: {}, auth.DatabaseAdmin: {}},
 			}
-			_, err := rt.StartRun(context.Background(), RunRequest{
+			_, err := rt.StartRun(context.Background(), cloudagent.RunRequest{
 				ThreadID: "t", RunID: "r", UserText: "hi",
 				Context: RunContext{ProjectID: "p", Principal: caller},
 				Agent:   cloudagent.Agent{ID: "a", Name: "Bot", Module: ModuleGeneral, Writable: tc.writable},

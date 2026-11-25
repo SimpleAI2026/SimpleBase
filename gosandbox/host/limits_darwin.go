@@ -1,5 +1,35 @@
 //go:build darwin
 
+// 文件说明：limits_darwin.go — gosandbox/host 的内部实现（limitsMonitor、monitorInterval 等）
+//
+// 用法
+//
+//	同包调用：cpuShare() → run_darwin_test.go；startLimitMonitor() → run_darwin.go, start_darwin.go
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/tools, gosandbox/box, gosandbox/vm/box 等 5 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/host/limits_darwin.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] bwrap_args.go, bwrap_args_extra_test.go, cgroup.go, cgroup_linux.go, cgroup_linux_test.go 等 36 个
+//	[关键引用] cpuShare ← run_darwin_test.go；startLimitMonitor ← run_darwin.go, start_darwin.go
+//
+// 主要符号
+//
+//	const limitsMonitor
+//	var monitorInterval
+//	const procInfoCallListPids / procInfoCallPidInfo / procPgrpOnly / procPPIDOnly / procPidTaskInfo
+//	type procTaskInfo struct{…}
+//	listPids(typ int, arg int) []int
+//	taskInfo(pid int) (ti procTaskInfo, ok bool)
+//	var machTicksPerSecond
+//	ticksToDuration(t uint64) time.Duration
+//	... 另有 11 个顶层符号
+
 package host
 
 import (

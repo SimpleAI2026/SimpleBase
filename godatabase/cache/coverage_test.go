@@ -1,3 +1,30 @@
+// 文件说明：coverage_test.go — godatabase/cache 的单元测试（TestUsageMissingRootAndFiles、TestEvictBranches 等）
+//
+// 用法
+//
+//	go test ./godatabase/cache -run 'TestUsageMissingRootAndFiles|TestEvictBranches|TestEnsureCapacityAndRemoveMissing|TestNewManagerDefaultsAndRoot'
+//
+// 调用架构
+//
+//	[上游] internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/cache/coverage_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] evict.go, evict_b13_test.go, manager.go, manager_test.go, more_test.go
+//
+// 主要符号
+//
+//	type recMetrics = testutil.RecordingObserver
+//	type errCloser struct{…}
+//	(e errCloser) CloseDatabase(ctx context.Context, id string) error
+//	TestUsageMissingRootAndFiles(t *testing.T)
+//	TestEvictBranches(t *testing.T)
+//	TestEnsureCapacityAndRemoveMissing(t *testing.T)
+//	TestNewManagerDefaultsAndRoot(t *testing.T)
+
 package cache
 
 import (

@@ -2,7 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { uiStubs } from '@/test/helpers'
+import { clickTab, closeDialog, installJsdomPolyfills, pickSelectOption, realDialogStubs, uiStubs } from '@/test/helpers'
 import { api, resetApiMocks } from '@/test/api-mock'
 
 import SbModal from '@/components/modal/SbModal.vue'
@@ -34,18 +34,18 @@ const stubs = { ...uiStubs, SbModal: false }
 
 beforeEach(() => resetApiMocks())
 
+installJsdomPolyfills()
+
 describe('modal update:open 转发', () => {
   it('SbModal 把 Dialog 的关闭事件转发为 update:open', async () => {
-    const DialogStub = {
-      props: ['open'],
-      emits: ['update:open'],
-      template: '<button type="button" class="dialog-close" @click="$emit(\'update:open\', false)"><slot /></button>'
-    }
+    // 真实 Dialog：点右上角关闭按钮，reka 发出 update:open(false)，SbModal 原样转发
     const w = mount(SbModal, {
+      attachTo: document.body,
       props: { open: true, title: 'T' },
-      global: { stubs: { ...uiStubs, Dialog: DialogStub } }
+      global: { stubs: { ...uiStubs, ...realDialogStubs } }
     })
-    await w.find('.dialog-close').trigger('click')
+    await flushPromises()
+    await closeDialog()
     expect(w.emitted('update:open')?.[0]).toEqual([false])
     w.unmount()
   })
@@ -85,15 +85,17 @@ describe('modal update:open 转发', () => {
   })
 
   it('KvTtlModal 的过期策略切换与 update:open 转发', async () => {
+    // 真实 Dialog + 真实 Select：选「自定义秒数」后才出现秒数输入框
     const w = mount(KvTtlModal, {
+      attachTo: document.body,
       props: { open: true, projectId: 'p', kvKey: { key: 'k' } },
-      global: { stubs }
+      global: { stubs: { ...stubs, ...realDialogStubs, Select: false, SelectTrigger: false, SelectValue: false, SelectContent: false, SelectGroup: false, SelectItem: false } }
     })
-    // 「自定义秒数」经 Select 桩切换，模板分支随之展开
-    await w.find('.select-custom').trigger('click')
     await flushPromises()
-    w.findComponent({ name: 'SbModal' }).vm.$emit('update:open', false)
-    await flushPromises()
+    expect(document.body.querySelector('input[type="number"]')).toBeNull()
+    await pickSelectOption(document.body.querySelector<HTMLElement>('button[role="combobox"]'), '自定义秒数')
+    expect(document.body.querySelector('input[type="number"]')).not.toBeNull()
+    await closeDialog()
     expect(w.emitted('update:open')?.[0]).toEqual([false])
     w.unmount()
   })
@@ -103,10 +105,13 @@ describe('分组与页签事件', () => {
   it('KvApiPanel 的命令分组页签可切换', async () => {
     const w = mount(KvApiPanel, { props: { projectId: 'p' }, global: { stubs } })
     await flushPromises()
-    // Tabs 桩暴露 .tab-emit 按钮，点击即切换分组
-    await w.find('.tab-emit').trigger('click')
+    // 真实页签：切到「项目级单端点」所在的分组
+    const tabs = w.findAll('[role="tab"]')
+    expect(tabs.length).toBeGreaterThan(1)
+    const last = tabs[tabs.length - 1].attributes('id')!.split('-trigger-')[1]
+    await clickTab(w, last)
     await flushPromises()
-    expect(w.text()).toContain('项目级单端点')
+    expect(w.find('[role="tab"][data-state="active"]').attributes('id')).toContain(last)
     w.unmount()
   })
 

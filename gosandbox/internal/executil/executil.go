@@ -1,3 +1,32 @@
+// 文件说明：executil.go — gosandbox/internal/executil 中 CappedBuffer、NewCappedBuffer 等符号的实现
+//
+// 用法
+//
+//	type CappedBuffer struct{…}  // CappedBuffer 保留输出的前 max 字节，丢弃其余内容但始终接受写入
+//	NewCappedBuffer(max int) *CappedBuffer
+//	HasEnv(env []string, key string) bool
+//
+// 调用架构
+//
+//	[上游] gosandbox/host, gosandbox/vm/box, gosandbox/vm/local
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/internal/executil/executil.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] executil_test.go
+//	[关键引用] NewCappedBuffer ← executil_test.go；HasEnv ← executil_test.go
+//
+// 主要符号
+//
+//	type CappedBuffer struct{…}
+//	NewCappedBuffer(max int) *CappedBuffer
+//	(b *CappedBuffer) Write(p []byte) (int, error)
+//	(b *CappedBuffer) Bytes() []byte
+//	(b *CappedBuffer) Truncated() bool
+//	HasEnv(env []string, key string) bool
+
 package executil
 
 import "strings"

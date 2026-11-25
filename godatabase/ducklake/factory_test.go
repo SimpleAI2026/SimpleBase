@@ -1,3 +1,28 @@
+// 文件说明：factory_test.go — godatabase/ducklake 的单元测试（TestFactoryRejectsInvalidDatabaseID、TestFactoryRejectsEmptyCacheDir 等）
+//
+// 用法
+//
+//	go test ./godatabase/ducklake -run 'TestFactoryRejectsInvalidDatabaseID|TestFactoryRejectsEmptyCacheDir|TestLayoutEnsureCreatesDirs|TestVersionAtLeast'
+//
+// 调用架构
+//
+//	[上游] internal/app, internal/systemdb
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/ducklake/factory_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] c4_syncer_lease_test.go, c4_syncer_ordering_test.go, catalog_syncer.go, catalog_syncer_test.go, coverage_test.go 等 35 个
+//
+// 主要符号
+//
+//	TestFactoryRejectsInvalidDatabaseID(t *testing.T)
+//	TestFactoryRejectsEmptyCacheDir(t *testing.T)
+//	TestLayoutEnsureCreatesDirs(t *testing.T)
+//	TestVersionAtLeast(t *testing.T)
+//	TestLocalSyncerRecordsSnapshot(t *testing.T)
+
 package ducklake
 
 import (

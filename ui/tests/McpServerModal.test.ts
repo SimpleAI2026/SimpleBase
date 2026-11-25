@@ -2,7 +2,7 @@ import { flushPromises } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import McpServerModal from '@/components/modal/McpServerModal.vue'
 import { api, resetApiMocks } from '@/test/api-mock'
-import { mountWithApp } from '@/test/helpers'
+import { mountWithApp, closeDialog, installJsdomPolyfills, realDialogStubs, inDialog } from '@/test/helpers'
 
 vi.mock('@/services/api', async () => {
   const module = await import('@/test/api-mock')
@@ -33,10 +33,13 @@ type Vm = {
 
 async function mountModal(server: typeof existing | null) {
   const { wrapper } = await mountWithApp(McpServerModal, {
-    props: { open: true, projectId: 'p1', server }
+    props: { open: true, projectId: 'p1', server },
+    stubs: realDialogStubs
   })
   return { wrapper, vm: wrapper.vm as unknown as Vm }
 }
+
+installJsdomPolyfills()
 
 describe('McpServerModal', () => {
   beforeEach(() => {
@@ -98,7 +101,7 @@ describe('McpServerModal', () => {
   it('drives every input through the template handlers', async () => {
     const { wrapper, vm } = await mountModal(null)
     // 四个输入框：名称 / URL / 凭据 / 超时，各自走 update:model-value 处理器。
-    const inputs = wrapper.findAll('input')
+    const inputs = inDialog().findAll('input')
     expect(inputs.length).toBeGreaterThanOrEqual(4)
     await inputs[0].setValue('fs')
     await inputs[1].setValue('https://fs.example.com/mcp')
@@ -116,7 +119,7 @@ describe('McpServerModal', () => {
     expect(vm.timeout).toBe(60)
 
     // 取消按钮只关闭弹窗，不发请求。
-    const cancel = wrapper.findAll('button').find((b) => b.text().includes('取消'))!
+    const cancel = inDialog().findAll('button').find((b) => b.text().includes('取消'))!
     await cancel.trigger('click')
     expect(wrapper.emitted('update:open')?.at(-1)).toEqual([false])
 
@@ -145,13 +148,13 @@ describe('McpServerModal', () => {
     await flushPromises()
 
     // SbModal 的 update:open 透传给父组件。
-    await wrapper.get('.sb-modal-close').trigger('click')
+    await closeDialog()
     expect(wrapper.emitted('update:open')?.at(-1)).toEqual([false])
   })
 
   it('uses a different credential placeholder when one is already saved', async () => {
     const { wrapper } = await mountModal(existing)
-    const inputs = wrapper.findAll('input')
+    const inputs = inDialog().findAll('input')
     // 有已保存凭据时提示语不同（占位符来自 computed）。
     expect(inputs[2].attributes('placeholder')).not.toBe('粘贴访问令牌')
   })

@@ -87,14 +87,14 @@ type apiKeyListResponse struct {
 // Create: POST /v1/projects/:projectID/api-keys
 // body { "permissions": ["database:read", ...] } → 201 { id, permissions, secret }
 func (h *APIKeysHandler) Create(c echo.Context) error {
-	rid := RequestIDFromContext(c.Request().Context())
+	rid := requestID(c)
 	p, ok := PrincipalFromContext(c.Request().Context())
 	if !ok {
 		return WriteError(c, NewAPIError(http.StatusUnauthorized, "unauthenticated", "login required", rid))
 	}
-	project, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	project, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	if !p.CanAccessProject(project.ID) {
 		return WriteError(c, NewAPIError(http.StatusForbidden, "cross_project_denied", "cross project access denied", rid))
@@ -108,7 +108,7 @@ func (h *APIKeysHandler) Create(c echo.Context) error {
 	dec := json.NewDecoder(c.Request().Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&req); err != nil && err.Error() != "EOF" {
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "malformed JSON body", rid))
+		return WriteError(c, badRequest(c, "malformed JSON body"))
 	}
 
 	perms, err := parseAPIKeyPermissions(req.Permissions)
@@ -157,14 +157,14 @@ func (h *APIKeysHandler) Create(c echo.Context) error {
 
 // List: GET /v1/projects/:projectID/api-keys → { keys: [...] }（无明文）
 func (h *APIKeysHandler) List(c echo.Context) error {
-	rid := RequestIDFromContext(c.Request().Context())
+	rid := requestID(c)
 	p, ok := PrincipalFromContext(c.Request().Context())
 	if !ok {
 		return WriteError(c, NewAPIError(http.StatusUnauthorized, "unauthenticated", "login required", rid))
 	}
-	project, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	project, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	if !p.CanAccessProject(project.ID) {
 		return WriteError(c, NewAPIError(http.StatusForbidden, "cross_project_denied", "cross project access denied", rid))
@@ -206,14 +206,14 @@ func (h *APIKeysHandler) List(c echo.Context) error {
 
 // Delete: DELETE /v1/projects/:projectID/api-keys/:keyID（吊销）
 func (h *APIKeysHandler) Delete(c echo.Context) error {
-	rid := RequestIDFromContext(c.Request().Context())
+	rid := requestID(c)
 	p, ok := PrincipalFromContext(c.Request().Context())
 	if !ok {
 		return WriteError(c, NewAPIError(http.StatusUnauthorized, "unauthenticated", "login required", rid))
 	}
-	project, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return WriteError(c, ErrProjectMissing)
+	project, err := requireProject(c)
+	if err != nil {
+		return WriteError(c, err)
 	}
 	if !p.CanAccessProject(project.ID) {
 		return WriteError(c, NewAPIError(http.StatusForbidden, "cross_project_denied", "cross project access denied", rid))
@@ -223,7 +223,7 @@ func (h *APIKeysHandler) Delete(c echo.Context) error {
 	}
 	keyID := c.Param("keyID")
 	if keyID == "" {
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "key id required", rid))
+		return WriteError(c, badRequest(c, "key id required"))
 	}
 	// SEC-01：按 (id, projectID) 吊销；不属于本项目的 Key 与不存在的 ID 一律 404，
 	// 不泄露 Key 归属。重复吊销同样 404（幂等）。同时失效本进程认证缓存。

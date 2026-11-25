@@ -1,3 +1,34 @@
+// 文件说明：data_handler_test.go — internal/api 的单元测试（TestDataListCollections_UsesPathDatabaseID、TestDataListCollections_HidesInternalAndNonDocumentTables 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestDataListCollections_UsesPathDatabaseID|TestDataListCollections_HidesInternalAndNonDocumentTables|TestDataListDocuments_InternalTableNameRejected|TestDataListCollections_SQLDatabaseRejected'
+//	同包调用：fakeDataService → agent_skills_router_e2e_test.go, collection_aggregate_test.go；setupDataTestRouter() → collection_aggregate_test.go, collection_transfer_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/data_handler_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] fakeDataService ← agent_skills_router_e2e_test.go, collection_aggregate_test.go；setupDataTestRouter ← collection_aggregate_test.go, collection_transfer_test.go
+//
+// 主要符号
+//
+//	type fakeDataService struct{…}
+//	(f *fakeDataService) GetDatabase(ctx context.Context, principal auth.Principal, projectID, databaseID string) ...
+//	(f *fakeDataService) ListDatabases(ctx context.Context, principal auth.Principal, projectID string, page catal...
+//	(f *fakeDataService) Acquire(ctx context.Context, db catalog.Database, mode godatabase.AccessMode) (SQLLease, ...
+//	setupDataTestRouter(t *testing.T, svc *fakeDataService, writable bool) *echo.Echo
+//	TestDataListCollections_UsesPathDatabaseID(t *testing.T)
+//	TestDataListCollections_HidesInternalAndNonDocumentTables(t *testing.T)
+//	TestDataListDocuments_InternalTableNameRejected(t *testing.T)
+//	... 另有 10 个顶层符号
+
 package api
 
 import (

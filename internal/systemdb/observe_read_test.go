@@ -1,3 +1,27 @@
+// 文件说明：observe_read_test.go — internal/systemdb 的单元测试（TestObserveListAgentMessagesStages、TestObserveMetricsTrendStages 等）
+//
+// 用法
+//
+//	go test ./internal/systemdb -run 'TestObserveListAgentMessagesStages|TestObserveMetricsTrendStages|TestObserveReadNilStoreSafe'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app 等 8 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/systemdb/observe_read_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_approvals.go, agent_approvals_test.go, agent_collab.go, agent_collab_cron.go, agent_collab_test.go 等 54 个
+//
+// 主要符号
+//
+//	newObservedStore(t *testing.T) (*Store, *bytes.Buffer)
+//	TestObserveListAgentMessagesStages(t *testing.T)
+//	TestObserveMetricsTrendStages(t *testing.T)
+//	TestObserveReadNilStoreSafe(t *testing.T)
+
 // observe_read_test.go 验证 planv5.0 §慢因复查 四-1 新增观测：
 // list_agent_messages 与 metrics_trend 的 query/scan 子段及总耗时打点。
 package systemdb

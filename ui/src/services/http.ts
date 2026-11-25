@@ -1,9 +1,9 @@
 import axios from 'axios'
-import { t } from '../locales'
-import type { ApiError } from './types'
+import { t } from '@/locales'
+import type { ApiError } from '@/services/types'
 
 /**
- * 构造带 status 与业务 code 的错误（planv6.0 §2.2）。
+ * 构造带 status 与业务 code 的错误。
  *
  * 之前统一 reject `new Error(message)`，调用方拿不到 status/code，
  * 只能把「资源未建立」和「真正的失败」同样当成加载失败展示。
@@ -97,11 +97,11 @@ async function tryRefresh(): Promise<string | null> {
 // 匿名认证端点：这些请求自己携带凭据（用户名密码 / refresh token），
 // 收到 401 说明「本次凭据不对」，而不是「已登录会话失效」。
 // 若走 markUnauthorized 会清空 token 并弹出登录框+设置框，用户输错一次密码
-// 就会被告知去配 API Key（planv5.0 §2.2）。
+// 就会被告知去配 API Key。
 const ANONYMOUS_AUTH_PATHS = [
   '/v1/auth/login',
   '/v1/auth/refresh',
-  // 免认证强制改密（§8.2.2）：401 表示旧口令错误，不是会话失效。
+  // 免认证强制改密：401 表示旧口令错误，不是会话失效。
   '/v1/auth/password/initial'
 ]
 
@@ -141,7 +141,7 @@ http.interceptors.response.use(
 
 /** 统一处理「会话失效」：清登录态并打开登录框（不打开设置框）。 */
 function notifyUnauthorized() {
-  import('../stores/auth').then(({ useAuthStore }) => {
+  import('@/stores/auth').then(({ useAuthStore }) => {
     useAuthStore().markUnauthorized()
   })
 }

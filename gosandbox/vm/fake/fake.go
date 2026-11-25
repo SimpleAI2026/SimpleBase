@@ -1,3 +1,35 @@
+// 文件说明：fake.go — gosandbox/vm/fake 中 Driver、New 等符号的实现
+//
+// 用法
+//
+//	type Driver struct{…}  // Driver 是内存执行后端，仅供测试与本地开发；是否允许使用由调用方决定
+//	New() *Driver  // New 构造空的内存驱动
+//	同包调用：fakeVM → interactive.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/vm/fake/fake.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] interactive.go, interactive_test.go
+//	[关键引用] Driver ← interactive.go；fakeVM ← interactive.go；New ← interactive_test.go
+//
+// 主要符号
+//
+//	var fakeEpoch
+//	type Driver struct{…}
+//	type fakeVM struct{…}
+//	New() *Driver
+//	(d *Driver) EnsureCount() int
+//	(d *Driver) VMCount() int
+//	(d *Driver) ensureLocked(t sb.Target) *fakeVM
+//	(d *Driver) Ensure(_ context.Context, t sb.Target) error
+//	... 另有 15 个顶层符号
+
 package fake
 
 import (

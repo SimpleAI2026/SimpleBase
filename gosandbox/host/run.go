@@ -1,3 +1,27 @@
+// 文件说明：run.go — gosandbox/host 中 Command、Result 等符号的实现
+//
+// 用法
+//
+//	type Command struct{…}  // Command 是一次要在沙盒里执行的命令
+//	type Result struct{…}  // Result 是一次隔离执行的结果
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/tools, gosandbox/box, gosandbox/vm/box 等 5 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/host/run.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] bwrap_args.go, bwrap_args_extra_test.go, cgroup.go, cgroup_linux.go, cgroup_linux_test.go 等 36 个
+//	[关键引用] Command ← probe_test.go, run_darwin.go；Result ← run_darwin.go, run_linux.go
+//
+// 主要符号
+//
+//	type Command struct{…}
+//	type Result struct{…}
+
 package host
 
 import "time"

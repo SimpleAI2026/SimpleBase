@@ -1,3 +1,31 @@
+// 文件说明：harness_test.go — godatabase/bench 的测试辅助代码
+//
+// 用法
+//
+//	同包调用：storeOpts → read_test.go；newBenchDB() → read_test.go；seedLogFlushes() → read_test.go
+//
+// 调用架构
+//
+//	[上游] 无（仅包内调用）
+//	[本文件] godatabase/bench/harness_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] read_test.go
+//	[关键引用] storeOpts ← read_test.go；newBenchDB ← read_test.go；seedLogFlushes ← read_test.go
+//
+// 主要符号
+//
+//	const benchProject
+//	var benchSchema
+//	type storeOpts struct{…}
+//	newBenchDB(tb testing.TB, opts storeOpts) *sql.DB
+//	seedLogFlushes(tb testing.TB, db *sql.DB, projectID string, n int)
+//	insertLog(tb testing.TB, db *sql.DB, projectID, message string, at time.Time)
+//	seedMetricFlushes(tb testing.TB, db *sql.DB, projectID string, n int)
+//	seedUsers(tb testing.TB, db *sql.DB, n int)
+//	... 另有 6 个顶层符号
+
 // harness_test.go 为「DuckLake 系统库读路径」基准提供可复现的本地环境。
 //
 // 为什么需要这个 harness：生产环境系统库在远端（COS）上，每次读取都要为

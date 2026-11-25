@@ -1,3 +1,24 @@
+// 文件说明：cli_entry_test.go — gocloudagent 的单元测试（TestCLIFacadeIsWired 等）
+//
+// 用法
+//
+//	go test ./gocloudagent -run 'TestCLIFacadeIsWired'
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cmd
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/cli_entry_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] cli_entry.go
+//
+// 主要符号
+//
+//	TestCLIFacadeIsWired(t *testing.T)
+
 package gocloudagent
 
 import (

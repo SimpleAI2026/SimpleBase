@@ -34,7 +34,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net/http"
 	"strconv"
 	"time"
 
@@ -46,9 +45,9 @@ import (
 type contextKey string
 
 const (
-	requestIDKey contextKey = "request_id"
-	projectKey   contextKey = "project"
-	principalKey contextKey = "principal"
+	requestIDKey    contextKey = "request_id"
+	projectKey      contextKey = "project"
+	principalCtxKey contextKey = "principal"
 )
 
 // WithRequestID 把 request ID 注入 context。
@@ -91,15 +90,50 @@ var ErrProjectMissing = errors.New("project context missing")
 
 // WithPrincipal 把已认证的 Principal 注入 context。
 func WithPrincipal(ctx context.Context, p auth.Principal) context.Context {
-	return context.WithValue(ctx, principalKey, p)
+	return context.WithValue(ctx, principalCtxKey, p)
 }
 
 // PrincipalFromContext 取出 Principal；缺失返回 zero value 和 false。
 func PrincipalFromContext(ctx context.Context) (auth.Principal, bool) {
-	if v, ok := ctx.Value(principalKey).(auth.Principal); ok {
+	if v, ok := ctx.Value(principalCtxKey).(auth.Principal); ok {
 		return v, true
 	}
 	return auth.Principal{}, false
+}
+
+// requestID 取当前请求的 request ID；缺失返回 ""。
+func requestID(c echo.Context) string {
+	return RequestIDFromContext(c.Request().Context())
+}
+
+// requireProject 取中间件注入的项目边界；缺失返回 ErrProjectMissing（防御性分支）。
+func requireProject(c echo.Context) (ProjectContext, error) {
+	pc, ok := ProjectFromContext(c.Request().Context())
+	if !ok {
+		return ProjectContext{}, ErrProjectMissing
+	}
+	return pc, nil
+}
+
+// projectOf 取项目边界，缺失时为零值（调用方确定路由已挂项目中间件时使用）。
+func projectOf(c echo.Context) ProjectContext {
+	pc, _ := ProjectFromContext(c.Request().Context())
+	return pc
+}
+
+// projectID 取当前请求的项目 ID，缺失时为 ""。
+func projectID(c echo.Context) string { return projectOf(c).ID }
+
+// projectIDFrom 从 ctx 取项目 ID，缺失时为 ""。
+func projectIDFrom(ctx context.Context) string {
+	project, _ := ProjectFromContext(ctx)
+	return project.ID
+}
+
+// principalOf 取当前请求的主体，缺失时为零值。
+func principalOf(c echo.Context) auth.Principal {
+	p, _ := PrincipalFromContext(c.Request().Context())
+	return p
 }
 
 // decodeJSONBody 解码单个 JSON 请求对象，保持各处理器既有错误协议。
@@ -109,7 +143,7 @@ func decodeJSONBody(c echo.Context, dst any, strict bool) error {
 		dec.DisallowUnknownFields()
 	}
 	if err := dec.Decode(dst); err != nil {
-		return NewAPIError(http.StatusBadRequest, "invalid_request", "malformed JSON body", RequestIDFromContext(c.Request().Context()))
+		return badRequest(c, "malformed JSON body")
 	}
 	return nil
 }

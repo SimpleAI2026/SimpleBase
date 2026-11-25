@@ -1,3 +1,34 @@
+// 文件说明：branches_test.go — internal/objectstore 的单元测试（TestDeleteObjectsRejectsPartialErrors、TestNewClientValidationAndLoadAWS 等）
+//
+// 用法
+//
+//	go test ./internal/objectstore -run 'TestDeleteObjectsRejectsPartialErrors|TestNewClientValidationAndLoadAWS|TestS3ClientJSONAndHead|TestS3ClientDeletePrefixAndCheck'
+//	同包调用：fakeS3API → s3filestore_test.go；testS3Client() → s3filestore_test.go；errReader → s3filestore_test.go
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/api, internal/app, internal/backup 等 6 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/objectstore/branches_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] blob.go, blob_test.go, client.go, client_test.go, content.go 等 24 个
+//	[关键引用] fakeS3API ← s3filestore_test.go；testS3Client ← s3filestore_test.go；errReader ← s3filestore_test.go
+//
+// 主要符号
+//
+//	type fakeS3API struct{…}
+//	(f *fakeS3API) PutObject(ctx context.Context, in *s3.PutObjectInput, opts ...func(*s3.Options)) (*s3.PutObject...
+//	(f *fakeS3API) GetObject(ctx context.Context, in *s3.GetObjectInput, opts ...func(*s3.Options)) (*s3.GetObject...
+//	(f *fakeS3API) HeadObject(ctx context.Context, in *s3.HeadObjectInput, opts ...func(*s3.Options)) (*s3.HeadObj...
+//	(f *fakeS3API) HeadBucket(ctx context.Context, in *s3.HeadBucketInput, opts ...func(*s3.Options)) (*s3.HeadBuc...
+//	(f *fakeS3API) DeleteObjects(ctx context.Context, in *s3.DeleteObjectsInput, opts ...func(*s3.Options)) (*s3.D...
+//	(f *fakeS3API) ListObjectsV2(ctx context.Context, in *s3.ListObjectsV2Input, opts ...func(*s3.Options)) (*s3.L...
+//	testS3Client(api s3API) *s3Client
+//	... 另有 15 个顶层符号
+
 package objectstore
 
 import (

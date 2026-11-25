@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'vue-sonner'
 import { useProjectStore } from '@/stores/project'
 import { api, resetApiMocks } from '@/test/api-mock'
-import { uiStubs } from '@/test/helpers'
+import { uiStubs, cancelModal, closeDialog, inDialog, installJsdomPolyfills, mountDialog, realDialogStubs } from '@/test/helpers'
 import GoFunctionModal from '@/components/modal/GoFunctionModal.vue'
 
 vi.mock('@/services/api', async () => {
@@ -15,6 +15,8 @@ vi.mock('@/services/api', async () => {
 vi.mock('@/components/editor/GoMonacoEditor.vue', () => ({
   default: { props: ['modelValue'], template: '<textarea class="monaco" />' }
 }))
+
+installJsdomPolyfills()
 
 describe('GoFunctionModal', () => {
   beforeEach(() => {
@@ -27,13 +29,13 @@ describe('GoFunctionModal', () => {
     const pinia = createPinia()
     setActivePinia(pinia)
     useProjectStore().setProject('dev-shop')
-    const w = mount(GoFunctionModal, {
+    const w = await mountDialog(GoFunctionModal, {
       props: { open: true, mode: 'create' },
-      global: { plugins: [pinia], stubs: { ...uiStubs, GoMonacoEditor: true } }
+      global: { plugins: [pinia], stubs: { ...uiStubs, ...realDialogStubs, GoMonacoEditor: true } }
     })
-    const sourceCode = w.get('code')
+    const sourceCode = inDialog().get('code')
     expect(sourceCode.classes()).toEqual(expect.arrayContaining(['sb-code-view', 'sb-mono']))
-    expect(w.find('.max-w-full.overflow-hidden').exists()).toBe(true)
+    expect(inDialog().find('.max-w-full.overflow-hidden').exists()).toBe(true)
     const vm = w.vm as any
     vm.nameValue = 'hello'
     vm.sourceValue = 'package main\nfunc Hello() {}\nfunc hello() {}\nfunc Ping() {}'
@@ -71,15 +73,15 @@ describe('GoFunctionModal', () => {
     w.unmount()
   })
   it('GoFunctionModal name input and modal close', async () => {
-    const w = mount(GoFunctionModal, {
+    const w = await mountDialog(GoFunctionModal, {
       props: { open: true, mode: 'create' },
-      global: { plugins: [createPinia()], stubs: { ...uiStubs, GoMonacoEditor: true } }
+      global: { plugins: [createPinia()], stubs: { ...uiStubs, ...realDialogStubs, GoMonacoEditor: true } }
     })
-    const name = w.find('input')
+    const name = inDialog().find('input')
     if (name.exists()) await name.setValue('Echo')
-    const cancel = w.find('.sb-cancel')
+    const cancel = inDialog().find('.sb-cancel')
     if (cancel.exists()) await cancel.trigger('click')
-    else await w.findAll('button').find((b) => b.text().includes('取消'))?.trigger('click')
+    else await inDialog().findAll('button').find((b) => b.text().includes('取消'))?.trigger('click')
     w.unmount()
   })
 
@@ -88,19 +90,19 @@ describe('GoFunctionModal', () => {
     const pinia = createPinia()
     setActivePinia(pinia)
     useProjectStore().setProject('dev-shop')
-    const w = mount(GoFunctionModal, {
+    const w = await mountDialog(GoFunctionModal, {
       props: { open: true, mode: 'create' },
-      global: { plugins: [pinia], stubs: uiStubs }
+      global: { plugins: [pinia], stubs: { ...uiStubs, ...realDialogStubs } }
     })
-    if (w.find('.monaco').exists()) {
-      await w.get('.monaco').setValue('func Ping() int { return 1 }')
+    if (inDialog().find('.monaco').exists()) {
+      await inDialog().get('.monaco').setValue('func Ping() int { return 1 }')
     }
     const vm = w.vm as Record<string, any>
     api.gofunctions.create.mockRejectedValueOnce('save')
     vm.nameValue = 'Ping'
     await vm.save()
-    if (w.find('.sb-cancel').exists()) await w.get('.sb-cancel').trigger('click')
-    else await w.findAll('button').find((b) => b.text().includes('取消') || b.text().includes('关闭'))?.trigger('click')
+    if (inDialog().find('.sb-cancel').exists()) await cancelModal()
+    else await inDialog().findAll('button').find((b) => b.text().includes('取消') || b.text().includes('关闭'))?.trigger('click')
     w.unmount()
   })
 
@@ -108,12 +110,11 @@ describe('GoFunctionModal', () => {
     const pinia = createPinia()
     setActivePinia(pinia)
     useProjectStore().setProject('dev-shop')
-    const w = mount(GoFunctionModal, {
+    const w = await mountDialog(GoFunctionModal, {
       props: { open: true, mode: 'create' },
       global: {
         plugins: [pinia],
-        stubs: {
-          ...uiStubs,
+        stubs: { ...uiStubs, ...realDialogStubs,
           // 带 emit 的编辑器桩，触发模板 v-model 的 onUpdate:modelValue 回调
           GoMonacoEditor: {
             props: ['modelValue', 'readOnly', 'minHeight'],
@@ -125,10 +126,10 @@ describe('GoFunctionModal', () => {
       }
     })
     // SbModal 桩的关闭按钮 → @update:open 转发
-    await w.get('.sb-modal-close').trigger('click')
+    await closeDialog()
     expect(w.emitted('update:open')?.at(-1)).toEqual([false])
     // GoMonacoEditor 桩 v-model → sourceValue
-    await w.get('.monaco').setValue('package main\nfunc Echo() {}')
+    await inDialog().get('.monaco').setValue('package main\nfunc Echo() {}')
     const vm = w.vm as Record<string, any>
     expect(vm.sourceValue).toContain('func Echo() {}')
     w.unmount()

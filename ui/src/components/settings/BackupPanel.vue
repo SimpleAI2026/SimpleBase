@@ -13,14 +13,14 @@
           <TableHead class="w-64">{{ t('common.actions') }}</TableHead>
         </TableRow></TableHeader>
         <SbAsyncRegion
-          as="tbody" :columns="4" :pending="pending" :show-skeleton="showSkeleton"
-          :show-empty="showEmpty" :show-error="showError" :refreshing="refreshing" :error="error"
+          :state="loadState"
+          as="tbody" :columns="4"
           :empty-description="t('components.backups.empty')" @retry="load"
         >
           <TableRow v-for="item in items" :key="item.id">
-            <TableCell>{{ formatDate(item.createdAt) }}</TableCell>
+            <TableCell>{{ formatTime(item.createdAt) }}</TableCell>
             <TableCell>{{ item.engine }}</TableCell>
-            <TableCell>{{ formatSize(item.sizeBytes) }}</TableCell>
+            <TableCell>{{ formatBytes(item.sizeBytes) }}</TableCell>
             <TableCell>
               <div class="flex flex-wrap gap-1">
                 <Button size="sm" variant="ghost" @click="download(item)">{{ t('components.backups.download') }}</Button>
@@ -47,7 +47,7 @@ import { PlusIcon } from '@lucide/vue'
 import { api } from '@/services/api'
 import type { BackupItem } from '@/services/types'
 import { useProjectStore } from '@/stores/project'
-import { errorMessage } from '@/utils/format'
+import { errorMessage, formatBytes, formatTime } from '@/utils/format'
 import { downloadBlob } from '@/utils/download'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
@@ -60,7 +60,8 @@ const { t } = useI18n()
 const project = useProjectStore()
 const items = ref<BackupItem[]>([])
 const creating = ref(false)
-const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({ fallback: 'components.backups.loadFailed' })
+const loadState = useLoadState({ fallback: 'components.backups.loadFailed' })
+const { run } = loadState
 function load() {
   if (!project.id || project.isAdmin) {
     items.value = []
@@ -107,15 +108,6 @@ async function download(item: BackupItem) {
   } catch (e) {
     toast.error(errorMessage(e, t('components.backups.downloadFailed')))
   }
-}
-function formatSize(size: number): string {
-  if (size < 1024) return `${size} B`
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KiB`
-  return `${(size / 1024 / 1024).toFixed(1)} MiB`
-}
-function formatDate(value: string): string {
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
 }
 watch(() => project.id, load, { immediate: true })
 </script>

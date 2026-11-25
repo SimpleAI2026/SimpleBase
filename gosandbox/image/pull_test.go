@@ -1,3 +1,32 @@
+// 文件说明：pull_test.go — gosandbox/image 的单元测试（TestPullEndToEnd、TestPullSkipsExistingLayers 等）
+//
+// 用法
+//
+//	go test ./gosandbox/image -run 'TestPullEndToEnd|TestPullSkipsExistingLayers|TestPullCoalesces|TestPullRejectsBadDigest'
+//
+// 调用架构
+//
+//	[上游] gosandbox/vm/box, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/image/pull_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] arch.go, import.go, manifest.go, manifest_test.go, pull.go 等 16 个
+//
+// 主要符号
+//
+//	type fakeRegistry struct{…}
+//	newFakeRegistry(t *testing.T) (*fakeRegistry, *httptest.Server, Reference)
+//	(f *fakeRegistry) ServeHTTP(w http.ResponseWriter, r *http.Request)
+//	(f *fakeRegistry) addBlob(body []byte) string
+//	(f *fakeRegistry) addManifest(tag string, body []byte) string
+//	gzipTar(t *testing.T, entries ...tarEntry) []byte
+//	setupImage(t *testing.T, fr *fakeRegistry, repo string, layers ...[]byte)
+//	TestPullEndToEnd(t *testing.T)
+//	... 另有 11 个顶层符号
+
 package image
 
 // pull_test.go：端到端拉取，打到本地假 registry。

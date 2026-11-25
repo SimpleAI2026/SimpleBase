@@ -1,3 +1,32 @@
+// 文件说明：edge_test.go — godatabase/ducklake 的单元测试（TestFactoryOpenBindsSyncerAndLogger、TestSyncOnceNilStoreAndPruneBadTenant 等）
+//
+// 用法
+//
+//	go test ./godatabase/ducklake -run 'TestFactoryOpenBindsSyncerAndLogger|TestSyncOnceNilStoreAndPruneBadTenant|TestEnsureLocalCatalogDownloadError'
+//
+// 调用架构
+//
+//	[上游] internal/app, internal/systemdb
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/ducklake/edge_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] c4_syncer_lease_test.go, c4_syncer_ordering_test.go, catalog_syncer.go, catalog_syncer_test.go, coverage_test.go 等 35 个
+//
+// 主要符号
+//
+//	TestFactoryOpenBindsSyncerAndLogger(t *testing.T)
+//	TestSyncOnceNilStoreAndPruneBadTenant(t *testing.T)
+//	TestEnsureLocalCatalogDownloadError(t *testing.T)
+//	type headOKDownloadFail struct{…}
+//	(h headOKDownloadFail) Head(ctx context.Context, key string) (blob.ObjectInfo, error)
+//	(h headOKDownloadFail) PutBytes(ctx context.Context, key string, data []byte, ct string) error
+//	(h headOKDownloadFail) GetBytes(ctx context.Context, key string) ([]byte, blob.ObjectInfo, error)
+//	(h headOKDownloadFail) DownloadFile(ctx context.Context, key, dest string) (blob.ObjectInfo, error)
+//	... 另有 4 个顶层符号
+
 package ducklake
 
 import (

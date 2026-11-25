@@ -1,4 +1,4 @@
-// bi-compat.ts — 数据看板图表配置的字段 / 度量 / 类型兼容性（planv6.7 §4.3、F4b）。
+// bi-compat.ts — 数据看板图表配置的字段 / 度量 / 类型兼容性。
 //
 // 类型选择器置灰、编辑器校验、Agent 产出校验共用这一份口径，避免三处各写一套规则。
 // 全部是纯函数，不依赖 Vue / i18n：原因用 reason key 返回，由调用方翻译。
@@ -251,8 +251,3 @@ export const CONCRETE_TYPES: BiChartType[] = ['line', 'column', 'bar', 'pie', 't
 
 /** 选择器里的全部 9 项，顺序固定（与产品原型一致）。 */
 export const ALL_TYPES: BiChartType[] = ['auto', 'line', 'column', 'bar', 'pie', 'table', 'grouped_bar', 'stacked_bar', 'scatter']
-
-/** 能承载当前配置的具体类型集合。 */
-export function compatibleTypes(w: BiWidget, fields: Map<string, CollectionField>): BiChartType[] {
-  return CONCRETE_TYPES.filter((t) => checkType(t, w, fields).ok)
-}

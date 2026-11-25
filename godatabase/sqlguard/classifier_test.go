@@ -1,3 +1,32 @@
+// 文件说明：classifier_test.go — godatabase/sqlguard 的单元测试（TestFirstKeyword、TestValidateRejectsDuckLakeMetadataIdentifier 等）
+//
+// 用法
+//
+//	go test ./godatabase/sqlguard -run 'TestFirstKeyword|TestValidateRejectsDuckLakeMetadataIdentifier|TestValidate_EmptyAndNul|TestValidate_MultipleStatements'
+//
+// 调用架构
+//
+//	[上游] godatabase/cmd, godatabase/ducklake, internal/agentbridge, internal/api
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/sqlguard/classifier_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] classifier.go, reserved_prefix_test.go, split_test.go, validator.go
+//
+// 主要符号
+//
+//	TestFirstKeyword(t *testing.T)
+//	TestValidateRejectsDuckLakeMetadataIdentifier(t *testing.T)
+//	TestValidate_EmptyAndNul(t *testing.T)
+//	TestValidate_MultipleStatements(t *testing.T)
+//	TestValidate_ReadOnly(t *testing.T)
+//	TestValidate_WriteAllowed(t *testing.T)
+//	TestValidate_AlwaysDenied(t *testing.T)
+//	TestValidate_DangerousPragma(t *testing.T)
+//	... 另有 17 个顶层符号
+
 package sqlguard
 
 import (

@@ -1,3 +1,32 @@
+// 文件说明：remote_test.go — godatabase/filedb 的单元测试（TestLatestManifestByListReadsOnlyLatest、TestFileSyncerRoundTripColdStart 等）
+//
+// 用法
+//
+//	go test ./godatabase/filedb -run 'TestLatestManifestByListReadsOnlyLatest|TestFileSyncerRoundTripColdStart|TestFileSyncerRejectsChecksumMismatch|TestFileSyncerLostLeaseStopsUpload'
+//
+// 调用架构
+//
+//	[上游] godatabase/cmd, internal/app, internal/backup
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/filedb/remote_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] dialect_bucket_test.go, factory.go, factory_test.go, path.go, remote.go 等 9 个
+//
+// 主要符号
+//
+//	remoteMeta(t *testing.T, engine string) godatabase.Spec
+//	newRemoteFactory(t *testing.T, blobs blob.Store, cacheDir string) (*Factory, *FileSyncer)
+//	type countingGetBlobs struct{…}
+//	(b *countingGetBlobs) GetBytes(ctx context.Context, key string) ([]byte, blob.ObjectInfo, error)
+//	TestLatestManifestByListReadsOnlyLatest(t *testing.T)
+//	TestFileSyncerRoundTripColdStart(t *testing.T)
+//	TestFileSyncerRejectsChecksumMismatch(t *testing.T)
+//	TestFileSyncerLostLeaseStopsUpload(t *testing.T)
+//	... 另有 10 个顶层符号
+
 package filedb
 
 import (

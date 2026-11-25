@@ -1,3 +1,31 @@
+// 文件说明：gate.go — godatabase/lease 中 Gate、NewGate 等符号的实现
+//
+// 用法
+//
+//	type Gate struct{…}  // Gate 按 key 串行化首次租约获取（perf §1.5）
+//	NewGate() *Gate  // NewGate 构造写门
+//
+// 调用架构
+//
+//	[上游] internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/lease/gate.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] gate_test.go, lease.go, lease_test.go
+//	[关键引用] Gate ← gate_test.go；NewGate ← gate_test.go
+//
+// 主要符号
+//
+//	type Gate struct{…}
+//	NewGate() *Gate
+//	(g *Gate) Do(key string, fn func() error) error
+//	(g *Gate) TryDo(key string, fn func() error) error
+//	(g *Gate) Clear(key string)
+//	wrap(fn func() error) func() (struct{}, error)
+
 package lease
 
 import (

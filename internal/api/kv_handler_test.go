@@ -1,3 +1,32 @@
+// 文件说明：kv_handler_test.go — internal/api 的单元测试（TestKVRequestShape、TestKVReadOnlyPrincipal 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestKVRequestShape|TestKVReadOnlyPrincipal|TestKVWritableFalseRejectsWrites|TestKVSystemProjectRejected'
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/kv_handler_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//
+// 主要符号
+//
+//	type fakeKVService struct{…}
+//	(f *fakeKVService) GetKVDatabase(ctx context.Context, tenantID, projectID string) (catalog.Database, error)
+//	(f *fakeKVService) CreateKVDatabase(ctx context.Context, tenantID, projectID string) (catalog.Database, error)
+//	(f *fakeKVService) Acquire(ctx context.Context, db catalog.Database, mode godatabase.AccessMode) (SQLLease, er...
+//	setupKVTestRouter(t *testing.T, svc KVService, writable bool) *echo.Echo
+//	kvTestPrincipalMiddleware(next echo.HandlerFunc) echo.HandlerFunc
+//	kvReq(t *testing.T, e *echo.Echo, method, path, body string) *httptest.ResponseRecorder
+//	kvExec(t *testing.T, e *echo.Echo, argvs string) *httptest.ResponseRecorder
+//	... 另有 18 个顶层符号
+
 package api
 
 import (
@@ -675,5 +704,43 @@ func TestKVReadOnEmptyStore(t *testing.T) {
 	}
 	if rec := kvExec(t, e, `["DBSIZE"]`); strings.TrimSpace(rec.Body.String()) != "1" {
 		t.Errorf("dbsize after write = %s, want 1", rec.Body.String())
+	}
+}
+
+// 命令表不依赖 Echo（internal-ddd-hexagonal-implementation-plan §5.1）：参数解析只吃 argv，
+// 参数错误经 Error() 映射为 400 kv_invalid_argument，文案与迁移前逐字一致。
+func TestKVCommandTableParsesWithoutEcho(t *testing.T) {
+	cases := []struct {
+		name string
+		argv []string
+		want string
+	}{
+		{"SET", []string{"k"}, "wrong number of arguments"},
+		{"EXPIRE", []string{"k", "x"}, "value is not an integer or out of range"},
+		{"SCAN", []string{}, "cursor is required"},
+		{"SCAN", []string{"0", "COUNT", "0"}, "COUNT must be in 1..500"},
+		{"ZRANGEBYSCORE", []string{"k"}, "wrong number of arguments"},
+	}
+	for _, tc := range cases {
+		run, err := kvCommandTable[tc.name].parse(tc.argv)
+		if run != nil || err == nil {
+			t.Fatalf("%s %v: expected argument error, got run=%v err=%v", tc.name, tc.argv, run != nil, err)
+		}
+		apiErr := Error(err, "rid-kv")
+		if apiErr == nil || apiErr.HTTPStatus != http.StatusBadRequest || apiErr.Body.Error.Code != "kv_invalid_argument" || apiErr.Body.Error.Message != tc.want || apiErr.Body.Error.RequestID != "rid-kv" {
+			t.Fatalf("%s %v: mapped = %+v, want 400 kv_invalid_argument %q", tc.name, tc.argv, apiErr, tc.want)
+		}
+	}
+	for _, name := range []string{"GET", "HGETALL", "LRANGE", "TTL"} {
+		argv := []string{"k"}
+		if name == "LRANGE" {
+			argv = []string{"k", "0", "-1"}
+		}
+		if run, err := kvCommandTable[name].parse(argv); err != nil || run == nil {
+			t.Fatalf("%s: run=%v err=%v", name, run != nil, err)
+		}
+	}
+	if spec := kvCommandTable["SET"]; !spec.writable || kvCommandTable["GET"].writable {
+		t.Fatal("read/write classification must stay with the command table")
 	}
 }

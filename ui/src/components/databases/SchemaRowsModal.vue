@@ -17,15 +17,10 @@
           </TableRow>
         </TableHeader>
         <SbAsyncRegion
+          :state="loadState"
           as="tbody"
           :columns="skeletonColumns"
           :rows="4"
-          :pending="pending"
-          :show-skeleton="showSkeleton"
-          :show-empty="showEmpty"
-          :show-error="showError"
-          :refreshing="refreshing"
-          :error="error"
           :empty-description="t('components.schemaRows.emptyDesc')"
           @retry="load(false)"
         >
@@ -80,9 +75,10 @@ const page = ref(1)
 const total = ref(0)
 const columns = ref<SchemaColumn[]>([])
 const rows = ref<unknown[][]>([])
-const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
+const loadState = useLoadState({
   fallback: 'components.schemaRows.loadFailed'
 })
+const { run } = loadState
 
 const displayColumns = computed((): SchemaColumn[] =>
   columns.value.length > 0

@@ -19,7 +19,7 @@
       <template #toolbar>
         <div class="flex flex-col gap-3">
         <div class="flex flex-wrap items-center gap-2.5">
-          <!-- 面包屑：进入子目录后可逐级返回（planv6.7 ui-simplify-ux-plan X4） -->
+          <!-- 面包屑：进入子目录后可逐级返回 -->
           <nav v-if="crumbs.length" :aria-label="t('pages.s3.breadcrumbAria')" class="sb-s3-crumbs flex min-w-0 flex-wrap items-center gap-0.5 text-sm">
             <Button variant="ghost" size="xs" class="sb-crumb-root" @click="goPrefix('')">{{ t('pages.s3.breadcrumbRoot') }}</Button>
             <template v-for="(c, i) in crumbs" :key="c.prefix">
@@ -58,14 +58,9 @@
             </TableRow>
           </TableHeader>
           <SbAsyncRegion
+            :state="loadState"
             as="tbody"
             :columns="columnCount"
-            :pending="pending"
-            :show-skeleton="showSkeleton"
-            :show-empty="showEmpty"
-            :show-error="showError"
-            :refreshing="refreshing"
-            :error="error"
             :empty-description="t('pages.s3.emptyDesc')"
             :empty-action-text="t('pages.s3.upload')"
             @retry="load"
@@ -166,20 +161,21 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { api } from '../services/api'
-import type { S3FolderMeta, S3Object, S3SiteInfo } from '../services/api'
-import { useProjectStore } from '../stores/project'
-import { useAuthStore } from '../stores/auth'
-import { useLoadState } from '../composables/useLoadState'
-import { usePagination } from '../composables/usePagination'
-import { formatBytes, formatTime } from '../utils/format'
-import PageContainer from '../components/PageContainer.vue'
-import ProjectScope from '../components/ProjectScope.vue'
-import SbAsyncRegion from '../components/SbAsyncRegion.vue'
-import SbRefreshButton from '../components/SbRefreshButton.vue'
-import SbListCard from '../components/SbListCard.vue'
-import ConfirmAction from '../components/ConfirmAction.vue'
-import S3PreviewModal from '../components/modal/S3PreviewModal.vue'
+import { api } from '@/services/api'
+import type { S3FolderMeta, S3Object, S3SiteInfo } from '@/services/api'
+import { useProjectStore } from '@/stores/project'
+import { useAuthStore } from '@/stores/auth'
+import { useLoadState } from '@/composables/useLoadState'
+import { useProjectReload } from '@/composables/useProjectReload'
+import { usePagination } from '@/composables/usePagination'
+import { formatBytes, formatTime } from '@/utils/format'
+import PageContainer from '@/components/PageContainer.vue'
+import ProjectScope from '@/components/ProjectScope.vue'
+import SbAsyncRegion from '@/components/SbAsyncRegion.vue'
+import SbRefreshButton from '@/components/SbRefreshButton.vue'
+import SbListCard from '@/components/SbListCard.vue'
+import ConfirmAction from '@/components/ConfirmAction.vue'
+import S3PreviewModal from '@/components/modal/S3PreviewModal.vue'
 
 const { t } = useI18n()
 const projectStore = useProjectStore()
@@ -191,9 +187,10 @@ const folderMeta = ref<S3FolderMeta[]>([])
 const site = ref<S3SiteInfo | null>(null)
 const toggling = ref(new Set<string>())
 const { page, pageSize, total, pageCount, items: paged } = usePagination(objects)
-const { pending, showSkeleton, showEmpty, showError, refreshing, error, run } = useLoadState({
+const loadState = useLoadState({
   fallback: 'pages.s3.loadFailed'
 })
+const { pending, run } = loadState
 const uploading = ref(false)
 const uploadPercent = ref(0)
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -241,7 +238,7 @@ function handleBeforeUpload(file: File) {
 
 /**
  * 上传目标键：当前浏览的是目录（前缀以 / 结尾）时落进该目录，
- * 否则与之前一致落在根下（planv6.7 ui-simplify-ux-plan B7）。
+ * 否则与之前一致落在根下。
  */
 function uploadKey(name: string): string {
   const dir = prefix.value.trim()
@@ -324,7 +321,7 @@ function load() {
   })
 }
 
-/* ---------- planv6.5：发布网站 / 外部访问 ---------- */
+/* ---------- 发布网站 / 外部访问（plan/planv6.5/object-storage-sites-plan.md） ---------- */
 
 /** 站点域名已配置时才显示两列（未配置时后端不返回 site）。 */
 const showPublicCols = computed(() => site.value !== null && !projectStore.isAdmin)
@@ -399,8 +396,5 @@ function openPreview(record: S3Object) {
   previewOpen.value = true
 }
 
-void load()
-watch(() => projectStore.id, () => {
-  void load()
-})
+useProjectReload(() => projectStore.id, load)
 </script>

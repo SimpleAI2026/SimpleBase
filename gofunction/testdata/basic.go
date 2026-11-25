@@ -1,3 +1,32 @@
+// 文件说明：basic.go — gofunction/testdata 中 S 等符号的实现
+//
+// 用法
+//
+//	type S struct{…}
+//
+// 调用架构
+//
+//	[上游] 仅测试引用：gofunction/internal/interp
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/testdata/basic.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] basics.go, controlflow.go, flowcontrol.go, funclist.go, globals.go 等 13 个
+//
+// 主要符号
+//
+//	(__testSet) Basic() interface{}
+//	var S1
+//	var S2
+//	var S3
+//	var r
+//	(__testSet) Global() interface{}
+//	(__testSet) Import() interface{}
+//	(__testSet) NamedType() interface{}
+//	... 另有 19 个顶层符号
+
 package testdata
 
 import (

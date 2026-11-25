@@ -1,3 +1,29 @@
+// 文件说明：api_keys_issue_security_test.go — internal/api 的单元测试（TestAPIKeys_IssueKeyBeyondCallerPermissions、TestAPIKeys_IssueSubsetPermissionsSucceeds 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestAPIKeys_IssueKeyBeyondCallerPermissions|TestAPIKeys_IssueSubsetPermissionsSucceeds|TestAPIKeys_EmptyPermissionsInheritCallerPerms'
+//	同包调用：apiKeyPrincipal() → policy_gate_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/api_keys_issue_security_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] apiKeyPrincipal ← policy_gate_test.go
+//
+// 主要符号
+//
+//	apiKeyPrincipal(perms ...auth.Permission) auth.Principal
+//	TestAPIKeys_IssueKeyBeyondCallerPermissions(t *testing.T)
+//	TestAPIKeys_IssueSubsetPermissionsSucceeds(t *testing.T)
+//	TestAPIKeys_EmptyPermissionsInheritCallerPerms(t *testing.T)
+
 package api
 
 import (

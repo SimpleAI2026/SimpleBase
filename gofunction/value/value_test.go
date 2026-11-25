@@ -1,3 +1,30 @@
+// 文件说明：value_test.go — gofunction/value 的单元测试（TestValueOf、TestRValueString 等）
+//
+// 用法
+//
+//	go test ./gofunction/value -run 'TestValueOf|TestRValueString|TestRValueIndex|TestPackageUnpackage'
+//
+// 调用架构
+//
+//	[上游] gofunction/internal/interp
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/value/value_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] external.go, iter_test.go, tuple.go, value.go, value_more_test.go
+//
+// 主要符号
+//
+//	TestValueOf(t *testing.T)
+//	TestRValueString(t *testing.T)
+//	TestRValueIndex(t *testing.T)
+//	TestPackageUnpackage(t *testing.T)
+//	TestMapIterNext(t *testing.T)
+//	TestExternalValueStore(t *testing.T)
+//	TestConverter(t *testing.T)
+
 package value
 
 import (

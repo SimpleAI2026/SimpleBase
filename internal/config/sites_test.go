@@ -1,3 +1,31 @@
+// 文件说明：sites_test.go — internal/config 的单元测试（TestSitesHostLabelAndURL、TestProjectIDPublishable 等）
+//
+// 用法
+//
+//	go test ./internal/config -run 'TestSitesHostLabelAndURL|TestProjectIDPublishable|TestValidateSites|TestSitesSameSiteWarning'
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/api, internal/api/perfbench, internal/app 等 6 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/config/sites_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] agent_config_test.go, backup.go, config.go, config_agent_types.go, config_example_test.go 等 24 个
+//
+// 主要符号
+//
+//	TestSitesHostLabelAndURL(t *testing.T)
+//	TestProjectIDPublishable(t *testing.T)
+//	TestValidateSites(t *testing.T)
+//	TestSitesSameSiteWarning(t *testing.T)
+//	TestSitesEnvAndYAML(t *testing.T)
+//	TestSitesModeAndPathURL(t *testing.T)
+//	TestSitesEnvSubdomain(t *testing.T)
+//	TestValidateSitesPathMode(t *testing.T)
+
 package config
 
 import (

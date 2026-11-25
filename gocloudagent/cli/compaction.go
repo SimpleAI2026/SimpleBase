@@ -156,7 +156,12 @@ func (r *SessionRunner) keepTokens() int {
 // §13.5 硬约束：摘要正文不进日志、不进审计——这里只把它交给调用方落盘，
 // 不打任何日志；落盘前统一走 RedactSecrets。
 func (r *SessionRunner) summarize(ctx context.Context, head []Entry) (string, error) {
-	req := make([]*schema.Message, 0, len(head)+1)
+	req := make([]*schema.Message, 0, len(head)+2)
+	// 上一份摘要已经把更早的对话折叠掉，不再出现在 head 里；必须带上，
+	// 否则连续压缩会让新摘要覆盖旧摘要而丢失早期事实。
+	if prev, ok := r.Session.LatestCompaction(); ok {
+		req = append(req, agentcore.SystemSchemaMessage("[compacted]\n"+prev.Summary))
+	}
 	for _, m := range head {
 		req = append(req, entryToSchema(m))
 	}

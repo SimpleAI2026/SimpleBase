@@ -1,3 +1,34 @@
+// 文件说明：oai_e2e_test.go — internal/api 的单元测试（TestOAIE2E_NonStreamAndStream、TestOAIE2E_ToolsAndToolChoiceReachUpstream 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestOAIE2E_NonStreamAndStream|TestOAIE2E_ToolsAndToolChoiceReachUpstream|TestOAIE2E_ToolsUnsupportedIsASafeStableError|TestOAIE2E_UpstreamErrorsAreClassified'
+//	同包调用：newOAIE2E() → oai_responses_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/oai_e2e_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] newOAIE2E ← oai_responses_test.go
+//
+// 主要符号
+//
+//	type oaiE2E struct{…}
+//	newOAIE2E(t *testing.T, scripts []fakellm.Script, def fakellm.Script) *oaiE2E
+//	(e *oaiE2E) do(t *testing.T, method, path, body string) (*http.Response, []byte)
+//	const oaiBase
+//	TestOAIE2E_NonStreamAndStream(t *testing.T)
+//	TestOAIE2E_ToolsAndToolChoiceReachUpstream(t *testing.T)
+//	TestOAIE2E_ToolsUnsupportedIsASafeStableError(t *testing.T)
+//	TestOAIE2E_UpstreamErrorsAreClassified(t *testing.T)
+//	... 另有 6 个顶层符号
+
 package api
 
 import (

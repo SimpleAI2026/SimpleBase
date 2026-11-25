@@ -1,10 +1,33 @@
+// 文件说明：tools.go — gocloudagent/cloudagent 的内部实现（wrapToolErrors、errorTolerantTool 等）
+//
+// 用法
+//
+//	同包调用：wrapToolErrors() → runtime.go, runtime_test.go；toolFailure() → mcptool.go, mcptool_test.go
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/cloudagent/tools.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] callgate.go, callgate_test.go, confirmation.go, confirmation_test.go, errors.go 等 32 个
+//	[关键引用] wrapToolErrors ← runtime.go, runtime_test.go；toolFailure ← mcptool.go, mcptool_test.go
+//
+// 主要符号
+//
+//	wrapToolErrors(tools []tool.BaseTool) []tool.BaseTool
+//	type errorTolerantTool struct{…}
+//	(w *errorTolerantTool) InvokableRun(ctx context.Context, args string, opts ...tool.Option) (string, error)
+//	toolFailure(code, message string) string
+
 package cloudagent
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"strings"
 
 	"github.com/cloudwego/eino/components/tool"
 
@@ -36,32 +59,10 @@ func (w *errorTolerantTool) InvokableRun(ctx context.Context, args string, opts 
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return "", err
 	}
-	return marshalToolJSON(map[string]any{"error": err.Error(), "is_error": true})
+	return agentcore.MarshalToolJSON(map[string]any{"error": err.Error(), "is_error": true})
 }
 
+// toolFailure 构造失败信封；message 先脱敏（MCP 错误文本来自外部 Server）。
 func toolFailure(code, message string) string {
-	body, _ := json.Marshal(map[string]any{
-		"ok":    false,
-		"error": map[string]any{"code": code, "message": agentcore.RedactSecrets(message)},
-	})
-	return string(body)
-}
-
-func toolResultIsError(content string) bool {
-	var envelope struct {
-		OK      *bool `json:"ok"`
-		IsError bool  `json:"is_error"`
-	}
-	if json.Unmarshal([]byte(strings.TrimSpace(content)), &envelope) != nil {
-		return false
-	}
-	return envelope.IsError || envelope.OK != nil && !*envelope.OK
-}
-
-func marshalToolJSON(v any) (string, error) {
-	body, err := json.Marshal(v)
-	if err != nil {
-		return "", err
-	}
-	return agentcore.RedactSecrets(string(body)), nil
+	return agentcore.ErrorEnvelope(code, agentcore.RedactSecrets(message))
 }

@@ -1,3 +1,34 @@
+// 文件说明：proc_test.go — internal/sandbox 的单元测试（TestTerminalSessionLimitAndRelease、TestSessionDoesNotHoldSandboxLock 等）
+//
+// 用法
+//
+//	go test ./internal/sandbox -run 'TestTerminalSessionLimitAndRelease|TestSessionDoesNotHoldSandboxLock|TestStopDeleteExpireCloseProcs|TestProcRejectedForAgentSourceAndUnsupportedBackend'
+//	同包调用：memStore → pause_metrics_test.go；procManager() → pause_metrics_test.go
+//
+// 调用架构
+//
+//	[上游] internal/api, internal/app, internal/sandbox/sshd
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/sandbox/proc_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] create_test.go, errors.go, logs.go, manager.go, manager_exec.go 等 13 个
+//	[关键引用] memStore ← pause_metrics_test.go；procManager ← pause_metrics_test.go
+//
+// 主要符号
+//
+//	type memStore struct{…}
+//	newMemStore() *memStore
+//	(s *memStore) CreateSandbox(_ context.Context, sb Sandbox) (Sandbox, error)
+//	(s *memStore) GetSandbox(_ context.Context, p, id string) (Sandbox, error)
+//	(s *memStore) GetSandboxByID(_ context.Context, id string) (Sandbox, error)
+//	(s *memStore) GetSandboxByName(_ context.Context, p, name string) (Sandbox, error)
+//	(s *memStore) GetSandboxByThread(context.Context, string, string) (Sandbox, error)
+//	(s *memStore) ListSandboxes(_ context.Context, p, _, _, _ string, _ int) ([]Sandbox, string, error)
+//	... 另有 27 个顶层符号
+
 package sandbox
 
 import (

@@ -1,7 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api, resetApiMocks } from '@/test/api-mock'
-import { uiStubs } from '@/test/helpers'
+import { uiStubs, cancelModal, inDialog, installJsdomPolyfills, mountDialog, okModal, realDialogStubs } from '@/test/helpers'
 import type { SandboxCapabilities } from '@/services/types'
 
 vi.mock('@/services/api', async () => {
@@ -26,11 +26,13 @@ interface ModalVm {
   save: () => Promise<void>
 }
 
+installJsdomPolyfills()
+
 describe('SandboxCreateModal', () => {
   beforeEach(() => resetApiMocks())
 
   it('validates name/timeout and creates with template and timeout', async () => {
-    const w = mount(SandboxCreateModal, { props: { open: false, projectId: 'p', capabilities }, global: { stubs: uiStubs } })
+    const w = await mountDialog(SandboxCreateModal, { props: { open: false, projectId: 'p', capabilities }, global: { stubs: { ...uiStubs, ...realDialogStubs } } })
     await w.setProps({ open: true })
     await flushPromises()
     const vm = w.vm as unknown as ModalVm
@@ -51,28 +53,28 @@ describe('SandboxCreateModal interactions', () => {
   beforeEach(() => resetApiMocks())
 
   it('submits through modal ok, closes and emits saved', async () => {
-    const w = mount(SandboxCreateModal, { props: { open: false, projectId: 'p', capabilities }, global: { stubs: uiStubs } })
+    const w = await mountDialog(SandboxCreateModal, { props: { open: false, projectId: 'p', capabilities }, global: { stubs: { ...uiStubs, ...realDialogStubs } } })
     await w.setProps({ open: true })
     await flushPromises()
-    await w.get('[aria-label="沙盒名称"]').setValue('etl')
-    await w.get('[aria-label="沙盒存活时间（秒）"]').setValue('900')
+    await inDialog().get('[aria-label="沙盒名称"]').setValue('etl')
+    await inDialog().get('[aria-label="沙盒存活时间（秒）"]').setValue('900')
     await flushPromises()
-    await w.get('.sb-ok').trigger('click')
+    await okModal()
     await flushPromises()
     expect(api.sandboxes.create).toHaveBeenCalledWith('p', { name: 'etl', templateId: 'python:3.12-slim', timeoutS: 900 })
     expect(w.emitted('update:open')?.at(-1)).toEqual([false])
     expect(w.emitted('saved')).toHaveLength(1)
-    await w.get('.sb-cancel').trigger('click')
+    await cancelModal()
     expect(w.emitted('update:open')?.at(-1)).toEqual([false])
     w.unmount()
   })
 
   it('shows name hint, guards invalid/duplicate submits and reports failures', async () => {
-    const w = mount(SandboxCreateModal, { props: { open: true, projectId: 'p', capabilities: null }, global: { stubs: uiStubs } })
+    const w = await mountDialog(SandboxCreateModal, { props: { open: true, projectId: 'p', capabilities: null }, global: { stubs: { ...uiStubs, ...realDialogStubs } } })
     const vm = w.vm as unknown as ModalVm
     vm.name = '-bad'
     await flushPromises()
-    expect(w.text()).toContain('仅限小写字母')
+    expect(inDialog().text()).toContain('仅限小写字母')
     await vm.save()
     expect(api.sandboxes.create).not.toHaveBeenCalled()
     vm.name = ''
@@ -105,7 +107,7 @@ describe('SandboxCreateModal interactions', () => {
   })
 
   it('uses capability defaults when reopened', async () => {
-    const w = mount(SandboxCreateModal, { props: { open: false, projectId: 'p', capabilities }, global: { stubs: uiStubs } })
+    const w = await mountDialog(SandboxCreateModal, { props: { open: false, projectId: 'p', capabilities }, global: { stubs: { ...uiStubs, ...realDialogStubs } } })
     const vm = w.vm as unknown as ModalVm
     await w.setProps({ open: true })
     await flushPromises()

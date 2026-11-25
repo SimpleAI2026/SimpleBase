@@ -1,3 +1,28 @@
+// 文件说明：errors_reserved_test.go — internal/catalog 的单元测试（TestIsNotFoundAndAlreadyExists、TestStateTransitionError 等）
+//
+// 用法
+//
+//	go test ./internal/catalog -run 'TestIsNotFoundAndAlreadyExists|TestStateTransitionError|TestReservedHelpers|TestValidateName'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app 等 10 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/catalog/errors_reserved_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] always_open_test.go, cache.go, cache_test.go, create_invalidate_test.go, data_model.go 等 20 个
+//
+// 主要符号
+//
+//	TestIsNotFoundAndAlreadyExists(t *testing.T)
+//	TestStateTransitionError(t *testing.T)
+//	TestReservedHelpers(t *testing.T)
+//	TestValidateName(t *testing.T)
+//	TestIsUniqueViolationAndNullTime(t *testing.T)
+
 package catalog
 
 import (

@@ -1,3 +1,32 @@
+// 文件说明：importer_test.go — gofunction/importer 的单元测试（TestNewImporter、TestNewImporterWithRegistry 等）
+//
+// 用法
+//
+//	go test ./gofunction/importer -run 'TestNewImporter|TestNewImporterWithRegistry|TestImporter_TypeCache|TestImporter_Import'
+//
+// 调用架构
+//
+//	[上游] gofunction/cmd, gofunction/internal/interp, gofunction/packages, gofunction/value
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/importer/importer_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] coverage_test.go, importer.go, integration_test.go, parser_test.go, registry.go 等 8 个
+//
+// 主要符号
+//
+//	TestNewImporter(t *testing.T)
+//	TestNewImporterWithRegistry(t *testing.T)
+//	TestImporter_TypeCache(t *testing.T)
+//	TestImporter_Import(t *testing.T)
+//	TestImporter_Package(t *testing.T)
+//	TestImporter_NewObject(t *testing.T)
+//	TestImporter_TypeOf(t *testing.T)
+//	TestImporter_FuncSignature(t *testing.T)
+//	... 另有 3 个顶层符号
+
 package importer
 
 import (

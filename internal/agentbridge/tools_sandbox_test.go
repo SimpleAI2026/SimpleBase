@@ -1,3 +1,32 @@
+// 文件说明：tools_sandbox_test.go — internal/agentbridge 的单元测试（TestBuildToolsSandboxNilRejected、TestBuildToolsSandboxUnavailableRejected 等）
+//
+// 用法
+//
+//	go test ./internal/agentbridge -run 'TestBuildToolsSandboxNilRejected|TestBuildToolsSandboxUnavailableRejected|TestSandboxExecTool|TestSandboxExecRequiresWrite'
+//
+// 调用架构
+//
+//	[上游] internal/agentrun, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/agentbridge/tools_sandbox_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] access_db.go, access_llm.go, access_object.go, access_test.go, bridge_test.go 等 33 个
+//
+// 主要符号
+//
+//	type fakeSandbox struct{…}
+//	(f *fakeSandbox) Available() bool
+//	(f *fakeSandbox) Exec(ctx context.Context, projectID, threadID, cmd string, args []string) (SandboxOutput, err...
+//	(f *fakeSandbox) Shell(ctx context.Context, projectID, threadID, command string) (SandboxOutput, error)
+//	(f *fakeSandbox) ReadFile(ctx context.Context, projectID, threadID, path string) (string, error)
+//	(f *fakeSandbox) WriteFile(ctx context.Context, projectID, threadID, path, content string) error
+//	(f *fakeSandbox) ReleaseThread(ctx context.Context, projectID, threadID string) error
+//	sandboxRunCtx(write bool) context.Context
+//	... 另有 11 个顶层符号
+
 package agentbridge
 
 import (

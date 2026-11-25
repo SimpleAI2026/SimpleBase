@@ -1,5 +1,30 @@
 //go:build linux
 
+// 文件说明：imagesource.go — gosandbox/vm/box 中 ImageStore、NewImageSource 等符号的实现
+//
+// 用法
+//
+//	type ImageStore struct{…}  // ImageStore 把 image.Puller 适配成驱动的 ImageSource
+//	NewImageSource(p *image.Puller) *ImageStore  // NewImageSource 建一个 ImageStore
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/vm/box/imagesource.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] capabilities.go, contracts_linux_test.go, diskuse_linux.go, driver_linux.go, driver_other.go 等 15 个
+//
+// 主要符号
+//
+//	type ImageStore struct{…}
+//	NewImageSource(p *image.Puller) *ImageStore
+//	(s *ImageStore) Resolve(ctx context.Context, ref string) (Lower, error)
+//	(s *ImageStore) Puller() *image.Puller
+
 package box
 
 import (

@@ -1,3 +1,35 @@
+// 文件说明：unpack.go — gosandbox/image 中 Unpacks、NewUnpacker 等符号的实现
+//
+// 用法
+//
+//	type Unpacks struct{…}  // Unpacks 负责把层压平成 lower
+//	NewUnpacker(s *Store) *Unpacks  // NewUnpacker 建一个解包器
+//	ChainID(layers []Layer) string  // ChainID 是压平根的标识：由各层摘要拼接算出，同一组层永远得到同一个 id
+//
+// 调用架构
+//
+//	[上游] gosandbox/vm/box, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/image/unpack.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] arch.go, import.go, manifest.go, manifest_test.go, pull.go 等 16 个
+//	[关键引用] Unpacks ← pull.go；NewUnpacker ← pull.go, pull_test.go；ChainID ← unpack_test.go
+//
+// 主要符号
+//
+//	const maxLayerBytes / maxEntries / maxFileBytes / maxPathDepth / maxSymlinkLen
+//	var ErrUnsafeArchive
+//	type Unpacks struct{…}
+//	NewUnpacker(s *Store) *Unpacks
+//	(u *Unpacks) LowerPath(chainID string) string
+//	ChainID(layers []Layer) string
+//	(u *Unpacks) Unpack(ctx context.Context, img Image) (string, error)
+//	(u *Unpacks) Remove(chainID string) error
+//	... 另有 7 个顶层符号
+
 package image
 
 import (

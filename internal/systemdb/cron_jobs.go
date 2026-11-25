@@ -31,7 +31,6 @@ package systemdb
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"github.com/linkxzhou/SimpleBase/godatabase/sqlval"
 	"time"
 
@@ -127,9 +126,11 @@ type CronJobRun struct {
 
 // CreateCronJob 写入一条任务。同名唯一性由唯一索引保证（调用方映射 409）。
 func (s *Store) CreateCronJob(ctx context.Context, j CronJob) (CronJob, error) {
-	if s == nil || s.db == nil {
-		return CronJob{}, ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return CronJob{}, connErr
 	}
+
 	now := time.Now().UTC()
 	if j.ID == "" {
 		j.ID = uuid.NewString()
@@ -151,7 +152,7 @@ func (s *Store) CreateCronJob(ctx context.Context, j CronJob) (CronJob, error) {
 		runAt = j.RunAt.UTC()
 	}
 	j.TargetKind = j.EffectiveTargetKind()
-	_, err := s.db.ExecContext(ctx,
+	_, err := sqlDB.ExecContext(ctx,
 		`INSERT INTO sys_cron_jobs(id, project_id, name, description, schedule_kind, cron_expr, interval_seconds, run_at,
 			func_file, func_export, input_json, enabled, last_run_at, next_run_at, last_status, last_error, run_count,
 			created_by, created_at, updated_at, archived_at, target_kind, agent_id, agent_thread_id, agent_prompt)
@@ -168,63 +169,33 @@ func (s *Store) CreateCronJob(ctx context.Context, j CronJob) (CronJob, error) {
 
 // GetCronJob 按 ID 取未归档任务。
 func (s *Store) GetCronJob(ctx context.Context, projectID, id string) (CronJob, error) {
-	if s == nil || s.db == nil {
-		return CronJob{}, ErrUnavailable
-	}
-	row := s.db.QueryRowContext(ctx,
+	return queryOne(ctx, s, scanCronJob,
 		`SELECT `+cronJobColumns+`
 		 FROM sys_cron_jobs WHERE id = ? AND project_id = ? AND archived_at IS NULL`, id, projectID)
-	j, err := scanCronJob(row)
-	if errors.Is(err, sql.ErrNoRows) {
-		return CronJob{}, sql.ErrNoRows
-	}
-	return j, err
 }
 
 // GetCronJobByName 按名称取未归档任务；无则返回 sql.ErrNoRows。
 func (s *Store) GetCronJobByName(ctx context.Context, projectID, name string) (CronJob, error) {
-	if s == nil || s.db == nil {
-		return CronJob{}, ErrUnavailable
-	}
-	row := s.db.QueryRowContext(ctx,
+	return queryOne(ctx, s, scanCronJob,
 		`SELECT `+cronJobColumns+`
 		 FROM sys_cron_jobs WHERE project_id = ? AND name = ? AND archived_at IS NULL`, projectID, name)
-	j, err := scanCronJob(row)
-	if errors.Is(err, sql.ErrNoRows) {
-		return CronJob{}, sql.ErrNoRows
-	}
-	return j, err
 }
 
 // ListCronJobs 列出项目全部未归档任务（创建时间正序）。
 func (s *Store) ListCronJobs(ctx context.Context, projectID string) ([]CronJob, error) {
-	if s == nil || s.db == nil {
-		return nil, ErrUnavailable
-	}
-	rows, err := s.db.QueryContext(ctx,
+	return queryList(ctx, s, scanCronJob,
 		`SELECT `+cronJobColumns+`
 		 FROM sys_cron_jobs WHERE project_id = ? AND archived_at IS NULL
 		 ORDER BY created_at ASC`, projectID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := make([]CronJob, 0)
-	for rows.Next() {
-		j, err := scanCronJob(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, j)
-	}
-	return out, rows.Err()
 }
 
 // UpdateCronJob 更新可变字段（描述/调度/目标/入参/启用/排期与快照）。
 func (s *Store) UpdateCronJob(ctx context.Context, j CronJob) (CronJob, error) {
-	if s == nil || s.db == nil {
-		return CronJob{}, ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return CronJob{}, connErr
 	}
+
 	now := time.Now().UTC()
 	j.UpdatedAt = now
 	enabled := int64(0)
@@ -242,7 +213,7 @@ func (s *Store) UpdateCronJob(ctx context.Context, j CronJob) (CronJob, error) {
 		runAt = j.RunAt.UTC()
 	}
 	j.TargetKind = j.EffectiveTargetKind()
-	res, err := s.db.ExecContext(ctx,
+	res, err := sqlDB.ExecContext(ctx,
 		`UPDATE sys_cron_jobs SET description=?, schedule_kind=?, cron_expr=?, interval_seconds=?, run_at=?,
 			func_file=?, func_export=?, input_json=?, enabled=?, last_run_at=?, next_run_at=?,
 			last_status=?, last_error=?, run_count=?, updated_at=?,
@@ -265,56 +236,31 @@ func (s *Store) UpdateCronJob(ctx context.Context, j CronJob) (CronJob, error) {
 
 // ArchiveCronJob 软删并清空排期（不再到期）。
 func (s *Store) ArchiveCronJob(ctx context.Context, projectID, id string) error {
-	if s == nil || s.db == nil {
-		return ErrUnavailable
-	}
 	now := time.Now().UTC()
-	res, err := s.db.ExecContext(ctx,
+	return s.execAffectOne(ctx,
 		`UPDATE sys_cron_jobs SET archived_at=?, updated_at=?, next_run_at=NULL, enabled=0
-		 WHERE id=? AND project_id=? AND archived_at IS NULL`, now, now, id, projectID)
-	if err != nil {
-		return err
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return sql.ErrNoRows
-	}
-	s.notifyWrite(ctx)
-	return nil
+		 WHERE id=? AND project_id=? AND archived_at IS NULL`,
+		now, now, id, projectID)
 }
 
 // ListDueCronJobs 取启用且 next_run_at 到期（<= now）的任务，最多 limit 条。
 func (s *Store) ListDueCronJobs(ctx context.Context, now time.Time, limit int) ([]CronJob, error) {
-	if s == nil || s.db == nil {
-		return nil, ErrUnavailable
-	}
 	limit = pagelimit.Normalize(limit, 100, 500)
-	rows, err := s.db.QueryContext(ctx,
+	return queryList(ctx, s, scanCronJob,
 		`SELECT `+cronJobColumns+`
 		 FROM sys_cron_jobs
 		 WHERE archived_at IS NULL AND enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?
 		 ORDER BY next_run_at ASC LIMIT ?`, now.UTC(), int64(limit))
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := make([]CronJob, 0)
-	for rows.Next() {
-		j, err := scanCronJob(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, j)
-	}
-	return out, rows.Err()
 }
 
 // ClaimCronJob CAS 认领：仅当 next_run_at 仍等于 expectNext 时推进到 newNext 并写 lastRun。
 // RowsAffected==0 返回 false（已被其他执行路径认领或修改）。
 func (s *Store) ClaimCronJob(ctx context.Context, id string, expectNext, newNext, lastRun time.Time) (bool, error) {
-	if s == nil || s.db == nil {
-		return false, ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return false, connErr
 	}
+
 	now := time.Now().UTC()
 	var expectAny any
 	if !expectNext.IsZero() {
@@ -327,7 +273,7 @@ func (s *Store) ClaimCronJob(ctx context.Context, id string, expectNext, newNext
 	if !lastRun.IsZero() {
 		lastAny = lastRun.UTC()
 	}
-	res, err := s.db.ExecContext(ctx,
+	res, err := sqlDB.ExecContext(ctx,
 		`UPDATE sys_cron_jobs
 		 SET next_run_at = ?, last_run_at = CASE WHEN ? IS NOT NULL THEN ? ELSE last_run_at END, updated_at = ?
 		 WHERE id = ? AND archived_at IS NULL AND enabled = 1 AND
@@ -346,9 +292,11 @@ func (s *Store) ClaimCronJob(ctx context.Context, id string, expectNext, newNext
 
 // InsertCronJobRun 写入一次执行记录，返回带 ID 的完整记录。
 func (s *Store) InsertCronJobRun(ctx context.Context, r CronJobRun) (CronJobRun, error) {
-	if s == nil || s.db == nil {
-		return CronJobRun{}, ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return CronJobRun{}, connErr
 	}
+
 	now := time.Now().UTC()
 	if r.ID == "" {
 		r.ID = uuid.NewString()
@@ -360,7 +308,7 @@ func (s *Store) InsertCronJobRun(ctx context.Context, r CronJobRun) (CronJobRun,
 	if !r.FinishedAt.IsZero() {
 		finished = r.FinishedAt.UTC()
 	}
-	_, err := s.db.ExecContext(ctx,
+	_, err := sqlDB.ExecContext(ctx,
 		`INSERT INTO sys_cron_job_runs(id, job_id, project_id, trigger, status, error, duration_ms, response_json, started_at, finished_at, created_at)
 		 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		r.ID, r.JobID, r.ProjectID, r.Trigger, r.Status, r.Error, r.DurationMs, sqlval.NullString(r.ResponseJSON), started, finished, now)
@@ -373,14 +321,16 @@ func (s *Store) InsertCronJobRun(ctx context.Context, r CronJobRun) (CronJobRun,
 
 // UpdateCronJobRunStatus 更新执行记录状态与结果。
 func (s *Store) UpdateCronJobRunStatus(ctx context.Context, projectID, id, status, errMsg string, durationMs int64, response string, finished *time.Time) error {
-	if s == nil || s.db == nil {
-		return ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return connErr
 	}
+
 	var finAny any
 	if finished != nil && !finished.IsZero() {
 		finAny = finished.UTC()
 	}
-	_, err := s.db.ExecContext(ctx,
+	_, err := sqlDB.ExecContext(ctx,
 		`UPDATE sys_cron_job_runs SET status=?, error=?, duration_ms=?, response_json=?,
 		 finished_at = CASE WHEN ? IS NOT NULL THEN ? ELSE finished_at END
 		 WHERE id=? AND project_id=?`,
@@ -394,27 +344,11 @@ func (s *Store) UpdateCronJobRunStatus(ctx context.Context, projectID, id, statu
 
 // ListCronJobRuns 按任务列出执行记录（新→旧），最多 limit 条。
 func (s *Store) ListCronJobRuns(ctx context.Context, projectID, jobID string, limit int) ([]CronJobRun, error) {
-	if s == nil || s.db == nil {
-		return nil, ErrUnavailable
-	}
 	limit = pagelimit.Normalize(limit, 20, 100)
-	rows, err := s.db.QueryContext(ctx,
+	return queryList(ctx, s, scanCronJobRun,
 		`SELECT `+cronJobRunColumns+`
 		 FROM sys_cron_job_runs WHERE project_id = ? AND job_id = ?
 		 ORDER BY created_at DESC LIMIT ?`, projectID, jobID, int64(limit))
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := make([]CronJobRun, 0)
-	for rows.Next() {
-		r, err := scanCronJobRun(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, r)
-	}
-	return out, rows.Err()
 }
 
 func scanCronJob(sc rowScanner) (CronJob, error) {
@@ -423,7 +357,7 @@ func scanCronJob(sc rowScanner) (CronJob, error) {
 	var cronExpr sql.NullString
 	var interval sql.NullInt64
 	var lastRun, nextRun, runAt sql.NullTime
-	// v49 新增列由 ALTER ... DEFAULT 补齐，历史行读到的可能是 NULL，用 NullString 兜底。
+	// 这四列在 schema.go 中是可空列（只有 DEFAULT，无 NOT NULL），显式写入 NULL 的行读到 NULL，用 NullString 兜底。
 	var targetKind, agentID, agentThreadID, agentPrompt sql.NullString
 	if err := sc.Scan(&j.ID, &j.ProjectID, &j.Name, &j.Description, &j.ScheduleKind, &cronExpr, &interval, &runAt,
 		&j.FuncFile, &j.FuncExport, &j.InputJSON, &enabled, &lastRun, &nextRun,

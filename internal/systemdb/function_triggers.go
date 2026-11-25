@@ -54,16 +54,18 @@ type FunctionTrigger struct {
 }
 
 func (s *Store) CreateFunctionTrigger(ctx context.Context, trigger FunctionTrigger) (FunctionTrigger, error) {
-	if s == nil || s.db == nil {
-		return FunctionTrigger{}, ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return FunctionTrigger{}, connErr
 	}
+
 	now := time.Now().UTC()
 	if trigger.ID == "" {
 		trigger.ID = uuid.NewString()
 	}
 	trigger.CreatedAt, trigger.UpdatedAt = now, now
 	events, _ := json.Marshal(trigger.Events)
-	_, err := s.db.ExecContext(ctx, `INSERT INTO sys_function_triggers(id, project_id, kind, target, events_json, func_file, func_export, filter, enabled, created_by, created_at, updated_at, archived_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`, trigger.ID, trigger.ProjectID, trigger.Kind, trigger.Target, string(events), trigger.FuncFile, trigger.FuncExport, trigger.Filter, sqlval.BoolInt(trigger.Enabled), trigger.CreatedBy, now, now)
+	_, err := sqlDB.ExecContext(ctx, `INSERT INTO sys_function_triggers(id, project_id, kind, target, events_json, func_file, func_export, filter, enabled, created_by, created_at, updated_at, archived_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`, trigger.ID, trigger.ProjectID, trigger.Kind, trigger.Target, string(events), trigger.FuncFile, trigger.FuncExport, trigger.Filter, sqlval.BoolInt(trigger.Enabled), trigger.CreatedBy, now, now)
 	if err == nil {
 		s.notifyWrite(ctx)
 	}
@@ -71,39 +73,27 @@ func (s *Store) CreateFunctionTrigger(ctx context.Context, trigger FunctionTrigg
 }
 
 func (s *Store) ListFunctionTriggers(ctx context.Context, projectID string) ([]FunctionTrigger, error) {
-	if s == nil || s.db == nil {
-		return nil, ErrUnavailable
-	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id, project_id, kind, target, events_json, func_file, func_export, filter, enabled, created_by, created_at, updated_at FROM sys_function_triggers WHERE project_id = ? AND archived_at IS NULL ORDER BY created_at, id`, projectID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []FunctionTrigger{}
-	for rows.Next() {
-		trigger, err := scanFunctionTrigger(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, trigger)
-	}
-	return out, rows.Err()
+	return queryList(ctx, s, scanFunctionTrigger, `SELECT id, project_id, kind, target, events_json, func_file, func_export, filter, enabled, created_by, created_at, updated_at FROM sys_function_triggers WHERE project_id = ? AND archived_at IS NULL ORDER BY created_at, id`, projectID)
 }
 
 func (s *Store) GetFunctionTrigger(ctx context.Context, projectID, id string) (FunctionTrigger, error) {
-	if s == nil || s.db == nil {
-		return FunctionTrigger{}, ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return FunctionTrigger{}, connErr
 	}
-	return scanFunctionTrigger(s.db.QueryRowContext(ctx, `SELECT id, project_id, kind, target, events_json, func_file, func_export, filter, enabled, created_by, created_at, updated_at FROM sys_function_triggers WHERE project_id = ? AND id = ? AND archived_at IS NULL`, projectID, id))
+
+	return scanFunctionTrigger(sqlDB.QueryRowContext(ctx, `SELECT id, project_id, kind, target, events_json, func_file, func_export, filter, enabled, created_by, created_at, updated_at FROM sys_function_triggers WHERE project_id = ? AND id = ? AND archived_at IS NULL`, projectID, id))
 }
 
 func (s *Store) UpdateFunctionTrigger(ctx context.Context, trigger FunctionTrigger) (FunctionTrigger, error) {
-	if s == nil || s.db == nil {
-		return FunctionTrigger{}, ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return FunctionTrigger{}, connErr
 	}
+
 	trigger.UpdatedAt = time.Now().UTC()
 	events, _ := json.Marshal(trigger.Events)
-	result, err := s.db.ExecContext(ctx, `UPDATE sys_function_triggers SET kind=?, target=?, events_json=?, func_file=?, func_export=?, filter=?, enabled=?, updated_at=? WHERE project_id=? AND id=? AND archived_at IS NULL`, trigger.Kind, trigger.Target, string(events), trigger.FuncFile, trigger.FuncExport, trigger.Filter, sqlval.BoolInt(trigger.Enabled), trigger.UpdatedAt, trigger.ProjectID, trigger.ID)
+	result, err := sqlDB.ExecContext(ctx, `UPDATE sys_function_triggers SET kind=?, target=?, events_json=?, func_file=?, func_export=?, filter=?, enabled=?, updated_at=? WHERE project_id=? AND id=? AND archived_at IS NULL`, trigger.Kind, trigger.Target, string(events), trigger.FuncFile, trigger.FuncExport, trigger.Filter, sqlval.BoolInt(trigger.Enabled), trigger.UpdatedAt, trigger.ProjectID, trigger.ID)
 	if err != nil {
 		return FunctionTrigger{}, err
 	}
@@ -115,18 +105,9 @@ func (s *Store) UpdateFunctionTrigger(ctx context.Context, trigger FunctionTrigg
 }
 
 func (s *Store) ArchiveFunctionTrigger(ctx context.Context, projectID, id string) error {
-	if s == nil || s.db == nil {
-		return ErrUnavailable
-	}
-	result, err := s.db.ExecContext(ctx, `UPDATE sys_function_triggers SET archived_at=?, updated_at=?, enabled=0 WHERE project_id=? AND id=? AND archived_at IS NULL`, time.Now().UTC(), time.Now().UTC(), projectID, id)
-	if err != nil {
-		return err
-	}
-	if affected, _ := result.RowsAffected(); affected == 0 {
-		return sql.ErrNoRows
-	}
-	s.notifyWrite(ctx)
-	return nil
+	return s.execAffectOne(ctx,
+		`UPDATE sys_function_triggers SET archived_at=?, updated_at=?, enabled=0 WHERE project_id=? AND id=? AND archived_at IS NULL`,
+		time.Now().UTC(), time.Now().UTC(), projectID, id)
 }
 
 func scanFunctionTrigger(row rowScanner) (FunctionTrigger, error) {

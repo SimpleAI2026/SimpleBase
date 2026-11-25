@@ -1,3 +1,38 @@
+// 文件说明：start.go — gosandbox/host 中 PTYSize、StartSpec 等符号的实现
+//
+// 用法
+//
+//	type PTYSize struct{…}  // PTYSize 是伪终端的窗口大小
+//	type StartSpec struct{…}  // StartSpec 描述一个需要保持句柄的进程（交互终端、后台进程、流式输出）
+//	type ExitInfo struct{…}  // ExitInfo 是进程结束信息
+//	type Proc interface{…}  // Proc 是一个正在运行的沙盒进程
+//	WaitTimeout(p Proc, d time.Duration) bool  // WaitTimeout 等待进程结束或超时，供测试与关停使用
+//	同包调用：process → start_other.go, start_posix.go；newProcess() → start_darwin.go, start_linux.go
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/tools, gosandbox/box, gosandbox/vm/box 等 5 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/host/start.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] bwrap_args.go, bwrap_args_extra_test.go, cgroup.go, cgroup_linux.go, cgroup_linux_test.go 等 36 个
+//	[关键引用] PTYSize ← pty_darwin.go, pty_linux.go；StartSpec ← run_darwin_test.go, start_darwin.go；ExitInfo ← start_nonposix.go, start_posix.go
+//
+// 主要符号
+//
+//	type PTYSize struct{…}
+//	type StartSpec struct{…}
+//	type ExitInfo struct{…}
+//	type Proc interface{…}
+//	type process struct{…}
+//	newProcess(cmd *exec.Cmd, stdin io.WriteCloser, output io.Reader, ptmx *os.File, releasers []func(), closers ....
+//	(p *process) reap()
+//	(p *process) PID() int
+//	... 另有 7 个顶层符号
+
 package host
 
 import (

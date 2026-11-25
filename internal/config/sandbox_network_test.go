@@ -1,3 +1,28 @@
+// 文件说明：sandbox_network_test.go — internal/config 的单元测试（TestSandboxNetworkModes、TestSandboxNetworkAllowlistRemoved 等）
+//
+// 用法
+//
+//	go test ./internal/config -run 'TestSandboxNetworkModes|TestSandboxNetworkAllowlistRemoved|TestSandboxDiskLimitNegative'
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/api, internal/api/perfbench, internal/app 等 6 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/config/sandbox_network_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] agent_config_test.go, backup.go, config.go, config_agent_types.go, config_example_test.go 等 24 个
+//
+// 主要符号
+//
+//	baseSandbox() SandboxConfig
+//	testDuration(seconds int) time.Duration
+//	TestSandboxNetworkModes(t *testing.T)
+//	TestSandboxNetworkAllowlistRemoved(t *testing.T)
+//	TestSandboxDiskLimitNegative(t *testing.T)
+
 package config
 
 // sandbox_network_test.go：沙盒网络与磁盘配置校验。

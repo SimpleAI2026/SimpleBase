@@ -1,3 +1,29 @@
+// 文件说明：engine_test.go — godatabase/ducklake 的单元测试（TestBuildBootSQLAttachPerEngine、TestOpenInitializesAdditionalConnections 等）
+//
+// 用法
+//
+//	go test ./godatabase/ducklake -run 'TestBuildBootSQLAttachPerEngine|TestOpenInitializesAdditionalConnections|TestOpenRejectsForeignEngineFile|TestOpenRejectsInvalidEngine'
+//
+// 调用架构
+//
+//	[上游] internal/app, internal/systemdb
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/ducklake/engine_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] c4_syncer_lease_test.go, c4_syncer_ordering_test.go, catalog_syncer.go, catalog_syncer_test.go, coverage_test.go 等 35 个
+//
+// 主要符号
+//
+//	TestBuildBootSQLAttachPerEngine(t *testing.T)
+//	TestOpenInitializesAdditionalConnections(t *testing.T)
+//	TestOpenRejectsForeignEngineFile(t *testing.T)
+//	TestOpenRejectsInvalidEngine(t *testing.T)
+//	TestOpenGuardsSameProcessDoubleOpen(t *testing.T)
+//	TestEngineSyncAndColdStart(t *testing.T)
+
 package ducklake
 
 import (

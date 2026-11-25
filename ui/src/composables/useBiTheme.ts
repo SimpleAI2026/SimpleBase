@@ -1,4 +1,4 @@
-// useBiTheme.ts — 读取现有 CSS 主题 token，并在亮暗色切换时更新（planv6.7 §5）。
+// useBiTheme.ts — 读取现有 CSS 主题 token，并在亮暗色切换时更新。
 //
 // 与 TrendChart.vue 同一套做法：--chart-1..5 / --border / --muted-foreground 等，
 // 监听 <html class> 变化重算，不引入新的色值字面量。
@@ -24,7 +24,7 @@ export function readBiTheme(): BiTheme {
     card: cssVar('--card', '#ffffff'),
     foreground: cssVar('--foreground', '#1f1e1d'),
     sans: cssVar('--font-sans', 'system-ui, sans-serif'),
-    dark: typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
+    dark: document.documentElement.classList.contains('dark')
   }
 }
 

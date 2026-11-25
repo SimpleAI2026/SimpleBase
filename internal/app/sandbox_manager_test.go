@@ -1,3 +1,32 @@
+// 文件说明：sandbox_manager_test.go — internal/app 的单元测试（TestSandboxManagerLifecycleAndLimits、TestSandboxManagerThreadCompatibility 等）
+//
+// 用法
+//
+//	go test ./internal/app -run 'TestSandboxManagerLifecycleAndLimits|TestSandboxManagerThreadCompatibility|TestSandboxManagerReaper|TestSandboxManagerRetryFailedCloudRemoval'
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/api/perfbench
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/app/sandbox_manager_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_shutdown_test.go, app.go, app_alerts.go, app_lease.go, app_test.go 等 41 个
+//
+// 主要符号
+//
+//	newSandboxManagerTest(t *testing.T, limit int) (*sandbox.Manager, *fake.Driver, *systemdb.Store)
+//	TestSandboxManagerLifecycleAndLimits(t *testing.T)
+//	TestSandboxManagerThreadCompatibility(t *testing.T)
+//	TestSandboxManagerReaper(t *testing.T)
+//	type transientRemoveDriver struct{…}
+//	(d *transientRemoveDriver) Remove(ctx context.Context, name string) error
+//	TestSandboxManagerRetryFailedCloudRemoval(t *testing.T)
+//	type blockingExecDriver struct{…}
+//	... 另有 2 个顶层符号
+
 package app
 
 import (

@@ -1,3 +1,30 @@
+// 文件说明：main_test.go — gofunction/cmd 的单元测试（TestRunFromStdin、TestRunFromFile 等）
+//
+// 用法
+//
+//	go test ./gofunction/cmd -run 'TestRunFromStdin|TestRunFromFile|TestRunErrors|TestCheck'
+//
+// 调用架构
+//
+//	[上游] 无（可执行入口）
+//	[本文件] gofunction/cmd/main_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] main.go
+//
+// 主要符号
+//
+//	const hello
+//	exec(t *testing.T, stdin string, args ...string) (code int, out, errOut string)
+//	TestRunFromStdin(t *testing.T)
+//	TestRunFromFile(t *testing.T)
+//	TestRunErrors(t *testing.T)
+//	TestCheck(t *testing.T)
+//	TestList(t *testing.T)
+//	TestPackages(t *testing.T)
+//	... 另有 1 个顶层符号
+
 package main
 
 import (

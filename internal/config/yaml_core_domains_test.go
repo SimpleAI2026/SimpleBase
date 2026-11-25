@@ -1,3 +1,27 @@
+// 文件说明：yaml_core_domains_test.go — internal/config 的单元测试（TestB1_YAMLS3DomainValues、TestB1_YAMLObservabilityDomain 等）
+//
+// 用法
+//
+//	go test ./internal/config -run 'TestB1_YAMLS3DomainValues|TestB1_YAMLObservabilityDomain|TestB1_YAMLInstanceLeaseDomain'
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/api, internal/api/perfbench, internal/app 等 6 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/config/yaml_core_domains_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] agent_config_test.go, backup.go, config.go, config_agent_types.go, config_example_test.go 等 24 个
+//
+// 主要符号
+//
+//	yamlS3For(addr, key, secret string) yamlConfig
+//	TestB1_YAMLS3DomainValues(t *testing.T)
+//	TestB1_YAMLObservabilityDomain(t *testing.T)
+//	TestB1_YAMLInstanceLeaseDomain(t *testing.T)
+
 package config
 
 // b1_config_domains_test.go：planv6.0 B1 表征测试（提取前先行）。

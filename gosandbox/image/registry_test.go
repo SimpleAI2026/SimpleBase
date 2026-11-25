@@ -1,3 +1,32 @@
+// 文件说明：registry_test.go — gosandbox/image 的单元测试（TestParseChallenge、TestParseChallengeEmpty 等）
+//
+// 用法
+//
+//	go test ./gosandbox/image -run 'TestParseChallenge|TestParseChallengeEmpty|TestTokenScopeReducedToPull|TestTokenCached'
+//
+// 调用架构
+//
+//	[上游] gosandbox/vm/box, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/image/registry_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] arch.go, import.go, manifest.go, manifest_test.go, pull.go 等 16 个
+//
+// 主要符号
+//
+//	TestParseChallenge(t *testing.T)
+//	TestParseChallengeEmpty(t *testing.T)
+//	TestTokenScopeReducedToPull(t *testing.T)
+//	TestTokenCached(t *testing.T)
+//	TestTokenRefusesPlainHTTPRealm(t *testing.T)
+//	TestIsLoopback(t *testing.T)
+//	TestEncodeAuth(t *testing.T)
+//	TestReadLimited(t *testing.T)
+//	... 另有 1 个顶层符号
+
 package image
 
 // registry_test.go：不联网也能测的部分——challenge 解析、凭据策略、token 缓存。

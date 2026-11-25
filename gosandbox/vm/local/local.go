@@ -1,3 +1,36 @@
+// 文件说明：local.go — gosandbox/vm/local 中 Options、Driver 等符号的实现
+//
+// 用法
+//
+//	type Options struct{…}  // Options 是本机驱动的显式配置，不依赖调用方的配置结构
+//	type Driver struct{…}  // Driver 是本机沙盒驱动
+//	New(ctx context.Context, opts Options) (*Driver, error)  // New 校验配置并做一次真实的隔离冒烟测试；任何失败都返回 vm.ErrUnavailable，绝不退回裸执行
+//	同包调用：rel() → exec.go, files.go；denyAround() → local_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/vm/local/local.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] exec.go, export_test.go, files.go, local_test.go, metrics.go 等 8 个
+//	[关键引用] Options ← local_test.go；Driver ← exec.go, export_test.go；New ← local_test.go
+//
+// 主要符号
+//
+//	type Options struct{…}
+//	type Driver struct{…}
+//	const defaultWorkdir / stoppedMarker / wsDirName
+//	var vmNameRe
+//	New(ctx context.Context, opts Options) (*Driver, error)
+//	(d *Driver) logf(level, msg string, kv ...any)
+//	(d *Driver) fail(op, name string, err error, kv ...any) error
+//	(d *Driver) vmDir(name string) (string, error)
+//	... 另有 12 个顶层符号
+
 // Package local 提供 vm.Driver 的本机目录隔离实现（每个 VM 对应 Root 下的工作区，经 host 沙盒执行）。
 package local
 

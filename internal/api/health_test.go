@@ -1,3 +1,27 @@
+// 文件说明：health_test.go — internal/api 的单元测试（TestHealthHandler_NilChecker、TestHealthHandler_Success 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestHealthHandler_NilChecker|TestHealthHandler_Success|TestHealthHandler_Failure'
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/health_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//
+// 主要符号
+//
+//	serveHealth(h *HealthHandler, method, path string) *httptest.ResponseRecorder
+//	TestHealthHandler_NilChecker(t *testing.T)
+//	TestHealthHandler_Success(t *testing.T)
+//	TestHealthHandler_Failure(t *testing.T)
+
 package api
 
 import (

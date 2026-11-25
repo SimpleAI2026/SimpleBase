@@ -1,3 +1,32 @@
+// 文件说明：server_test.go — internal/sandbox/sshd 的单元测试（TestAuthSuccessAndUniformFailure、TestFailureRateLimit 等）
+//
+// 用法
+//
+//	go test ./internal/sandbox/sshd -run 'TestAuthSuccessAndUniformFailure|TestFailureRateLimit|TestPublicKeyAndNoneAuthRejected|TestShellWithPTYEchoAndExit'
+//
+// 调用架构
+//
+//	[上游] internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/sandbox/sshd/server_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] helpers_test.go, membuf.go, server.go, session.go
+//
+// 主要符号
+//
+//	type testStore struct{…}
+//	(s *testStore) CreateSandbox(_ context.Context, sb sandbox.Sandbox) (sandbox.Sandbox, error)
+//	(s *testStore) GetSandbox(_ context.Context, p, id string) (sandbox.Sandbox, error)
+//	(s *testStore) GetSandboxByID(_ context.Context, id string) (sandbox.Sandbox, error)
+//	(s *testStore) GetSandboxByName(context.Context, string, string) (sandbox.Sandbox, error)
+//	(s *testStore) GetSandboxByThread(context.Context, string, string) (sandbox.Sandbox, error)
+//	(s *testStore) ListSandboxes(context.Context, string, string, string, string, int) ([]sandbox.Sandbox, string,...
+//	(s *testStore) CountSandboxes(context.Context, string) (int, error)
+//	... 另有 28 个顶层符号
+
 package sshd
 
 import (

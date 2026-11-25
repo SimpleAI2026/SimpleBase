@@ -1,4 +1,6 @@
 // 文件说明：internal/sbcli object / site 命令实现（原 commands_resources.go 拆出）
+//
+// 单 key 的 object delete 在 commands.go 的命令表里用 idResult 适配，不在本文件重复。
 package sbcli
 
 import (
@@ -58,18 +60,6 @@ func cmdObjectUpload(ctx context.Context, c *gosdk.Client, cfg loadedConfig, arg
 		r = fh
 	}
 	return c.UploadObject(ctx, key, r, path, "")
-}
-
-func cmdObjectDelete(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
-	f, _, err := mustFlags(args, "key")
-	if err != nil {
-		return nil, err
-	}
-	key, err := need(f, "key")
-	if err != nil {
-		return nil, err
-	}
-	return c.DeleteObject(ctx, key)
 }
 
 func cmdObjectPresign(ctx context.Context, c *gosdk.Client, cfg loadedConfig, args []string, _ io.Reader) (any, error) {

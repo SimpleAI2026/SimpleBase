@@ -36,14 +36,15 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/linkxzhou/SimpleBase/internal/dbbridge"
 	"sync"
 	"time"
 
 	"github.com/linkxzhou/SimpleBase/godatabase/ducklake"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
+	"github.com/linkxzhou/SimpleBase/internal/dbbridge"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
+	"github.com/linkxzhou/SimpleBase/internal/utils/keyedlock"
 	"go.uber.org/zap"
 )
 
@@ -67,13 +68,12 @@ type Store struct {
 	mu     sync.Mutex
 	closed bool
 
-	seedMu      sync.Mutex
-	seedFlights map[string]chan struct{} // 每项目播种串行，关闭信号通知等待者重查
-
-	// tagMu/tagFlights 与 seedMu/seedFlights 同构（planv6.7 AGC-NAV §7.2）：
-	// 每项目标签写入串行，保证名称查重与版本比较的原子性。
-	tagMu      sync.Mutex
-	tagFlights map[string]chan struct{}
+	// seedLocks 每项目播种串行；tagLocks 每项目标签写入串行，保证名称查重与版本比较的原子性。
+	seedLocks keyedlock.Map
+	tagLocks  keyedlock.Map
+	// turnEventLocks 每轮次事件追加串行：DuckLake 表不支持 INSERT … RETURNING，
+	// 轮次内 seq 只能「读最大序号 → 写入」两步分配，靠这把锁保证单调不重复。
+	turnEventLocks keyedlock.Map
 
 	metricsBuf []MetricSample
 	logBuf     []LogEvent
@@ -155,20 +155,22 @@ func (s *Store) NotifyWrite(ctx context.Context) {
 
 // Ping 检查系统库是否可查询。
 func (s *Store) Ping(ctx context.Context) error {
-	if s == nil || s.db == nil {
-		return ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return connErr
 	}
+
 	s.mu.Lock()
 	closed := s.closed
 	s.mu.Unlock()
 	if closed {
 		return ErrUnavailable
 	}
-	if err := s.db.PingContext(ctx); err != nil {
+	if err := sqlDB.PingContext(ctx); err != nil {
 		return fmt.Errorf("%w: %v", ErrUnavailable, err)
 	}
 	var n int64
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sys_tenants`).Scan(&n); err != nil {
+	if err := sqlDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM sys_tenants`).Scan(&n); err != nil {
 		return fmt.Errorf("%w: %v", ErrUnavailable, err)
 	}
 	return nil
@@ -234,14 +236,16 @@ func (s *Store) SetDefaultLogKeepDays(days int) {
 
 // SeedGlobalRetention inserts a global sys_log_retention row when missing.
 func (s *Store) SeedGlobalRetention(ctx context.Context, keepDays int) error {
-	if s == nil || s.db == nil {
-		return ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return connErr
 	}
+
 	if keepDays <= 0 {
 		keepDays = 14
 	}
 	var existing int64
-	err := s.db.QueryRowContext(ctx,
+	err := sqlDB.QueryRowContext(ctx,
 		`SELECT keep_days FROM sys_log_retention WHERE scope = 'global' LIMIT 1`).Scan(&existing)
 	if err == nil {
 		return nil
@@ -249,7 +253,7 @@ func (s *Store) SeedGlobalRetention(ctx context.Context, keepDays int) error {
 	if !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx,
+	_, err = sqlDB.ExecContext(ctx,
 		`INSERT INTO sys_log_retention(scope, project_id, keep_days, updated_at) VALUES('global', NULL, ?, ?)`,
 		int64(keepDays), time.Now().UTC())
 	if err != nil {

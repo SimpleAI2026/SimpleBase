@@ -37,9 +37,11 @@ type LogStat struct {
 }
 
 func (s *Store) LogStats(ctx context.Context, projectID, groupBy string, from, to time.Time) ([]LogStat, error) {
-	if s == nil || s.db == nil {
-		return nil, ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return nil, connErr
 	}
+
 	expression := "level"
 	switch groupBy {
 	case "hour":
@@ -57,7 +59,7 @@ func (s *Store) LogStats(ctx context.Context, projectID, groupBy string, from, t
 		args = append(args, projectID)
 	}
 	query += ` GROUP BY ` + expression + ` ORDER BY ` + expression
-	rows, err := s.db.QueryContext(ctx, query, args...)
+	rows, err := sqlDB.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -85,9 +87,11 @@ func (s *Store) LogStats(ctx context.Context, projectID, groupBy string, from, t
 }
 
 func (s *Store) ExportLogs(ctx context.Context, query LogQuery) ([]LogEvent, error) {
-	if s == nil || s.db == nil {
-		return nil, ErrUnavailable
+	sqlDB, connErr := s.conn()
+	if connErr != nil {
+		return nil, connErr
 	}
+
 	query.Limit = 100000
 	sqlText := `SELECT id, project_id, level, logger, message, fields_json, request_id, occurred_at FROM sys_log_events WHERE occurred_at >= ? AND occurred_at <= ?`
 	args := []any{query.From.UTC(), query.To.UTC()}
@@ -104,7 +108,7 @@ func (s *Store) ExportLogs(ctx context.Context, query LogQuery) ([]LogEvent, err
 		args = append(args, "%"+query.Q+"%")
 	}
 	sqlText += ` ORDER BY occurred_at DESC LIMIT 100000`
-	rows, err := s.db.QueryContext(ctx, sqlText, args...)
+	rows, err := sqlDB.QueryContext(ctx, sqlText, args...)
 	if err != nil {
 		return nil, err
 	}

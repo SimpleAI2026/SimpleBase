@@ -1,5 +1,33 @@
 //go:build llm_integration
 
+// 文件说明：agent_llm_integration_test.go — internal/api 的单元测试（TestLLMRealStreamAndToolRoundtrip、TestLLMModelAllowlistRejectsBeforeUpstream 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestLLMRealStreamAndToolRoundtrip|TestLLMModelAllowlistRejectsBeforeUpstream'
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/agent_llm_integration_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//
+// 主要符号
+//
+//	const integrationModel
+//	type integrationDB struct{…}
+//	(f *integrationDB) ListDatabases(context.Context, auth.Principal, string) ([]agentbridge.DatabaseInfo, error)
+//	(*integrationDB) ListCollections(context.Context, auth.Principal, string, string) ([]string, error)
+//	(*integrationDB) ReadOnlyQuery(context.Context, auth.Principal, string, string, string, int) (agentbridge.SQLR...
+//	integrationRuntime(t *testing.T, protocol string) (*cloudagent.Runtime, *integrationDB)
+//	TestLLMRealStreamAndToolRoundtrip(t *testing.T)
+//	TestLLMModelAllowlistRejectsBeforeUpstream(t *testing.T)
+
 package api
 
 import (
@@ -47,7 +75,7 @@ func integrationRuntime(t *testing.T, protocol string) (*cloudagent.Runtime, *in
 	db := &integrationDB{}
 	provider := &agentbridge.RuntimeProvider{DB: db, ToolProtocol: protocol}
 	return &cloudagent.Runtime{
-		LLM: NewCloudAgentLLM(NewLLMService(llmgateway.NewService(resolver, nil, nil, nil))), Provider: provider,
+		LLM: agentbridge.NewCloudAgentLLM(llmgateway.NewService(resolver, nil, nil, nil)), Provider: provider,
 		ToolProtocol: protocol, RunTimeout: 90 * time.Second,
 	}, db
 }

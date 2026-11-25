@@ -1,3 +1,25 @@
+// 文件说明：agent_run_status_test.go — internal/systemdb 的单元测试（TestAgentRunStatus_TerminalNotOverwritten、TestAgentRunStatus_IdempotentAndNonTerminalMoves 等）
+//
+// 用法
+//
+//	go test ./internal/systemdb -run 'TestAgentRunStatus_TerminalNotOverwritten|TestAgentRunStatus_IdempotentAndNonTerminalMoves'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app 等 8 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/systemdb/agent_run_status_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] agent_approvals.go, agent_approvals_test.go, agent_collab.go, agent_collab_cron.go, agent_collab_test.go 等 54 个
+//
+// 主要符号
+//
+//	TestAgentRunStatus_TerminalNotOverwritten(t *testing.T)
+//	TestAgentRunStatus_IdempotentAndNonTerminalMoves(t *testing.T)
+
 package systemdb
 
 import (
@@ -59,7 +81,7 @@ func TestAgentRunStatus_TerminalNotOverwritten(t *testing.T) {
 	}
 
 	// 场景 3：canceled 同样是终态，不能再被 completed 覆盖
-	//（finishAgentRun 与 CancelRun 交错的另一种方向）。
+	//（应用服务收尾与 CancelRun 交错的另一种方向）。
 	if err := store.UpdateAgentRunStatus(ctx, "p1", run2.ID, AgentRunCompleted, "", nil, &fin); err != nil {
 		t.Fatal(err)
 	}

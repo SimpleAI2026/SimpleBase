@@ -1,3 +1,34 @@
+// 文件说明：runtime_test.go — gocloudagent/cloudagent 的单元测试（TestRuntimeSingleAgentToolRoundtrip、TestRuntimeProviderControlsPreparationAndCleanup 等）
+//
+// 用法
+//
+//	go test ./gocloudagent/cloudagent -run 'TestRuntimeSingleAgentToolRoundtrip|TestRuntimeProviderControlsPreparationAndCleanup|TestAssembleInstructionRedactsSecrets|TestToolErrorWrapping'
+//	同包调用：scriptedLLM → runtime_optimization_test.go, runtime_prepare_cancel_test.go；onceStream → runtime_limits_test.go；testTool() → runtime_limits_test.go, runtime_optimization_test.go
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/cloudagent/runtime_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] callgate.go, callgate_test.go, confirmation.go, confirmation_test.go, errors.go 等 32 个
+//	[关键引用] scriptedLLM ← runtime_optimization_test.go, runtime_prepare_cancel_test.go；onceStream ← runtime_limits_test.go；testTool ← runtime_limits_test.go, runtime_optimization_test.go
+//
+// 主要符号
+//
+//	type scriptedLLM struct{…}
+//	(s *scriptedLLM) Chat(_ context.Context, scope string, req ChatRequest) (ChatResponse, error)
+//	(s *scriptedLLM) Stream(ctx context.Context, scope string, req ChatRequest) (TokenStream, error)
+//	type onceStream struct{…}
+//	(o *onceStream) Next() (string, bool, error)
+//	(o *onceStream) Close() error
+//	type emptyToolInput struct{…}
+//	testTool(t *testing.T, name string, callErr error) einotool.BaseTool
+//	... 另有 4 个顶层符号
+
 package cloudagent
 
 import (

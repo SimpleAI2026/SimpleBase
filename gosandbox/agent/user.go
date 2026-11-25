@@ -1,3 +1,38 @@
+// 文件说明：user.go — gosandbox/agent 中 UserMapping、IDRange 等符号的实现
+//
+// 用法
+//
+//	type UserMapping struct{…}  // UserMapping 描述沙盒内哪些 uid/gid 是「真的」
+//	type IDRange struct{…}  // IDRange 是一个 id 区间
+//	SetUserMapping(m *UserMapping)  // SetUserMapping 设置当前映射（agent 启动时由宿主传入）
+//	UserMappingNow() *UserMapping  // UserMappingNow 返回当前映射
+//	ResolveID(spec string) (uid, gid uint32, err error)  // ResolveID 解析 "uid:gid" / "uid" / 空
+//	同包调用：colonLookup → user_test.go；colonField() → user_test.go；lookupGroup() → user_test.go
+//
+// 调用架构
+//
+//	[上游] gosandbox/cmd
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/agent/user.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] agent.go, agent_test.go, fs.go, loopback_linux.go, loopback_other.go 等 16 个
+//	[关键引用] UserMapping ← agent.go, user_test.go；IDRange ← user_test.go；SetUserMapping ← agent.go, user_test.go
+//
+// 主要符号
+//
+//	type UserMapping struct{…}
+//	type IDRange struct{…}
+//	(r IDRange) contains(id uint32) bool
+//	var mapping
+//	SetUserMapping(m *UserMapping)
+//	UserMappingNow() *UserMapping
+//	(m *UserMapping) CanSwitchTo(uid uint32) bool
+//	(m *UserMapping) CanSwitchToGID(gid uint32) bool
+//	... 另有 12 个顶层符号
+
 package agent
 
 import (
@@ -132,24 +167,47 @@ func lookupID(s string, isUser bool) (uint32, error) {
 	return lookupGroup(s)
 }
 
-// lookupPasswd 从 /etc/passwd 查 uid 与主 gid。
+// colonLookup 是 colonField 的查找结果。
+type colonLookup int
+
+const (
+	colMissing colonLookup = iota // 没有首列等于 name 且字段数足够的行
+	colOK                         // 找到且 id 列是合法数字
+	colBad                        // 找到行，但 id 列不是 32 位无符号数字
+)
+
+// colonField 在 /etc/passwd、/etc/group 这类冒号分隔表里按首列找 name，
+// 返回第 col 列（0 起）解析出的 id。字段数不足 minFields 的行按「没有这一行」跳过，
+// 与手工解析时的行为一致。
+func colonField(content, name string, minFields, col int) (uint32, colonLookup) {
+	for _, line := range strings.Split(content, "\n") {
+		f := strings.Split(line, ":")
+		if len(f) < minFields || f[0] != name {
+			continue
+		}
+		n, err := strconv.ParseUint(f[col], 10, 32)
+		if err != nil {
+			return 0, colBad
+		}
+		return uint32(n), colOK
+	}
+	return 0, colMissing
+}
+
+// lookupPasswd 从 /etc/passwd 查 uid。
 func lookupPasswd(name string) (uint32, error) {
 	body, err := os.ReadFile("/etc/passwd")
 	if err != nil {
 		return 0, fmt.Errorf("agent: cannot resolve user %q: %w", name, err)
 	}
-	for _, line := range strings.Split(string(body), "\n") {
-		f := strings.Split(line, ":")
-		if len(f) < 4 || f[0] != name {
-			continue
-		}
-		n, perr := strconv.ParseUint(f[2], 10, 32)
-		if perr != nil {
-			return 0, fmt.Errorf("agent: bad uid for %q", name)
-		}
-		return uint32(n), nil
+	n, st := colonField(string(body), name, 4, 2)
+	switch st {
+	case colBad:
+		return 0, fmt.Errorf("agent: bad uid for %q", name)
+	case colMissing:
+		return 0, fmt.Errorf("agent: no such user %q in the sandbox", name)
 	}
-	return 0, fmt.Errorf("agent: no such user %q in the sandbox", name)
+	return n, nil
 }
 
 // lookupGroup 从 /etc/group 查 gid。
@@ -158,18 +216,14 @@ func lookupGroup(name string) (uint32, error) {
 	if err != nil {
 		return 0, fmt.Errorf("agent: cannot resolve group %q: %w", name, err)
 	}
-	for _, line := range strings.Split(string(body), "\n") {
-		f := strings.Split(line, ":")
-		if len(f) < 3 || f[0] != name {
-			continue
-		}
-		n, perr := strconv.ParseUint(f[2], 10, 32)
-		if perr != nil {
-			return 0, fmt.Errorf("agent: bad gid for %q", name)
-		}
-		return uint32(n), nil
+	n, st := colonField(string(body), name, 3, 2)
+	switch st {
+	case colBad:
+		return 0, fmt.Errorf("agent: bad gid for %q", name)
+	case colMissing:
+		return 0, fmt.Errorf("agent: no such group %q in the sandbox", name)
 	}
-	return 0, fmt.Errorf("agent: no such group %q in the sandbox", name)
+	return n, nil
 }
 
 // primaryGID 取一个用户的主组。
@@ -184,18 +238,15 @@ func primaryGID(userPart string, uid uint32) (uint32, error) {
 	if rerr != nil {
 		return 0, fmt.Errorf("agent: cannot resolve primary group for %q: %w", userPart, rerr)
 	}
-	for _, line := range strings.Split(string(body), "\n") {
-		f := strings.Split(line, ":")
-		if len(f) < 4 || f[0] != userPart {
-			continue
-		}
-		n, perr := strconv.ParseUint(f[3], 10, 32)
-		if perr != nil {
-			return 0, fmt.Errorf("agent: bad gid for %q", userPart)
-		}
-		return uint32(n), nil
+	n, st := colonField(string(body), userPart, 4, 3)
+	if st == colBad {
+		return 0, fmt.Errorf("agent: bad gid for %q", userPart)
 	}
-	return uid, nil
+	// 找不到主组时退回与 uid 相同的 gid（Docker 的 user:group 默认行为）。
+	if st == colMissing {
+		return uid, nil
+	}
+	return n, nil
 }
 
 // credentialFor 把 "uid:gid" 解析成 syscall.Credential。

@@ -1,3 +1,24 @@
+// 文件说明：output_test.go — gosandbox/vm 的单元测试（TestTruncateUTF8 等）
+//
+// 用法
+//
+//	go test ./gosandbox/vm -run 'TestTruncateUTF8'
+//
+// 调用架构
+//
+//	[上游] gosandbox/vm/box, gosandbox/vm/fake, gosandbox/vm/local, internal/api 等 7 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/vm/output_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] driver.go, env.go, env_test.go, errors.go, output.go 等 9 个
+//
+// 主要符号
+//
+//	TestTruncateUTF8(t *testing.T)
+
 package vm
 
 import (

@@ -1,3 +1,32 @@
+// 文件说明：mcp_builtin_session.go — internal/api 的内部实现（internalPrincipalCtxKey、withInternalPrincipal 等）
+//
+// 用法
+//
+//	同包调用：internalPrincipalFrom() → mcp_dispatch.go；withInternalPrincipalAuth() → router.go；attachBuiltinMCP() → routes_v1.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/mcp_builtin_session.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] internalPrincipalFrom ← mcp_dispatch.go；withInternalPrincipalAuth ← router.go；attachBuiltinMCP ← routes_v1.go
+//
+// 主要符号
+//
+//	type internalPrincipalCtxKey struct{…}
+//	withInternalPrincipal(ctx context.Context, p auth.Principal) context.Context
+//	internalPrincipalFrom(ctx context.Context) (auth.Principal, bool)
+//	withInternalPrincipalAuth(inner echo.MiddlewareFunc) echo.MiddlewareFunc
+//	(h *builtinMCPHandler) Spec(ctx context.Context, p auth.Principal, projectID, name string) (*mcp.ServerSpec, b...
+//	(h *builtinMCPHandler) Policy(name, tool string) (cloudagent.ToolDecision, bool)
+//	(h *builtinMCPHandler) policyTable(name string) (map[string]cloudagent.ToolDecision, bool)
+//	attachBuiltinMCP(rt *cloudagent.Runtime, b agentbridge.BuiltinMCP)
+
 // mcp_builtin_session.go — 内置 MCP 的进程内会话支持（planv6.7 §3.6）
 //
 // 云助手不经 HTTP 回连本机：agentbridge.MCPConnector 通过 BuiltinMCP 取到 spec，

@@ -4,7 +4,6 @@ package agentbridge
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -14,6 +13,8 @@ import (
 	"github.com/cloudwego/eino/compose"
 	"go.uber.org/zap"
 
+	"github.com/linkxzhou/SimpleBase/gocloudagent/agentcore"
+	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 	agentskills "github.com/linkxzhou/SimpleBase/internal/agentbridge/agentskills"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 )
@@ -32,7 +33,7 @@ const stdinMaxBytes = 256 << 10
 // 这是装配错误，不是权限问题：任何情况下都不执行命令。
 const commandPolicyUnavailable = "command_policy_unavailable"
 
-func (r *RuntimeProvider) buildSkillTools(req RunRequest) ([]tool.BaseTool, error) {
+func (r *RuntimeProvider) buildSkillTools(req cloudagent.RunRequest) ([]tool.BaseTool, error) {
 	sb, err := utils.InferTool("simplebase", "Run the simplebase CLI for resources loaded in this turn. Pass argv as a string array. Do not include the binary name, a shell pipeline, or any token. File content goes in the stdin field with --file -.",
 		func(ctx context.Context, in simplebaseArgs) (string, error) {
 			return r.execSimplebase(ctx, req, in.Argv, in.Stdin)
@@ -57,7 +58,7 @@ func (r *RuntimeProvider) buildSkillTools(req RunRequest) ([]tool.BaseTool, erro
 	return out, nil
 }
 
-func (r *RuntimeProvider) execSimplebase(ctx context.Context, req RunRequest, argv []string, stdin string) (string, error) {
+func (r *RuntimeProvider) execSimplebase(ctx context.Context, req cloudagent.RunRequest, argv []string, stdin string) (string, error) {
 	rc, err := requireRun(ctx)
 	if err != nil {
 		rc, _ = hostContext(req.Context)
@@ -71,12 +72,12 @@ func (r *RuntimeProvider) execSimplebase(ctx context.Context, req RunRequest, ar
 			zap.String("cmd", argvSummary(argv)),
 			zap.String("code", code),
 		)
-		return skillFail(code, msg), nil
+		return agentcore.ErrorEnvelope(code, msg), nil
 	}
 	// planv6.0 §3.4：只在增量协议下等待 tool_call 收束（最多 1s）；
 	// text 协议参数一次到位，直接跳过 gate，避免无谓延迟。
 	if callID != "" && r.ToolProtocol != "text" {
-		r.ensureGate().wait(req.RunID, callID, time.Second)
+		r.gate.Wait(req.RunID, callID, time.Second)
 	}
 	if ctx.Err() != nil {
 		return "", ctx.Err()
@@ -110,52 +111,39 @@ func (r *RuntimeProvider) execSimplebase(ctx context.Context, req RunRequest, ar
 	if !req.Agent.Writable && !decision.ReadOnly {
 		return rejected("write_not_allowed", "该助手未开启写权限，只能执行只读命令。请在「云助手 → 编辑助手 → 允许写操作」中开启后重试")
 	}
-	// 搭建会话的阶段限权（home-starter-prompts-plan §3.3）：阶段内被标为只读的技能
-	// （如 func 阶段的 database）只允许只读命令，写命令不属于当前阶段，同样在确认前拦截。
-	readonly := rc.ReadOnlySkills
-	if len(readonly) > 0 && !decision.ReadOnly && !agentskills.AllowWriteArgv(skills, readonly, argv) {
-		return rejected("write_not_allowed", "当前阶段不允许该写命令，请只执行本阶段的操作")
-	}
 	emit := rc.Emit
 	if decision.Destructive {
-		if req.Headless || rc.Headless {
-			if emit != nil {
-				emit(Event{Type: "confirmation_resolved", CallID: callID, Name: "simplebase", Approve: boolPtr(false), Message: "定时任务不能确认破坏性操作"})
-			}
+		redacted := r.Policy.RedactArgv(argv)
+		subject := rc.Principal.Actor()
+		outcome, err := cloudagent.AwaitConfirmation(ctx, cloudagent.ConfirmationRequest{
+			RunID: req.RunID, CallID: callID, Subject: subject, Name: "simplebase",
+			Argv: redacted, Message: confirmMessage(redacted),
+			Headless: req.Headless || rc.Headless, Timeout: r.confirmTimeout(),
+			Waiter: r.Confirm, Emit: emit,
+			OnRequested: func() {
+				tr.Meta("gocloudagent: confirmation requested",
+					zap.String("run_id", req.RunID),
+					zap.String("call_id", callID),
+					zap.String("cmd", argvSummary(argv)),
+				)
+				tr.Payload("gocloudagent: confirmation argv", "argv", argvRedacted(r.Policy, argv))
+			},
+			OnResolved: func(approved bool) {
+				tr.Meta("gocloudagent: confirmation resolved",
+					zap.String("run_id", req.RunID),
+					zap.String("call_id", callID),
+					zap.Bool("approved", approved),
+				)
+			},
+		})
+		if err != nil {
+			return "", err
+		}
+		switch outcome {
+		case cloudagent.ConfirmationUnavailable:
 			return rejected("confirmation_unavailable", "定时任务不能确认破坏性操作")
-		}
-		if emit != nil {
-			// planv6.0 §3.4：发出事件前先登记确认项，消除「确认请求先于
-			// Wait 登记」的竞态（Resolve 会 404）。
-			if p, ok := r.Confirm.(ConfirmationPreparer); ok && callID != "" {
-				p.Prepare(req.RunID, callID, principalKey(rc.Principal))
-			}
-			emit(Event{Type: "confirmation_required", CallID: callID, Name: "simplebase", Argv: r.Policy.RedactArgv(argv), Message: confirmMessage(argv)})
-		}
-		tr.Meta("gocloudagent: confirmation requested",
-			zap.String("run_id", req.RunID),
-			zap.String("call_id", callID),
-			zap.String("cmd", argvSummary(argv)),
-		)
-		tr.Payload("gocloudagent: confirmation argv", "argv", argvRedacted(r.Policy, argv))
-		approved := false
-		if r.Confirm != nil && callID != "" {
-			ok, err := r.Confirm.Wait(ctx, req.RunID, callID, principalKey(rc.Principal), r.confirmTimeout())
-			if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
-				return "", ctx.Err()
-			}
-			approved = err == nil && ok
-		}
-		if emit != nil {
-			emit(Event{Type: "confirmation_resolved", CallID: callID, Name: "simplebase", Approve: boolPtr(approved)})
-		}
-		tr.Meta("gocloudagent: confirmation resolved",
-			zap.String("run_id", req.RunID),
-			zap.String("call_id", callID),
-			zap.Bool("approved", approved),
-		)
-		if !approved {
-			return skillFail("confirmation_denied", "已取消"), nil
+		case cloudagent.ConfirmationDenied:
+			return agentcore.ErrorEnvelope("confirmation_denied", "已取消"), nil
 		}
 	}
 	return r.runSkillCLI(ctx, req, argv, stdin, token, callID, emit, tr, rejected)
@@ -194,14 +182,14 @@ func validateSkillArgv(argv []string, stdin string) (code, msg string) {
 }
 
 // runSkillCLI 执行已通过校验与确认的命令，并把退出码翻成给模型的文本。
-func (r *RuntimeProvider) runSkillCLI(ctx context.Context, req RunRequest, argv []string, stdin, token, callID string,
-	emit func(Event), tr tracer, rejected func(code, msg string) (string, error)) (string, error) {
+func (r *RuntimeProvider) runSkillCLI(ctx context.Context, req cloudagent.RunRequest, argv []string, stdin, token, callID string,
+	emit func(cloudagent.Event), tr cloudagent.Tracer, rejected func(code, msg string) (string, error)) (string, error) {
 	rc, err := hostContext(req.Context)
 	if err != nil {
 		return rejected("cli_not_configured", "CLI 未配置")
 	}
 	if emit != nil {
-		emit(Event{Type: "tool_start", CallID: callID, Name: "simplebase"})
+		emit(cloudagent.Event{Type: "tool_start", CallID: callID, Name: "simplebase"})
 	}
 	if r.APIBaseURL == "" || r.Issuer == nil {
 		return rejected("cli_not_configured", "CLI 未配置")
@@ -235,8 +223,8 @@ func (r *RuntimeProvider) runSkillCLI(ctx context.Context, req RunRequest, argv 
 		zap.String("cmd", argvSummary(argv)),
 		zap.Int64("duration_ms", time.Since(started).Milliseconds()),
 		zap.Int("exit_code", code),
-		zap.String("stdout", hashSummary(stdout)),
-		zap.String("stderr", hashSummary(stderr)),
+		zap.String("stdout", cloudagent.HashSummary(stdout)),
+		zap.String("stderr", cloudagent.HashSummary(stderr)),
 	)
 	tr.Payload("gocloudagent: cli stdout", "stdout", stdout)
 	tr.Payload("gocloudagent: cli stderr", "stderr", stderr)
@@ -244,10 +232,10 @@ func (r *RuntimeProvider) runSkillCLI(ctx context.Context, req RunRequest, argv 
 		return "", ctx.Err()
 	}
 	if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
-		return skillFail("cli_timeout", "命令超时"), nil
+		return agentcore.ErrorEnvelope("cli_timeout", "命令超时"), nil
 	}
 	if err != nil {
-		return skillFail("cli_failed", "无法启动 CLI"), nil
+		return agentcore.ErrorEnvelope("cli_failed", "无法启动 CLI"), nil
 	}
 	switch code {
 	case 0:
@@ -256,25 +244,20 @@ func (r *RuntimeProvider) runSkillCLI(ctx context.Context, req RunRequest, argv 
 		if strings.TrimSpace(stderr) != "" {
 			return strings.TrimSpace(stderr), nil
 		}
-		return skillFail("api_error", "API 调用失败"), nil
+		return agentcore.ErrorEnvelope("api_error", "API 调用失败"), nil
 	case 4:
 		msg := strings.TrimSpace(stderr)
 		if msg == "" {
-			msg = skillFail("config_missing", "CLI 配置无效")
+			msg = agentcore.ErrorEnvelope("config_missing", "CLI 配置无效")
 		}
 		return msg, nil
 	default:
 		msg := strings.TrimSpace(stderr)
 		if msg == "" {
-			msg = skillFail("usage", "命令用法错误")
+			msg = agentcore.ErrorEnvelope("usage", "命令用法错误")
 		}
 		return msg, nil
 	}
-}
-
-func skillFail(code, message string) string {
-	b, _ := json.Marshal(map[string]any{"ok": false, "error": map[string]any{"code": code, "message": message}})
-	return string(b)
 }
 
 // stripWritePermissions 移除写类权限，供不可写助手的委托令牌使用。
@@ -297,8 +280,6 @@ func stripWritePermissions(p auth.Principal) auth.Principal {
 	p.Permissions = out
 	return p
 }
-
-func boolPtr(v bool) *bool { return &v }
 
 func confirmMessage(argv []string) string {
 	return "将执行破坏性命令：" + strings.Join(argv, " ")

@@ -1,3 +1,30 @@
+// 文件说明：import.go — gosandbox/image 中 Puller.Import 等符号的实现
+//
+// 用法
+//
+//	(p *Puller) Import(ctx context.Context, r io.Reader) ([]Image, error)  // Import 从一个 docker-save 格式的 tar 导入全部镜像
+//
+// 调用架构
+//
+//	[上游] gosandbox/vm/box, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/image/import.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] arch.go, manifest.go, manifest_test.go, pull.go, pull_test.go 等 16 个
+//
+// 主要符号
+//
+//	type importManifest struct{…}
+//	const importMaxManifest / importMaxBytes / importMaxEntries
+//	(p *Puller) Import(ctx context.Context, r io.Reader) ([]Image, error)
+//	(p *Puller) importOne(ctx context.Context, staging string, im importManifest) (Image, error)
+//	(p *Puller) ingestLayerFile(src string) (string, int64, string, error)
+//	safeArchiveName(raw string) (string, error)
+//	goArch() string
+
 package image
 
 import (

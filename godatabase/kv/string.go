@@ -1,3 +1,35 @@
+// 文件说明：string.go — godatabase/kv 中 SetOptions、SetResult 等符号的实现
+//
+// 用法
+//
+//	type SetOptions struct{…}  // SetOptions 是 StringRepo.SetWith 的选项（对齐 Redis SET 命令选项）
+//	type SetResult struct{…}  // SetResult 是 SetWith 的返回
+//	type StringRepo struct{…}  // StringRepo 是 string 类型仓库（事务版，由 Tx.Str() 返回）
+//
+// 调用架构
+//
+//	[上游] godatabase/cmd, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/kv/string.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] bugfix_test.go, collections_test.go, conn_schema_test.go, core.go, executor.go 等 20 个
+//	[关键引用] SetOptions ← string_test.go；StringRepo ← executor.go
+//
+// 主要符号
+//
+//	type SetOptions struct{…}
+//	type SetResult struct{…}
+//	type StringRepo struct{…}
+//	(r *StringRepo) Get(ctx context.Context, key string) ([]byte, error)
+//	(r *StringRepo) Set(ctx context.Context, key string, value []byte) error
+//	(r *StringRepo) SetWith(ctx context.Context, key string, value []byte, opts SetOptions) (SetResult, error)
+//	(r *StringRepo) GetMany(ctx context.Context, keys ...string) ([][]byte, []bool, error)
+//	(r *StringRepo) SetMany(ctx context.Context, items map[string][]byte) error
+//	... 另有 3 个顶层符号
+
 package kv
 
 import (
@@ -137,11 +169,10 @@ func (r *StringRepo) GetMany(ctx context.Context, keys ...string) ([][]byte, []b
 		return nil, nil, fmt.Errorf("kv: string get many: %w", err)
 	}
 	defer rows.Close()
-	idx := make(map[string]int, len(keys))
+	// B18：同一 key 重复出现时按下标全量回填（对齐 Redis MGET 的重复输入语义）。
+	idx := make(map[string][]int, len(keys))
 	for i, k := range keys {
-		if _, dup := idx[k]; !dup {
-			idx[k] = i
-		}
+		idx[k] = append(idx[k], i)
 	}
 	for rows.Next() {
 		var k string
@@ -149,7 +180,7 @@ func (r *StringRepo) GetMany(ctx context.Context, keys ...string) ([][]byte, []b
 		if err := rows.Scan(&k, &v); err != nil {
 			return nil, nil, fmt.Errorf("kv: string get many row: %w", err)
 		}
-		if i, ok := idx[k]; ok {
+		for _, i := range idx[k] {
 			values[i] = v
 			found[i] = true
 		}
@@ -181,15 +212,14 @@ func (r *StringRepo) Incr(ctx context.Context, key string, delta int64) (int64, 
 		if err != nil {
 			return 0, err
 		}
-		cur, err = strconv.ParseInt(strings.TrimSpace(string(v)), 10, 64)
-		if err != nil {
-			return 0, ErrValueType
+		if cur, err = parseInt64(v); err != nil {
+			return 0, err
 		}
 	}
-	if (delta > 0 && cur > math.MaxInt64-delta) || (delta < 0 && cur < math.MinInt64-delta) {
-		return 0, ErrValueType
+	next, err := addInt64(cur, delta)
+	if err != nil {
+		return 0, err
 	}
-	next := cur + delta
 	return next, r.writeNumeric(ctx, key, []byte(strconv.FormatInt(next, 10)), exists)
 }
 

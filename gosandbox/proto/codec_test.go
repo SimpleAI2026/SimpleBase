@@ -1,3 +1,32 @@
+// 文件说明：codec_test.go — gosandbox/proto 的单元测试（TestRoundTripProcess、TestRoundTripFiles 等）
+//
+// 用法
+//
+//	go test ./gosandbox/proto -run 'TestRoundTripProcess|TestRoundTripFiles|TestRoundTripObservability|TestRoundTripRepliesCarrySeq'
+//
+// 调用架构
+//
+//	[上游] gosandbox/agent, gosandbox/box, gosandbox/vm/box
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/proto/codec_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] codec.go, codec_contract_test.go, frame.go, message.go, proto.go
+//
+// 主要符号
+//
+//	round(t *testing.T, m Msg) Msg
+//	TestRoundTripProcess(t *testing.T)
+//	TestRoundTripFiles(t *testing.T)
+//	TestRoundTripObservability(t *testing.T)
+//	TestRoundTripRepliesCarrySeq(t *testing.T)
+//	TestRoundTripRelayCloseFlags(t *testing.T)
+//	TestFrameHeader(t *testing.T)
+//	TestReadFrameReusesBuffer(t *testing.T)
+//	... 另有 8 个顶层符号
+
 package proto
 
 // codec_test.go：协议编解码的往返与边界。
@@ -135,11 +164,11 @@ func TestRoundTripRelayCloseFlags(t *testing.T) {
 	if rc.ConnID != 3 || rc.Flags != RelayConnectFailed {
 		t.Fatalf("relay close = %+v", rc)
 	}
-	// 老 agent 只带 ConnID：按「正常关闭」处理，不报错。
+	// v3 不接受缺少 Flags 的旧帧。
 	w := &writer{}
 	w.u32(5)
 	m, err := Decode(KindRelayClose, w.b)
-	if err != nil || m.ConnID != 5 || m.Flags != 0 {
+	if !errors.Is(err, ErrTruncated) || m.ConnID != 5 || m.Flags != 0 {
 		t.Fatalf("old relay close = %+v, %v", m, err)
 	}
 }

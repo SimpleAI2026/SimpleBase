@@ -1,3 +1,34 @@
+// 文件说明：agent_routes_test.go — internal/api 的单元测试（TestB3AgentRouteSetLocked、TestB3AgentRoutesAbsentWithoutSystem 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestB3AgentRouteSetLocked|TestB3AgentRoutesAbsentWithoutSystem|TestB3AgentScheduleRoutesRemoved|TestB3AgentPlanModeRoutesRemoved'
+//	同包调用：diffKeys() → gofunction_cron_routes_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/agent_routes_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[关键引用] diffKeys ← gofunction_cron_routes_test.go
+//
+// 主要符号
+//
+//	var agentBlockRoutes
+//	var agentWriteOps
+//	var agentReadOps
+//	TestB3AgentRouteSetLocked(t *testing.T)
+//	TestB3AgentRoutesAbsentWithoutSystem(t *testing.T)
+//	TestB3AgentScheduleRoutesRemoved(t *testing.T)
+//	TestB3AgentPlanModeRoutesRemoved(t *testing.T)
+//	TestB3AgentWriteRoutesForbiddenWithReadOnlyPermission(t *testing.T)
+//	... 另有 4 个顶层符号
+
 package api
 
 // b3_agent_routes_test.go：planv6.0 B3 agent 路由块表征测试。
@@ -11,6 +42,8 @@ package api
 //      （创建 run 只需读权限 + 写门禁，B3 不得改成 DatabaseWrite）；
 //   7. 旧 /agent-schedules 已整体下线（planv6.6 DC-5）：路由不再挂载，
 //      定时执行统一到 /cron-jobs（target_kind=agent）。
+//   8. 固定六阶段计划模式的 /plans 路由已下线（planv6.8 B14），整份 Plan 的确认
+//      统一走 /agent-turns/:turnID/plan-confirmations（DatabaseWrite + writeGate）。
 // status 断言取自当前实现。
 
 import (
@@ -46,14 +79,10 @@ var agentBlockRoutes = []struct{ method, path string }{
 	{http.MethodGet, "/v1/projects/:projectID/agent-turns/:turnID"},
 	{http.MethodGet, "/v1/projects/:projectID/agent-turns/:turnID/events"},
 	{http.MethodPost, "/v1/projects/:projectID/agent-turns/:turnID/actions"},
+	{http.MethodPost, "/v1/projects/:projectID/agent-turns/:turnID/plan-confirmations"},
 	{http.MethodPost, "/v1/projects/:projectID/agent-tasks/:taskID/replies"},
 	{http.MethodGet, "/v1/projects/:projectID/agent-human-tasks"},
 	{http.MethodGet, "/v1/projects/:projectID/agent-workspace-capabilities"},
-	{http.MethodGet, "/v1/projects/:projectID/agent-threads/:threadID/plans"},
-	{http.MethodPost, "/v1/projects/:projectID/agent-threads/:threadID/plans"},
-	{http.MethodGet, "/v1/projects/:projectID/agent-threads/:threadID/plans/:planID"},
-	{http.MethodGet, "/v1/projects/:projectID/agent-threads/:threadID/plans/:planID/events"},
-	{http.MethodPost, "/v1/projects/:projectID/agent-threads/:threadID/plans/:planID/actions"},
 	{http.MethodGet, "/v1/projects/:projectID/agent-runs/active"},
 	{http.MethodPost, "/v1/projects/:projectID/agent-runs/:runID/cancel"},
 	{http.MethodPost, "/v1/projects/:projectID/agent-runs/:runID/confirmations/:callID"},
@@ -82,12 +111,12 @@ var agentWriteOps = []struct{ method, path string }{
 	{http.MethodPost, "/v1/projects/proj-1/agent-threads"},
 	{http.MethodPatch, "/v1/projects/proj-1/agent-threads/t1"},
 	{http.MethodDelete, "/v1/projects/proj-1/agent-threads/t1"},
-	{http.MethodPost, "/v1/projects/proj-1/agent-threads/t1/plans"},
-	{http.MethodPost, "/v1/projects/proj-1/agent-threads/t1/plans/p1/actions"},
 	{http.MethodPost, "/v1/projects/proj-1/agent-runs/r1/cancel"},
 	{http.MethodPost, "/v1/projects/proj-1/agent-runs/r1/confirmations/c1"},
 	// planv6.7 v2：轮次动作（取消 / 重试任务 / 恢复）是破坏性操作，标 DatabaseWrite。
 	{http.MethodPost, "/v1/projects/proj-1/agent-turns/tn1/actions"},
+	// 整份 Plan 的批准 / 编辑 / 拒绝会直接放行任务执行。
+	{http.MethodPost, "/v1/projects/proj-1/agent-turns/tn1/plan-confirmations"},
 	// 群写入（含成员与新建并加入）。
 	{http.MethodPost, "/v1/projects/proj-1/agent-tags"},
 	{http.MethodPatch, "/v1/projects/proj-1/agent-tags/tg1"},
@@ -106,9 +135,6 @@ var agentReadOps = []struct{ method, path string }{
 	{http.MethodGet, "/v1/projects/proj-1/agent-threads/t1"},
 	{http.MethodGet, "/v1/projects/proj-1/agent-threads/t1/messages"},
 	{http.MethodGet, "/v1/projects/proj-1/agent-threads/t1/runs"},
-	{http.MethodGet, "/v1/projects/proj-1/agent-threads/t1/plans"},
-	{http.MethodGet, "/v1/projects/proj-1/agent-threads/t1/plans/p1"},
-	{http.MethodGet, "/v1/projects/proj-1/agent-threads/t1/plans/p1/events"},
 	{http.MethodGet, "/v1/projects/proj-1/agent-runs/active"},
 	{http.MethodGet, "/v1/projects/proj-1/agent-runs/r1/events"},
 	// planv6.7 v2：轮次与待办的只读查询。
@@ -181,6 +207,18 @@ func TestB3AgentScheduleRoutesRemoved(t *testing.T) {
 	for _, r := range e.Routes() {
 		if strings.Contains(r.Path, "/agent-schedules") {
 			t.Fatalf("stale route mounted: %s %s", r.Method, r.Path)
+		}
+	}
+}
+
+// TestB3AgentPlanModeRoutesRemoved：固定六阶段计划模式的 /plans 路由已整体下线
+// （planv6.8 B14：计划统一由 plan 工具产生，群轮次经 /turns + plan-confirmations）。
+func TestB3AgentPlanModeRoutesRemoved(t *testing.T) {
+	deps, _ := fullRouterDeps(t)
+	e := NewRouter(deps)
+	for _, r := range e.Routes() {
+		if strings.Contains(r.Path, "/plans") {
+			t.Fatalf("stale plan-mode route mounted: %s %s", r.Method, r.Path)
 		}
 	}
 }

@@ -1,3 +1,28 @@
+// 文件说明：eval_test.go — gofunction/internal/interp 的单元测试（TestEvalArithmetic、TestEvalBitwise 等）
+//
+// 用法
+//
+//	go test ./gofunction/internal/interp -run 'TestEvalArithmetic|TestEvalBitwise|TestEvalComparison|TestEvalShiftMixedOperands'
+//
+// 调用架构
+//
+//	[上游] gofunction
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/internal/interp/eval_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] bench_test.go, cachetest_test.go, call.go, call_test.go, cheap_test.go 等 40 个
+//
+// 主要符号
+//
+//	TestEvalArithmetic(t *testing.T)
+//	TestEvalBitwise(t *testing.T)
+//	TestEvalComparison(t *testing.T)
+//	TestEvalShiftMixedOperands(t *testing.T)
+//	TestEvalUnary(t *testing.T)
+
 package interp
 
 import (

@@ -1,3 +1,34 @@
+// 文件说明：zaplog_test.go — internal/observability 的单元测试（TestDefaultLogger、TestNewLogger 等）
+//
+// 用法
+//
+//	go test ./internal/observability -run 'TestDefaultLogger|TestNewLogger|TestNewConsoleLogger|TestLogLevels'
+//	同包调用：syncDefault() → logger_edge_test.go
+//
+// 调用架构
+//
+//	[上游] internal/alerts, internal/api, internal/app, internal/audit 等 10 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/observability/zaplog_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] logger.go, logger_edge_test.go, metrics.go, observability_test.go, stage_timing_metrics.go 等 6 个
+//	[关键引用] ResetDefault ← logger_edge_test.go；syncDefault ← logger_edge_test.go
+//
+// 主要符号
+//
+//	TestDefaultLogger(t *testing.T)
+//	TestNewLogger(t *testing.T)
+//	TestNewConsoleLogger(t *testing.T)
+//	TestLogLevels(t *testing.T)
+//	TestGlobalFunctions(t *testing.T)
+//	TestSugarFunctions(t *testing.T)
+//	TestZapLevels(t *testing.T)
+//	Default() *zapLogger
+//	... 另有 2 个顶层符号
+
 package observability
 
 import (

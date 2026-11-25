@@ -1,3 +1,32 @@
+// 文件说明：mcp_builtin_admin_test.go — internal/api 的单元测试（TestMCPServers_ListIncludesBuiltin、TestMCPServers_ListBuiltinEmptyWhenInstanceSwitchOff 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestMCPServers_ListIncludesBuiltin|TestMCPServers_ListBuiltinEmptyWhenInstanceSwitchOff|TestMCPServers_ReservedNameRejected|TestMCPServers_UpdateCannotRenameToReserved'
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/mcp_builtin_admin_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//
+// 主要符号
+//
+//	mcpLegacyServer(projectID, name string) systemdb.MCPServer
+//	errCode(body map[string]any) string
+//	mcpAdminDo(t *testing.T, e *echo.Echo, method, path, key, body string) (*httptest.ResponseRecorder, map[string...
+//	TestMCPServers_ListIncludesBuiltin(t *testing.T)
+//	TestMCPServers_ListBuiltinEmptyWhenInstanceSwitchOff(t *testing.T)
+//	TestMCPServers_ReservedNameRejected(t *testing.T)
+//	TestMCPServers_UpdateCannotRenameToReserved(t *testing.T)
+//	TestMCPServers_LegacyReservedNameFlagged(t *testing.T)
+//	... 另有 4 个顶层符号
+
 package api
 
 import (

@@ -1,3 +1,34 @@
+// 文件说明：list.go — godatabase/kv 中 ListRepo 等符号的实现
+//
+// 用法
+//
+//	type ListRepo struct{…}  // ListRepo 是 list 类型仓库（事务版，由 Tx.List() 返回）
+//	同包调用：normalizeRange() → zset.go
+//
+// 调用架构
+//
+//	[上游] godatabase/cmd, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/kv/list.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] bugfix_test.go, collections_test.go, conn_schema_test.go, core.go, executor.go 等 20 个
+//	[关键引用] ListRepo ← executor.go；normalizeRange ← zset.go
+//
+// 主要符号
+//
+//	type ListRepo struct{…}
+//	normalizeRange(start, stop, length int64) (int64, int64, bool)
+//	(r *ListRepo) PushBack(ctx context.Context, key string, elems ...[]byte) (int64, error)
+//	(r *ListRepo) PushFront(ctx context.Context, key string, elems ...[]byte) (int64, error)
+//	(r *ListRepo) push(ctx context.Context, key string, front bool, elems ...[]byte) (int64, error)
+//	(r *ListRepo) PopBack(ctx context.Context, key string) ([]byte, error)
+//	(r *ListRepo) PopFront(ctx context.Context, key string) ([]byte, error)
+//	(r *ListRepo) pop(ctx context.Context, key string, front bool) ([]byte, error)
+//	... 另有 3 个顶层符号
+
 package kv
 
 import (

@@ -1,3 +1,32 @@
+// 文件说明：string_test.go — godatabase/kv 的单元测试（TestStringSetGet、TestStringGetNotFound 等）
+//
+// 用法
+//
+//	go test ./godatabase/kv -run 'TestStringSetGet|TestStringGetNotFound|TestStringSetNX|TestStringSetXX'
+//
+// 调用架构
+//
+//	[上游] godatabase/cmd, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/kv/string_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] bugfix_test.go, collections_test.go, conn_schema_test.go, core.go, executor.go 等 20 个
+//
+// 主要符号
+//
+//	TestStringSetGet(t *testing.T)
+//	TestStringGetNotFound(t *testing.T)
+//	TestStringSetNX(t *testing.T)
+//	TestStringSetXX(t *testing.T)
+//	TestStringSetGet_Old(t *testing.T)
+//	TestStringSetTTL(t *testing.T)
+//	TestStringIncr(t *testing.T)
+//	TestStringIncrFloat(t *testing.T)
+//	... 另有 2 个顶层符号
+
 package kv
 
 import (

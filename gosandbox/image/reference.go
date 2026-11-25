@@ -1,3 +1,34 @@
+// 文件说明：reference.go — gosandbox/image 中 Reference、Parse 等符号的实现
+//
+// 用法
+//
+//	type Reference struct{…}  // Reference 是解析后的镜像引用
+//	Parse(s string) (Reference, error)  // Parse 解析并归一化镜像引用
+//
+// 调用架构
+//
+//	[上游] gosandbox/vm/box, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/image/reference.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] arch.go, import.go, manifest.go, manifest_test.go, pull.go 等 16 个
+//	[关键引用] Reference ← import.go, pull.go；Parse ← import.go, pull.go
+//
+// 主要符号
+//
+//	const DefaultRegistry / DefaultNamespace / hubAPIHost
+//	var ErrInvalidReference
+//	type Reference struct{…}
+//	var namePart
+//	var digestPart
+//	Parse(s string) (Reference, error)
+//	(r Reference) String() string
+//	(r Reference) Repo() string
+//	... 另有 2 个顶层符号
+
 package image
 
 import (

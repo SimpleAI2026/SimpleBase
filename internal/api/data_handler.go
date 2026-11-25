@@ -1,11 +1,8 @@
-// 文件说明：data_handler.go — internal/api 中 DataService、RecordEvent 等符号的实现
+// 文件说明：data_handler.go — internal/api 中 DataService、DataHandler 等符号的实现
 //
 // 用法
 //
-//	NewDataHandler(svc DataService, writable bool) *DataHandler
-//	(h *DataHandler) WithImportLimit(limit int64) *DataHandler
-//	(h *DataHandler) WithCollections(schemas collectionReader, scanLimit int) ...
-//	同包调用：projectID() → adapter.go, agent_handler.go 等；schema() → collection_filter.go, collection_meta_handler.go 等；collectionNamePattern → collection_meta_handler.go, function_trigger_handler.go 等
+//	DataService、DataHandler（包内使用，由同包 handler / 路由装配调用）
 //
 // 调用架构
 //
@@ -17,17 +14,17 @@
 //	         ▼
 //	[下游] godatabase, godatabase/sqlx, internal/auth, internal/catalog 等
 //	[同包] adapter.go, agent_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
-//	[关键引用] projectID() ← adapter.go, agent_handler.go
 //
 // 主要符号
 //
 //	type DataService interface {…}
-//	type RecordEvent struct {…}
+//	type collectionReader interface {…}
+//	type recordEventPublisher interface {…}
 //	type DataHandler struct {…}
-//	NewDataHandler(svc DataService, writable bool) *DataHandler
-//	(h *DataHandler) WithImportLimit(limit int64) *DataHandler
-//	(h *DataHandler) WithCollections(schemas collectionReader, scanLimit int) ...
-//	... 另有 43 个顶层符号
+//	func NewDataHandler(svc DataService, writable bool) *DataHandler
+//	func (h *DataHandler) WithImportLimit(limit int64) *DataHandler
+//	func (h *DataHandler) WithCollections(schemas collectionReader, scanLimit int) *DataHandler
+//	... 另有 29 个顶层符号
 
 package api
 
@@ -37,8 +34,6 @@ import (
 	"errors"
 	"net/http"
 	"regexp"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -63,17 +58,10 @@ type collectionReader interface {
 	List(ctx context.Context, projectID string) ([]collection.Collection, error)
 }
 
-type RecordEvent struct {
-	ProjectID  string
-	Collection string
-	RecordID   string
-	Action     string
-	Changed    []string
-	Data       map[string]any
-}
-
+// recordEventPublisher 是集合写路径发布领域事件的端口（发布语言 collection.RecordEvent）；
+// fan-out 的订阅方（realtime、trigger）由 app 在装配时登记。
 type recordEventPublisher interface {
-	PublishRecord(event RecordEvent)
+	PublishRecord(event collection.RecordEvent)
 }
 
 type DataHandler struct {
@@ -83,9 +71,7 @@ type DataHandler struct {
 	events      recordEventPublisher
 	scanLimit   int
 	importLimit int64
-	// 聚合接口的超时与扫描上限（collection_aggregate.go）；零值取默认。
-	aggregateTimeout time.Duration
-	aggregateScan    int
+	aggregateLimitConfig
 }
 
 func NewDataHandler(svc DataService, writable bool) *DataHandler {
@@ -171,9 +157,32 @@ func (h *DataHandler) ListCollections(c echo.Context) error {
 	if err != nil {
 		return WriteError(c, err)
 	}
+	ctx := c.Request().Context()
 	response := collectionResponse{Collections: []string{}, Items: []collectionInfo{}}
+	seen := h.appendPhysicalCollections(ctx, lease, result.Rows, &response)
+	if h.schemas != nil {
+		registered, listErr := h.schemas.List(ctx, projectID(c))
+		if listErr != nil && !errors.Is(listErr, collection.ErrUnavailable) {
+			return WriteError(c, listErr)
+		}
+		h.appendViewCollections(ctx, lease, registered, seen, &response)
+	}
+	return c.JSON(http.StatusOK, response)
+}
+
+// countCollection 返回集合当前文档数；查询失败或无结果按 0 处理（列表页只是展示用）。
+func countCollection(ctx context.Context, lease SQLLease, name string, schema *collection.Collection) int64 {
+	count, err := lease.Query(ctx, godatabase.Statement{SQL: "SELECT COUNT(*) FROM " + collectionSource(name, schema)}, 1)
+	if err != nil || len(count.Rows) == 0 || len(count.Rows[0]) == 0 {
+		return 0
+	}
+	return anyInt64(count.Rows[0][0])
+}
+
+// appendPhysicalCollections 把「文档形」物理表并入响应，返回已出现的集合名集合。
+func (h *DataHandler) appendPhysicalCollections(ctx context.Context, lease SQLLease, rows [][]any, response *collectionResponse) map[string]struct{} {
 	seen := map[string]struct{}{}
-	for _, row := range result.Rows {
+	for _, row := range rows {
 		if len(row) < 5 {
 			continue
 		}
@@ -187,45 +196,37 @@ func (h *DataHandler) ListCollections(c echo.Context) error {
 		seen[name] = struct{}{}
 		response.Collections = append(response.Collections, name)
 		info := collectionInfo{Name: name, SchemaMode: "json"}
-		var schema *collection.Collection
-		if schema, err = h.schema(c.Request().Context(), name); err == nil && schema != nil {
+		schema, err := h.schema(ctx, name)
+		if err == nil && schema != nil {
 			info.Registered, info.FieldCount, info.SchemaMode = true, len(schema.Fields), schema.SchemaMode
 		}
-		count, countErr := lease.Query(c.Request().Context(), godatabase.Statement{SQL: "SELECT COUNT(*) FROM " + collectionSource(name, schema)}, 1)
-		if countErr == nil && len(count.Rows) > 0 && len(count.Rows[0]) > 0 {
-			info.DocumentCount = anyInt64(count.Rows[0][0])
-		}
+		info.DocumentCount = countCollection(ctx, lease, name, schema)
 		response.Items = append(response.Items, info)
 	}
-	if h.schemas != nil {
-		registered, listErr := h.schemas.List(c.Request().Context(), projectID(c))
-		if listErr != nil && !errors.Is(listErr, collection.ErrUnavailable) {
-			return WriteError(c, listErr)
+	return seen
+}
+
+// appendViewCollections 把已登记的视图型集合并入响应；物理表已出现或名字非法的跳过。
+func (h *DataHandler) appendViewCollections(ctx context.Context, lease SQLLease, registered []collection.Collection, seen map[string]struct{}, response *collectionResponse) {
+	for _, schema := range registered {
+		if schema.SchemaMode != "view" {
+			continue
 		}
-		for _, schema := range registered {
-			if schema.SchemaMode != "view" {
-				continue
-			}
-			// 与物理表同一口径：名字不合法时文档接口必然 400，不要放进列表。
-			if !collectionNamePattern.MatchString(schema.Name) {
-				continue
-			}
-			if _, exists := seen[schema.Name]; exists {
-				continue
-			}
-			info := collectionInfo{Name: schema.Name, SchemaMode: "view", Registered: true}
-			if full, getErr := h.schema(c.Request().Context(), schema.Name); getErr == nil && full != nil {
-				info.FieldCount = len(full.Fields)
-				count, countErr := lease.Query(c.Request().Context(), godatabase.Statement{SQL: "SELECT COUNT(*) FROM " + collectionSource(schema.Name, full)}, 1)
-				if countErr == nil && len(count.Rows) > 0 && len(count.Rows[0]) > 0 {
-					info.DocumentCount = anyInt64(count.Rows[0][0])
-				}
-			}
-			response.Collections = append(response.Collections, schema.Name)
-			response.Items = append(response.Items, info)
+		// 与物理表同一口径：名字不合法时文档接口必然 400，不要放进列表。
+		if !collectionNamePattern.MatchString(schema.Name) {
+			continue
 		}
+		if _, exists := seen[schema.Name]; exists {
+			continue
+		}
+		info := collectionInfo{Name: schema.Name, SchemaMode: "view", Registered: true}
+		if full, err := h.schema(ctx, schema.Name); err == nil && full != nil {
+			info.FieldCount = len(full.Fields)
+			info.DocumentCount = countCollection(ctx, lease, schema.Name, full)
+		}
+		response.Collections = append(response.Collections, schema.Name)
+		response.Items = append(response.Items, info)
 	}
-	return c.JSON(http.StatusOK, response)
 }
 
 func (h *DataHandler) CreateCollection(c echo.Context) error {
@@ -242,14 +243,14 @@ func (h *DataHandler) CreateCollection(c echo.Context) error {
 		return WriteError(c, err)
 	}
 	if !collectionNamePattern.MatchString(req.Name) {
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "集合名称仅支持字母、数字和下划线，且必须以字母开头", RequestIDFromContext(c.Request().Context())))
+		return WriteError(c, badRequest(c, "集合名称仅支持字母、数字和下划线，且必须以字母开头"))
 	}
 	schema, err := h.schema(c.Request().Context(), req.Name)
 	if err != nil {
 		return validationAPIError(c, err)
 	}
 	if schema != nil && schema.SchemaMode == "view" {
-		return WriteError(c, NewAPIError(http.StatusConflict, "collection_read_only", "view collections are read-only", RequestIDFromContext(c.Request().Context())))
+		return WriteError(c, NewAPIError(http.StatusConflict, "collection_read_only", "view collections are read-only", requestID(c)))
 	}
 	lease, err := h.acquire(c, godatabase.ReadWrite)
 	if err != nil {
@@ -308,7 +309,7 @@ func (h *DataHandler) ListDocuments(c echo.Context) error {
 		}
 		return WriteError(c, err)
 	}
-	response := rowsResponse{Rows: []map[string]any{}, Items: []documentDTO{}, RequestID: RequestIDFromContext(c.Request().Context())}
+	response := rowsResponse{Rows: []map[string]any{}, Items: []documentDTO{}, RequestID: requestID(c)}
 	for i, row := range result.Rows {
 		if i == query.Limit {
 			response.NextCursor = nextCursorFromRow(result.Rows[i-1])
@@ -318,7 +319,7 @@ func (h *DataHandler) ListDocuments(c echo.Context) error {
 		if err != nil {
 			continue
 		}
-		dto.Data = hideDocumentFields(dto.Data, hiddenFieldNames(schema))
+		dto.Data = collection.HideDocumentFields(dto.Data, hiddenFieldNames(schema))
 		response.Items = append(response.Items, dto)
 		flat := flattenDocument(dto)
 		response.Rows = append(response.Rows, flat)
@@ -346,7 +347,7 @@ func (h *DataHandler) GetDocument(c echo.Context) error {
 	if err != nil {
 		return validationAPIError(c, err)
 	}
-	dto.Data = hideDocumentFields(dto.Data, hiddenFieldNames(schema))
+	dto.Data = collection.HideDocumentFields(dto.Data, hiddenFieldNames(schema))
 	return c.JSON(http.StatusOK, dto)
 }
 
@@ -391,8 +392,8 @@ func (h *DataHandler) CreateDocument(c echo.Context) error {
 	if err != nil {
 		return WriteError(c, err)
 	}
-	h.publish(c, RecordEvent{Collection: name, RecordID: id, Action: "create", Data: doc})
-	return c.JSON(http.StatusCreated, flattenDocument(documentDTO{ID: id, CreatedAt: now, UpdatedAt: now, Data: hideDocumentFields(doc, hiddenFieldNames(schema))}))
+	h.publish(c, collection.RecordEvent{Collection: name, RecordID: id, Action: "create", Data: doc})
+	return c.JSON(http.StatusCreated, flattenDocument(documentDTO{ID: id, CreatedAt: now, UpdatedAt: now, Data: collection.HideDocumentFields(doc, hiddenFieldNames(schema))}))
 }
 
 func (h *DataHandler) UpdateDocument(c echo.Context) error {
@@ -440,8 +441,8 @@ func (h *DataHandler) replaceDocument(c echo.Context, patch bool) error {
 		return WriteError(c, err)
 	}
 	action := "update"
-	h.publish(c, RecordEvent{Collection: name, RecordID: before.ID, Action: action, Changed: collection.ChangedFields(before.Data, input), Data: input})
-	return c.JSON(http.StatusOK, flattenDocument(documentDTO{ID: before.ID, CreatedAt: before.CreatedAt, UpdatedAt: now, Data: hideDocumentFields(input, hiddenFieldNames(schema))}))
+	h.publish(c, collection.RecordEvent{Collection: name, RecordID: before.ID, Action: action, Changed: collection.ChangedFields(before.Data, input), Data: input})
+	return c.JSON(http.StatusOK, flattenDocument(documentDTO{ID: before.ID, CreatedAt: before.CreatedAt, UpdatedAt: now, Data: collection.HideDocumentFields(input, hiddenFieldNames(schema))}))
 }
 
 func (h *DataHandler) BatchDocuments(c echo.Context) error {
@@ -459,7 +460,7 @@ func (h *DataHandler) BatchDocuments(c echo.Context) error {
 		return WriteError(c, err)
 	}
 	if len(req.Documents) == 0 || len(req.Documents) > 100 {
-		return WriteError(c, NewAPIError(http.StatusBadRequest, "invalid_request", "documents must contain 1..100 items", RequestIDFromContext(c.Request().Context())))
+		return WriteError(c, badRequest(c, "documents must contain 1..100 items"))
 	}
 	lease, err := h.acquire(c, godatabase.ReadWrite)
 	if err != nil {
@@ -517,8 +518,8 @@ func (h *DataHandler) BatchDocuments(c echo.Context) error {
 		return WriteError(c, err)
 	}
 	for i, dto := range response {
-		h.publish(c, RecordEvent{Collection: name, RecordID: dto.ID, Action: "create", Data: dto.Data})
-		response[i].Data = hideDocumentFields(dto.Data, hiddenFieldNames(schema))
+		h.publish(c, collection.RecordEvent{Collection: name, RecordID: dto.ID, Action: "create", Data: dto.Data})
+		response[i].Data = collection.HideDocumentFields(dto.Data, hiddenFieldNames(schema))
 	}
 	return c.JSON(http.StatusCreated, map[string]any{"items": response})
 }
@@ -541,7 +542,7 @@ func (h *DataHandler) DeleteDocument(c echo.Context) error {
 	if err != nil && !isMissingRelation(err) {
 		return WriteError(c, err)
 	}
-	h.publish(c, RecordEvent{Collection: name, RecordID: id, Action: "delete"})
+	h.publish(c, collection.RecordEvent{Collection: name, RecordID: id, Action: "delete"})
 	return c.NoContent(http.StatusNoContent)
 }
 
@@ -646,7 +647,7 @@ func (h *DataHandler) loadDocumentWithMode(c echo.Context, mode godatabase.Acces
 		return "", nil, documentDTO{}, err
 	}
 	if c.Param("id") == "" {
-		return "", nil, documentDTO{}, NewAPIError(http.StatusBadRequest, "invalid_request", "document id is required", RequestIDFromContext(c.Request().Context()))
+		return "", nil, documentDTO{}, badRequest(c, "document id is required")
 	}
 	schema, err := h.schema(c.Request().Context(), name)
 	if err != nil {
@@ -661,13 +662,13 @@ func (h *DataHandler) loadDocumentWithMode(c echo.Context, mode godatabase.Acces
 	if err != nil {
 		lease.Release()
 		if isMissingRelation(err) {
-			return "", nil, documentDTO{}, NewAPIError(http.StatusNotFound, "not_found", "document not found", RequestIDFromContext(c.Request().Context()))
+			return "", nil, documentDTO{}, NewAPIError(http.StatusNotFound, "not_found", "document not found", requestID(c))
 		}
 		return "", nil, documentDTO{}, err
 	}
 	if len(result.Rows) == 0 {
 		lease.Release()
-		return "", nil, documentDTO{}, NewAPIError(http.StatusNotFound, "not_found", "document not found", RequestIDFromContext(c.Request().Context()))
+		return "", nil, documentDTO{}, NewAPIError(http.StatusNotFound, "not_found", "document not found", requestID(c))
 	}
 	dto, err := rowDocument(result.Rows[0], nil)
 	if err != nil {
@@ -687,9 +688,9 @@ func (h *DataHandler) acquireDatabase(c echo.Context, mode godatabase.AccessMode
 	if !ok {
 		return catalog.Database{}, nil, auth.ErrMissingCredentials
 	}
-	project, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return catalog.Database{}, nil, ErrProjectMissing
+	project, err := requireProject(c)
+	if err != nil {
+		return catalog.Database{}, nil, err
 	}
 	databaseID := c.Param("databaseID")
 	if databaseID == "" {
@@ -700,7 +701,7 @@ func (h *DataHandler) acquireDatabase(c echo.Context, mode godatabase.AccessMode
 		return catalog.Database{}, nil, err
 	}
 	if catalog.IsSQLDataModel(db) {
-		return catalog.Database{}, nil, NewAPIError(http.StatusBadRequest, "data_model_mismatch", "SQL 数据库不支持集合与文档", RequestIDFromContext(c.Request().Context()))
+		return catalog.Database{}, nil, NewAPIError(http.StatusBadRequest, "data_model_mismatch", "SQL 数据库不支持集合与文档", requestID(c))
 	}
 	if mode == godatabase.ReadWrite && c.Param("collection") != "" {
 		schema, schemaErr := h.schema(c.Request().Context(), c.Param("collection"))
@@ -708,7 +709,7 @@ func (h *DataHandler) acquireDatabase(c echo.Context, mode godatabase.AccessMode
 			return catalog.Database{}, nil, schemaErr
 		}
 		if schema != nil && schema.SchemaMode == "view" {
-			return catalog.Database{}, nil, NewAPIError(http.StatusConflict, "collection_read_only", "view collections are read-only", RequestIDFromContext(c.Request().Context()))
+			return catalog.Database{}, nil, NewAPIError(http.StatusConflict, "collection_read_only", "view collections are read-only", requestID(c))
 		}
 	}
 	lease, err := h.svc.Acquire(c.Request().Context(), db, mode)
@@ -720,9 +721,9 @@ func (h *DataHandler) systemGuard(c echo.Context) error {
 	if !ok {
 		return auth.ErrMissingCredentials
 	}
-	project, ok := ProjectFromContext(c.Request().Context())
-	if !ok {
-		return ErrProjectMissing
+	project, err := requireProject(c)
+	if err != nil {
+		return err
 	}
 	db, err := h.svc.GetDatabase(c.Request().Context(), principal, project.ID, c.Param("databaseID"))
 	if err != nil {
@@ -734,7 +735,7 @@ func (h *DataHandler) systemGuard(c echo.Context) error {
 	return nil
 }
 
-func (h *DataHandler) publish(c echo.Context, event RecordEvent) {
+func (h *DataHandler) publish(c echo.Context, event collection.RecordEvent) {
 	if h.events != nil {
 		event.ProjectID = projectID(c)
 		h.events.PublishRecord(event)
@@ -744,161 +745,11 @@ func (h *DataHandler) publish(c echo.Context, event RecordEvent) {
 func collectionParam(c echo.Context) (string, error) {
 	name := c.Param("collection")
 	if !collectionNamePattern.MatchString(name) {
-		return "", NewAPIError(http.StatusBadRequest, "invalid_request", "invalid collection name", RequestIDFromContext(c.Request().Context()))
+		return "", badRequest(c, "invalid collection name")
 	}
 	return name, nil
 }
 
 func createCollectionSQL(name string) string {
 	return "CREATE TABLE IF NOT EXISTS " + sqlx.Ident(name) + " (id VARCHAR NOT NULL, data VARCHAR NOT NULL, created_at VARCHAR NOT NULL, updated_at VARCHAR)"
-}
-
-func rowDocument(row []any, fields []string) (documentDTO, error) {
-	var dto documentDTO
-	if len(row) < 2 {
-		return dto, errors.New("invalid document row")
-	}
-	dto.ID, _ = row[0].(string)
-	raw, _ := row[1].(string)
-	if err := json.Unmarshal([]byte(raw), &dto.Data); err != nil {
-		dto.Data = map[string]any{}
-	}
-	if len(row) > 2 {
-		dto.CreatedAt, _ = row[2].(string)
-	}
-	if len(row) > 3 {
-		dto.UpdatedAt, _ = row[3].(string)
-	}
-	if dto.UpdatedAt == "" {
-		dto.UpdatedAt = dto.CreatedAt
-	}
-	dto.Data = pickDocument(dto.Data, fieldsWithoutSystem(fields))
-	return dto, nil
-}
-
-func fieldsWithoutSystem(fields []string) []string {
-	if len(fields) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(fields))
-	for _, f := range fields {
-		if f != "id" && f != "created_at" && f != "updated_at" {
-			out = append(out, f)
-		}
-	}
-	return out
-}
-
-func hiddenFieldNames(schema *collection.Collection) []string {
-	if schema == nil {
-		return nil
-	}
-	hidden := make([]string, 0)
-	for _, field := range schema.Fields {
-		if field.Hidden {
-			hidden = append(hidden, field.Name)
-		}
-	}
-	return hidden
-}
-
-func flattenDocument(dto documentDTO) map[string]any {
-	out := make(map[string]any, len(dto.Data)+3)
-	for k, v := range dto.Data {
-		out[k] = v
-	}
-	out["id"], out["created_at"], out["updated_at"] = dto.ID, dto.CreatedAt, dto.UpdatedAt
-	return out
-}
-
-func nextCursorFromRow(row []any) string {
-	if len(row) < 3 {
-		return ""
-	}
-	id, _ := row[0].(string)
-	created, _ := row[2].(string)
-	return encodeCursor(created, id)
-}
-
-func protectReadonlyFields(schema *collection.Collection, input, before map[string]any) *collection.ValidationError {
-	if schema == nil {
-		return nil
-	}
-	for _, field := range schema.Fields {
-		if !field.Readonly {
-			continue
-		}
-		value, supplied := input[field.Name]
-		previous, existed := before[field.Name]
-		if before == nil && supplied {
-			return &collection.ValidationError{Code: "readonly_field", Field: field.Name, Message: "field is read-only"}
-		}
-		if supplied {
-			left, _ := json.Marshal(value)
-			right, _ := json.Marshal(previous)
-			if !existed || string(left) != string(right) {
-				return &collection.ValidationError{Code: "readonly_field", Field: field.Name, Message: "field is read-only"}
-			}
-		}
-		if existed {
-			input[field.Name] = previous
-		}
-	}
-	return nil
-}
-
-func anyInt64(value any) int64 {
-	switch v := value.(type) {
-	case int64:
-		return v
-	case int32:
-		return int64(v)
-	case int:
-		return int64(v)
-	case float64:
-		return int64(v)
-	case uint64:
-		return int64(v)
-	case []byte:
-		n, _ := strconv.ParseInt(string(v), 10, 64)
-		return n
-	case string:
-		n, _ := strconv.ParseInt(v, 10, 64)
-		return n
-	default:
-		return 0
-	}
-}
-
-func projectID(c echo.Context) string { return projectIDFrom(c.Request().Context()) }
-
-func projectIDFrom(ctx context.Context) string {
-	project, _ := ProjectFromContext(ctx)
-	return project.ID
-}
-
-func decodeDocument(c echo.Context, doc *map[string]any) error {
-	if err := json.NewDecoder(c.Request().Body).Decode(doc); err != nil || *doc == nil {
-		return NewAPIError(http.StatusBadRequest, "invalid_request", "document must be a JSON object", RequestIDFromContext(c.Request().Context()))
-	}
-	delete(*doc, "id")
-	delete(*doc, "created_at")
-	delete(*doc, "updated_at")
-	principal, _ := PrincipalFromContext(c.Request().Context())
-	if principal.Scope != nil {
-		for _, name := range principal.Scope.ReadonlyFields {
-			if _, ok := (*doc)[name]; ok {
-				return NewAPIError(http.StatusForbidden, "key_scope_denied", "key scope denied", RequestIDFromContext(c.Request().Context()))
-			}
-		}
-	}
-	return nil
-}
-
-func isMissingRelation(err error) bool {
-	if err == nil {
-		return false
-	}
-	s := strings.ToLower(err.Error())
-	return strings.Contains(s, "no such table") || strings.Contains(s, "does not exist") || strings.Contains(s, "not found")
 }

@@ -1,3 +1,34 @@
+// 文件说明：service_test.go — internal/llmgateway 的单元测试（TestListProviders、TestProviderModelsIncludesDefaultWithoutAllowedModels 等）
+//
+// 用法
+//
+//	go test ./internal/llmgateway -run 'TestListProviders|TestProviderModelsIncludesDefaultWithoutAllowedModels|TestListProvidersEmpty|TestListProvidersResolveError'
+//	同包调用：fakeResolver → agent_tools_test.go, client_chat_usage_test.go
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/agentrun, internal/api, internal/app 等 5 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/llmgateway/service_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] agent_tools_test.go, catalog_resolver.go, client_chat_usage_test.go, fallback_resolver.go, fallback_resolver_test.go 等 14 个
+//	[关键引用] fakeResolver ← agent_tools_test.go, client_chat_usage_test.go
+//
+// 主要符号
+//
+//	type fakeResolver struct{…}
+//	(f *fakeResolver) Resolve(ctx context.Context, projectID string) (ProjectProviders, error)
+//	TestListProviders(t *testing.T)
+//	TestProviderModelsIncludesDefaultWithoutAllowedModels(t *testing.T)
+//	TestListProvidersEmpty(t *testing.T)
+//	TestListProvidersResolveError(t *testing.T)
+//	TestRecordLLMUsageRecorder(t *testing.T)
+//	type fakeRecorder struct{…}
+//	... 另有 1 个顶层符号
+
 package llmgateway
 
 import (

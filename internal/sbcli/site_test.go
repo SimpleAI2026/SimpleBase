@@ -1,3 +1,26 @@
+// 文件说明：site_test.go — internal/sbcli 的单元测试（TestSiteCommands、TestSitePublishPrefixGuard 等）
+//
+// 用法
+//
+//	go test ./internal/sbcli -run 'TestSiteCommands|TestSitePublishPrefixGuard'
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/agentbridge
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/sbcli/site_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] cli_test.go, collection_transfer.go, collection_transfer_test.go, commands.go, commands_admin.go 等 27 个
+//
+// 主要符号
+//
+//	siteTestEnv(url string) []string
+//	TestSiteCommands(t *testing.T)
+//	TestSitePublishPrefixGuard(t *testing.T)
+
 package sbcli
 
 import (

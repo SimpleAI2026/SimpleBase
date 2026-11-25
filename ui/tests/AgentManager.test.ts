@@ -1,22 +1,35 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { VueWrapper } from '@vue/test-utils'
 import { toast } from 'vue-sonner'
 import { setI18nLocale } from '@/locales'
 import { useProjectStore } from '@/stores/project'
 import { api, resetApiMocks } from '@/test/api-mock'
-import { clickText, mountWithApp, sampleAgent } from '@/test/helpers'
+import { clickText, installJsdomPolyfills, mountWithApp, openPopover, popoverEl, realPopoverStubs, sampleAgent } from '@/test/helpers'
 import AgentManager from '@/pages/AgentManager.vue'
-import type { AgentStreamHandlers } from '@/services/types'
+import type { AgentPlanDecision, AgentStreamHandlers } from '@/services/types'
 
 const generalTag = {
   id: 'general', builtinKey: 'general', name: '通用', agentIds: ['ag-1', 'general', 'database', 'kv', 's3'], prompts: [],
   unavailableAgentIds: [], routingPrompt: '', threadKinds: ['chat', 'alert', 'statistics', 'scheduled'], version: 0
 }
 
+/** 一轮只派一个助手：Plan 帧 → 子 run 上下文 → 任务 running 帧（与 v3 SSE 帧序一致）。 */
+function planOneAgent(agentId: string): AgentPlanDecision {
+  return {
+    action: 'create', goal: '处理请求', complexity: 'simple', steps: [],
+    dispatches: [{ ref: 'd1', targetKind: 'agent', targetId: agentId, message: 'test', dependsOn: [], contextFrom: [], stepId: '', risk: 'read', expectedOutput: '' }],
+    confirm: { required: false, reasons: [] },
+    progress: { percent: 0, note: '' },
+    findings: [], unknowns: [], shouldContinue: false, shouldSummarize: false, sources: []
+  }
+}
+
 function routeOneAgent(handlers: AgentStreamHandlers, agentId = 'ag-1') {
-  handlers.onRoute?.({ status: 'done', steps: [{ taskId: 'task-1', kind: 'agent', agentId, instruction: 'test' }] })
+  handlers.onPlan?.({ turnId: 'turn-1', decision: planOneAgent(agentId), confirmRequired: false })
   handlers.onFrameContext?.({ runId: 'run-1', agentId })
+  handlers.onTask?.({ taskId: 'turn-1-d1', ref: 'd1', agentId, runId: 'run-1', index: 1, total: 1, status: 'running' })
 }
 
 vi.mock('@/services/api', async () => {
@@ -102,12 +115,14 @@ const agentStubs = {
  */
 const composerOnlyStubs = {
   AgentComposer: {
-    props: ['sending', 'mentionAgents', 'modelValue'],
+    props: ['sending', 'mentionAgents', 'modelValue', 'planHint', 'planning'],
     emits: ['send', 'stop', 'update:modelValue'],
     template: '<div class="ai"><button type="button" class="ai-send" @click="$emit(\'send\', \'hi\', [], [])">send</button></div>',
     methods: { focus: () => undefined }
   }
 }
+
+installJsdomPolyfills()
 
 describe('AgentManager (云助手)', () => {
   beforeEach(() => {
@@ -236,14 +251,14 @@ describe('AgentManager (云助手)', () => {
     await flushPromises()
     const vm = wrapper.vm as unknown as { chatMessages: Array<Record<string, unknown>> }
     expect(vm.chatMessages).toEqual([
-      { role: 'user', content: 'u', module: undefined, agentId: undefined, routeKind: undefined, toolCalls: undefined, error: undefined, canceled: false },
+      { id: 'm1', role: 'user', content: 'u', module: undefined, agentId: undefined, toolCalls: undefined, error: undefined, canceled: false },
       {
-        role: 'assistant', content: 'a', module: 's3', agentId: 'ag-x', routeKind: undefined,
+        id: 'm2', role: 'assistant', content: 'a', module: 's3', agentId: 'ag-x',
         toolCalls: [{ name: 't', status: 'success' }],
         // 现状：传入的是普通对象而非 Error，errorMessage 走 fallback 文案（按现状锁定）。
         error: '运行失败', canceled: true
       },
-      { role: 'user', content: 's', module: undefined, agentId: undefined, routeKind: undefined, toolCalls: undefined, error: undefined, canceled: false }
+      { id: 'm3', role: 'user', content: 's', module: undefined, agentId: undefined, toolCalls: undefined, error: undefined, canceled: false }
     ])
     wrapper.unmount()
   })
@@ -282,6 +297,77 @@ describe('AgentManager (云助手)', () => {
     await flushPromises()
     expect((wrapper.vm as unknown as { draft: string }).draft).toBe(text)
     expect(api.agentThreads.streamRun).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('asks before replacing a non-empty draft with a prompt (ConfirmAction, never window.confirm)', async () => {
+    const windowConfirm = vi.spyOn(window, 'confirm').mockImplementation(() => true)
+    try {
+      api.agentThreads.pageBy.mockResolvedValue({
+        threads: [{ id: 'th-1', title: 'T', agent_id: 'ag-1', tag_id: 'general', dispatch_mode: 'collaborative', thread_kind: 'chat', created_at: 't', updated_at: 't' }],
+        next_cursor: ''
+      })
+      const confirmStub = {
+        props: ['open', 'title', 'controlled'],
+        emits: ['confirm', 'cancel', 'update:open'],
+        template:
+          '<div v-if="open" class="confirm-stub"><button type="button" class="confirm-ok" @click="$emit(\'confirm\')">ok</button><button type="button" class="confirm-cancel" @click="$emit(\'cancel\')">cancel</button></div>'
+      }
+      const { wrapper } = await mountWithApp(AgentManager, { stubs: { ...composerOnlyStubs, ConfirmAction: confirmStub } })
+      await flushPromises()
+      const vm = wrapper.vm as unknown as { draft: string; pickPrompt: (t: string) => void }
+      const composer = () => wrapper.findComponent('.ai') as VueWrapper
+  const composerProps = () => composer().props() as unknown as { planHint?: string }
+      const setDraft = async (text: string) => {
+        // draft 是 script setup 的 const 绑定，只能经 v-model 写入。
+        composer().vm.$emit('update:modelValue', text)
+        await flushPromises()
+      }
+      // 空草稿：直接填入，不弹确认。
+      vm.pickPrompt('第一条')
+      await flushPromises()
+      expect(vm.draft).toBe('第一条')
+      expect(wrapper.find('.confirm-stub').exists()).toBe(false)
+      // 已有草稿：弹确认；取消保留草稿，确认才替换。
+      await setDraft('我的草稿')
+      vm.pickPrompt('第二条')
+      await flushPromises()
+      expect(wrapper.find('.confirm-stub').exists()).toBe(true)
+      await wrapper.get('.confirm-cancel').trigger('click')
+      await flushPromises()
+      expect(vm.draft).toBe('我的草稿')
+      expect(wrapper.find('.confirm-stub').exists()).toBe(false)
+      vm.pickPrompt('第二条')
+      await flushPromises()
+      await wrapper.get('.confirm-ok').trigger('click')
+      await flushPromises()
+      expect(vm.draft).toBe('第二条')
+      expect(windowConfirm).not.toHaveBeenCalled()
+      wrapper.unmount()
+    } finally {
+      windowConfirm.mockRestore()
+    }
+  })
+
+  it('shows the plan status bar on collaborative threads: mentions are hard constraints', async () => {
+    api.agents.list.mockResolvedValue([
+      { ...sampleAgent, id: 'ag-1', name: '数据库', module: 'database', builtin_key: 'database' },
+      { ...sampleAgent, id: 'ag-2', name: '通用助手', module: 'general', builtin_key: 'general' }
+    ])
+    api.agentThreads.pageBy.mockResolvedValue({
+      threads: [{ id: 'th-1', title: 'T', tag_id: 'general', dispatch_mode: 'collaborative', thread_kind: 'chat', created_at: 't', updated_at: 't' }],
+      next_cursor: ''
+    })
+    const { wrapper } = await mountWithApp(AgentManager, { stubs: composerOnlyStubs })
+    await flushPromises()
+    const composer = () => wrapper.findComponent('.ai') as VueWrapper
+  const composerProps = () => composer().props() as unknown as { planHint?: string }
+    expect(composerProps().planHint).toContain('分工由 Plan 决定')
+    // 草稿里点名「数据库」：状态条提示本轮 @数据库（硬约束），不包含未点名的通用助手。
+    composer().vm.$emit('update:modelValue', '@数据库 帮我查订单')
+    await flushPromises()
+    expect(composerProps().planHint).toContain('@数据库')
+    expect(composerProps().planHint).not.toContain('@通用助手')
     wrapper.unmount()
   })
 
@@ -875,13 +961,14 @@ describe('AgentManager (云助手)', () => {
   })
 
   it('offers group settings and member management for #通用', async () => {
-    const { wrapper } = await mountWithApp(AgentManager)
+    // 群行的「+」「⋯」是真实 Popover：菜单内容 teleport 到 body，打开前不存在
+    const { wrapper } = await mountWithApp(AgentManager, { attachTo: document.body, stubs: realPopoverStubs })
     await flushPromises()
     expect(wrapper.find('[data-sidebar-group-more="general"]').exists()).toBe(true)
-    await wrapper.get('[data-sidebar-group-add="general"]').trigger('click')
-    await flushPromises()
-    expect(wrapper.find('[data-group-add-existing="general"]').exists()).toBe(true)
-    expect(wrapper.find('[data-group-create-agent="general"]').exists()).toBe(true)
+    expect(popoverEl('[data-group-add-existing="general"]')).toBeNull()
+    await openPopover(wrapper, '[data-sidebar-group-add="general"]')
+    expect(popoverEl('[data-group-add-existing="general"]')).not.toBeNull()
+    expect(popoverEl('[data-group-create-agent="general"]')).not.toBeNull()
     wrapper.unmount()
   })
 
@@ -1023,7 +1110,7 @@ describe('AgentManager conversation cleanup', () => {
     wrapper.unmount()
   })
 
-  it('shows the routing card for a collaborative turn', async () => {
+  it('shows the plan card for a collaborative turn', async () => {
     api.agents.list.mockResolvedValue([
       { ...sampleAgent, id: 'general', name: '通用助手', module: 'general', builtin_key: 'general' },
       { ...sampleAgent, id: 'database', name: 'Database', module: 'database', builtin_key: 'database' }
@@ -1044,11 +1131,11 @@ describe('AgentManager conversation cleanup', () => {
     const { wrapper } = await mountWithApp(AgentManager, { stubs: { AgentComposer: agentStubs.AgentComposer } })
     const vm = wrapper.vm as unknown as {
       collab: {
+        turn: { value: unknown }
         syncTasks: (tasks: unknown[]) => void
-        tasks: { value: unknown[] }
       }
     }
-    vm.collab.syncTasks([
+    const tasks = [
       {
         id: 't1', turnId: 'turn-1', seq: 1, targetKind: 'agent', targetId: 'database',
         instruction: '核对订单', status: 'running', attempt: 0, dependsOn: [], version: 1, createdAt: 't'
@@ -1058,11 +1145,27 @@ describe('AgentManager conversation cleanup', () => {
         instruction: '确认异常', status: 'waiting_human', assigneeId: 'u1', attempt: 0,
         dependsOn: [], version: 1, createdAt: 't'
       }
-    ])
+    ]
+    vm.collab.turn.value = {
+      id: 'turn-1', threadId: 'group-thread', status: 'running', version: 1, createdAt: 't', updatedAt: 't',
+      tasks: [], lastEventSeq: 0,
+      plan: { version: 3, confirmState: 'approved', replans: 0, decision: { ...planOneAgent('database'), goal: '核对订单与异常' } }
+    }
+    vm.collab.syncTasks(tasks)
     await flushPromises()
-    expect(wrapper.find('[data-agent-dispatch-card]').exists()).toBe(true)
+    expect(wrapper.find('[data-agent-plan-card]').exists()).toBe(true)
+    expect(wrapper.get('[data-plan-goal]').text()).toBe('核对订单与异常')
     expect(wrapper.findAll('[data-dispatch-step]')).toHaveLength(2)
     expect(wrapper.find('[data-agent-human-task]').exists()).toBe(true)
+    // 卡片头：群成员叠放头像 + 「N 位成员」+ 进度摘要。
+    expect(wrapper.find('[data-thread-group-badge]').exists()).toBe(true)
+    expect(wrapper.findAll('[data-thread-group-badge] [data-group-avatar]')).toHaveLength(2)
+    expect(wrapper.get('[data-thread-group-badge]').text()).toContain('2 位成员')
+    // 左栏群行同样叠放成员头像（最多 3 个）。
+    expect(wrapper.findAll('[data-sidebar-group] [data-group-avatars] [data-group-avatar]').length).toBeGreaterThan(0)
+    // 气泡上方的「来自 Plan」引用（hover 看该助手收到的指令）。
+    vm.collab.syncTasks([{ ...tasks[0], status: 'completed' }])
+    await flushPromises()
     wrapper.unmount()
   })
 })

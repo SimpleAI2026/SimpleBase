@@ -48,12 +48,7 @@
 
       <div class="min-h-30">
         <SbAsyncRegion
-          :pending="running"
-          :show-skeleton="showSkeleton"
-          :show-empty="showEmpty"
-          :show-error="showError"
-          :refreshing="refreshing"
-          :error="loadError"
+          :state="loadState"
           :block="mode === 'query' ? 'lines' : 'spinner'"
           :empty-description="t('components.sqlWork.emptyDesc')"
           @retry="run"
@@ -90,11 +85,11 @@
 /**
  * SQL 工作台（查询 / 执行 / 批量）。
  *
- * 结果区已拆到 `SqlResultPanel`（planv5.0 ui-optimization-v3 §3.6）；
+ * 结果区已拆到 `SqlResultPanel`；
  * 本文件保留表单、模式切换、解析器与请求编排 —— 解析器（parseArgs /
  * parseBatch）与 formatCell 是既有测试直接调用的表面，故仍在此暴露。
  */
-import { errorMessage } from '@/utils/format'
+import { errorMessage, formatCell } from '@/utils/format'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
@@ -106,14 +101,14 @@ import { Switch } from '@/components/ui/switch'
 import { Table, TableBody } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
-import { api } from '../../services/api'
-import type { DatabaseItem, SqlBatchResult, SqlExecuteResult, SqlQueryResult } from '../../services/api'
+import { api } from '@/services/api'
+import type { DatabaseItem, SqlBatchResult, SqlExecuteResult, SqlQueryResult } from '@/services/api'
 import { useLoadState } from '@/composables/useLoadState'
-import SbAsyncRegion from '../SbAsyncRegion.vue'
-import SbBlockSkeleton from '../SbBlockSkeleton.vue'
-import SbTableSkeleton from '../SbTableSkeleton.vue'
-import SqlResultPanel from './SqlResultPanel.vue'
-import SbModal from './SbModal.vue'
+import SbAsyncRegion from '@/components/SbAsyncRegion.vue'
+import SbBlockSkeleton from '@/components/SbBlockSkeleton.vue'
+import SbTableSkeleton from '@/components/SbTableSkeleton.vue'
+import SqlResultPanel from '@/components/modal/SqlResultPanel.vue'
+import SbModal from '@/components/modal/SbModal.vue'
 
 const props = defineProps<{
   open: boolean
@@ -142,16 +137,12 @@ const sqlText = ref('')
 const argsText = ref('')
 const maxRowsText = ref('')
 const transactional = ref(true)
+const loadState = useLoadState({ fallback: 'components.sqlWork.executeFailed' })
 const {
   pending: running,
-  showSkeleton,
-  showEmpty,
-  showError,
-  refreshing,
-  error: loadError,
   run: runLoad,
   reset: resetLoad
-} = useLoadState({ fallback: 'components.sqlWork.executeFailed' })
+} = loadState
 const queryResult = ref<SqlQueryResult | null>(null)
 const executeResult = ref<SqlExecuteResult | null>(null)
 const batchResult = ref<SqlBatchResult | null>(null)
@@ -187,12 +178,6 @@ const sqlHint = computed(() => {
   }
   return ''
 })
-
-function formatCell(v: unknown): string {
-  if (v === null || v === undefined) return 'NULL'
-  if (typeof v === 'string') return v
-  return JSON.stringify(v)
-}
 
 function parseArgs(): unknown[] {
   const raw = argsText.value.trim()
@@ -311,4 +296,7 @@ async function run() {
     return true
   })
 }
+
+// parseArgs / parseBatch / formatCell 是既有测试直接调用的表面。
+defineExpose({ parseArgs, parseBatch, formatCell })
 </script>

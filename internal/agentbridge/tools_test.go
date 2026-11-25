@@ -1,3 +1,29 @@
+// 文件说明：tools_test.go — internal/agentbridge 的单元测试（TestBuildToolsDropsUnknownAndRunsList、TestReadonlySQLToolRejectsWrite 等）
+//
+// 用法
+//
+//	go test ./internal/agentbridge -run 'TestBuildToolsDropsUnknownAndRunsList|TestReadonlySQLToolRejectsWrite'
+//
+// 调用架构
+//
+//	[上游] internal/agentrun, internal/api, internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/agentbridge/tools_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] access_db.go, access_llm.go, access_object.go, access_test.go, bridge_test.go 等 33 个
+//
+// 主要符号
+//
+//	type fakeDB struct{…}
+//	(f *fakeDB) ListDatabases(context.Context, auth.Principal, string) ([]DatabaseInfo, error)
+//	(f *fakeDB) ListCollections(context.Context, auth.Principal, string, string) ([]string, error)
+//	(f *fakeDB) ReadOnlyQuery(_ context.Context, _ auth.Principal, _, _, sqlText string, _ int) (SQLResult, error)
+//	TestBuildToolsDropsUnknownAndRunsList(t *testing.T)
+//	TestReadonlySQLToolRejectsWrite(t *testing.T)
+
 package agentbridge
 
 import (

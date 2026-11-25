@@ -1,3 +1,25 @@
+// 文件说明：repository_view_test.go — internal/collection 的单元测试（TestRepositoryPersistsLogicalView、TestValidateViewSchema 等）
+//
+// 用法
+//
+//	go test ./internal/collection -run 'TestRepositoryPersistsLogicalView|TestValidateViewSchema'
+//
+// 调用架构
+//
+//	[上游] internal/api, internal/app, internal/collection/query
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/collection/repository_view_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] events.go, fieldtypes.go, fieldtypes_test.go, model.go, pick.go 等 7 个
+//
+// 主要符号
+//
+//	TestRepositoryPersistsLogicalView(t *testing.T)
+//	TestValidateViewSchema(t *testing.T)
+
 package collection
 
 import (

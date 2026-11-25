@@ -1,3 +1,35 @@
+// 文件说明：extension.go — godatabase/ducklake 中 AssertDuckDBVersion、AssertExtensionsLoaded 等符号的实现
+//
+// 用法
+//
+//	AssertDuckDBVersion(ctx context.Context, db *sql.DB) (string, error)  // AssertDuckDBVersion 确认当前连接的 DuckDB ≥ MinDuckDBVersion
+//	AssertExtensionsLoaded(ctx context.Context, db *sql.DB, engine string) error  // AssertExtensionsLoaded 确认当前引擎所需的扩展均已加载
+//	同包调用：extensionBootSQL() → coverage_test.go, factory.go；extensionLoaded() → coverage_test.go；normalizeDuckDBVersion() → coverage_test.go, factory_test.go
+//
+// 调用架构
+//
+//	[上游] internal/app, internal/systemdb
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/ducklake/extension.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] c4_syncer_lease_test.go, c4_syncer_ordering_test.go, catalog_syncer.go, catalog_syncer_test.go, coverage_test.go 等 35 个
+//	[关键引用] extensionBootSQL ← coverage_test.go, factory.go；AssertDuckDBVersion ← factory.go, more_test.go；AssertExtensionsLoaded ← coverage_test.go, factory.go
+//
+// 主要符号
+//
+//	const MinDuckDBVersion
+//	requiredExtensions(engine string) []string
+//	var extensionAliases
+//	extensionBootSQL(opts Options) []string
+//	AssertDuckDBVersion(ctx context.Context, db *sql.DB) (string, error)
+//	AssertExtensionsLoaded(ctx context.Context, db *sql.DB, engine string) error
+//	extensionLoaded(loaded map[string]bool, name string) bool
+//	normalizeDuckDBVersion(v string) string
+//	... 另有 2 个顶层符号
+
 package ducklake
 
 import (

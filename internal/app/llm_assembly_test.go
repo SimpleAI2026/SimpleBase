@@ -1,3 +1,31 @@
+// 文件说明：llm_assembly_test.go — internal/app 的单元测试（TestB4_LLMDisabledLeavesServiceNil、TestB4_LLMEnabledNoInstanceProviders 等）
+//
+// 用法
+//
+//	go test ./internal/app -run 'TestB4_LLMDisabledLeavesServiceNil|TestB4_LLMEnabledNoInstanceProviders|TestB4_LLMEnabledWithInstanceProviders|TestB4_LLMRecorderWired'
+//	同包调用：llmTestConfig() → agent_shutdown_test.go；newLLMApp() → agent_shutdown_test.go
+//
+// 调用架构
+//
+//	[上游] cmd/simplebase, internal/api/perfbench
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/app/llm_assembly_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_shutdown_test.go, app.go, app_alerts.go, app_lease.go, app_test.go 等 41 个
+//	[关键引用] llmTestConfig ← agent_shutdown_test.go；newLLMApp ← agent_shutdown_test.go
+//
+// 主要符号
+//
+//	llmTestConfig(t *testing.T, providers map[string]config.ProviderConfig) config.Config
+//	newLLMApp(t *testing.T, cfg config.Config) *App
+//	TestB4_LLMDisabledLeavesServiceNil(t *testing.T)
+//	TestB4_LLMEnabledNoInstanceProviders(t *testing.T)
+//	TestB4_LLMEnabledWithInstanceProviders(t *testing.T)
+//	TestB4_LLMRecorderWired(t *testing.T)
+
 package app
 
 // b4_llm_assembly_test.go：planv6.0 B4 LLM 装配块表征测试。

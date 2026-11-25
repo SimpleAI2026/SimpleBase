@@ -1,3 +1,32 @@
+// 文件说明：client_test.go — gocloudagent/cli 的单元测试（TestClientURLUsesConfiguredBase、TestChatRequestIsOpenAIShaped 等）
+//
+// 用法
+//
+//	go test ./gocloudagent/cli -run 'TestClientURLUsesConfiguredBase|TestChatRequestIsOpenAIShaped|TestChatParsesChoices|TestChatEmptyChoicesIsNotAPanic'
+//
+// 调用架构
+//
+//	[上游] gocloudagent
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gocloudagent/cli/client_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] agent_loop.go, agent_loop_test.go, budget_test.go, client.go, client_conn_reuse_test.go 等 39 个
+//
+// 主要符号
+//
+//	type capturedRequest struct{…}
+//	newCaptureServer(t *testing.T, cap *capturedRequest, handler http.HandlerFunc) *HTTPClient
+//	sampleToolRequest() agentcore.ChatRequest
+//	TestClientURLUsesConfiguredBase(t *testing.T)
+//	TestChatRequestIsOpenAIShaped(t *testing.T)
+//	TestChatParsesChoices(t *testing.T)
+//	TestChatEmptyChoicesIsNotAPanic(t *testing.T)
+//	TestStreamParsesDeltasAndDone(t *testing.T)
+//	... 另有 9 个顶层符号
+
 package cli
 
 import (

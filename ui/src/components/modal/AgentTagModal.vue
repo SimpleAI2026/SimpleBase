@@ -1,5 +1,5 @@
 <template>
-  <!-- AgentTagModal：标签新建/编辑弹窗（planv6.7 AGC-UI §4.4）。
+  <!-- AgentTagModal：标签新建/编辑弹窗。
        名称唯一性、助手归属、有序提示词；409 版本冲突提示覆盖重载。 -->
   <SbModal
     :open="open"
@@ -41,7 +41,7 @@
           <p v-if="!agents.length" class="px-1 py-2 text-xs text-muted-foreground">{{ t('pages.agents.emptyListDesc') }}</p>
         </div>
       </Field>
-      <!-- 路由提示词（planv6.7 v2 §4.1）：只决定分工，不授予权限。 -->
+      <!-- 路由提示词：只决定分工，不授予权限。 -->
       <Field>
         <FieldLabel for="agent-tag-routing">{{ t('components.agentTagModal.routingPrompt') }}</FieldLabel>
         <textarea
@@ -59,27 +59,27 @@
       <div class="grid gap-3 sm:grid-cols-2">
         <Field>
           <FieldLabel for="agent-tag-fallback">{{ t('components.agentTagModal.fallback') }}</FieldLabel>
-          <select
-            id="agent-tag-fallback"
-            v-model="fallbackAgentId"
-            class="h-8 w-full rounded-md border border-border bg-transparent px-2 text-xs"
-            data-tag-fallback
-          >
-            <option value="">{{ t('components.agentTagModal.fallbackNone') }}</option>
-            <option v-for="a in memberAgents" :key="a.id" :value="a.id">{{ a.name }}</option>
-          </select>
+          <Select :model-value="fallbackAgentId || NONE" @update:model-value="setFallback">
+            <SelectTrigger id="agent-tag-fallback" class="w-full" size="sm" data-tag-fallback>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem :value="NONE">{{ t('components.agentTagModal.fallbackNone') }}</SelectItem>
+              <SelectItem v-for="a in memberAgents" :key="a.id" :value="a.id">{{ a.name }}</SelectItem>
+            </SelectContent>
+          </Select>
         </Field>
         <Field>
           <FieldLabel for="agent-tag-human">{{ t('components.agentTagModal.humanPolicy') }}</FieldLabel>
-          <select
-            id="agent-tag-human"
-            v-model="humanPolicy"
-            class="h-8 w-full rounded-md border border-border bg-transparent px-2 text-xs"
-            data-tag-human-policy
-          >
-            <option value="">{{ t('components.agentTagModal.humanAllowed') }}</option>
-            <option value="disabled">{{ t('components.agentTagModal.humanDisabled') }}</option>
-          </select>
+          <Select :model-value="humanPolicy || NONE" @update:model-value="setHumanPolicy">
+            <SelectTrigger id="agent-tag-human" class="w-full" size="sm" data-tag-human-policy>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem :value="NONE">{{ t('components.agentTagModal.humanAllowed') }}</SelectItem>
+              <SelectItem value="disabled">{{ t('components.agentTagModal.humanDisabled') }}</SelectItem>
+            </SelectContent>
+          </Select>
         </Field>
       </div>
 
@@ -118,7 +118,7 @@
 
 <script setup lang="ts">
 /**
- * 标签编辑弹窗：名称 + 助手多选 + 提示词有序列表（planv6.7 §4.4）。
+ * 标签编辑弹窗：名称 + 助手多选 + 提示词有序列表。
  * 提交走宿主；409 版本冲突由宿主置 conflicted，用户点「重新加载」丢弃本地修改。
  */
 import { computed, reactive, ref, watch } from 'vue'
@@ -127,6 +127,7 @@ import { ChevronDownIcon, ChevronUpIcon, PlusIcon, Trash2Icon } from '@lucide/vu
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import SbModal from '@/components/modal/SbModal.vue'
 import { iconForAgentModule } from '@/components/nav-icons'
 import type { AgentTag, AgentTagInput, MentionAgentLike } from '@/services/types'
@@ -149,9 +150,12 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 
+/** Select 不允许空串作为 value，用哨兵值表示「不设置」。 */
+const NONE = '__none__'
+
 const name = ref('')
 const agentIds = ref<string[]>([])
-/** 群路由提示词与兜底/人工策略（v2 §4.1）。 */
+/** 群路由提示词与兜底/人工策略。 */
 const routingPrompt = ref('')
 const fallbackAgentId = ref('')
 const humanPolicy = ref<'' | 'disabled'>('')
@@ -184,6 +188,15 @@ watch(
 watch(agentIds, (ids) => {
   if (fallbackAgentId.value && !ids.includes(fallbackAgentId.value)) fallbackAgentId.value = ''
 })
+
+function setFallback(value: unknown) {
+  const v = String(value)
+  fallbackAgentId.value = v === NONE ? '' : v
+}
+
+function setHumanPolicy(value: unknown) {
+  humanPolicy.value = value === 'disabled' ? 'disabled' : ''
+}
 
 function toggleAgent(id: string) {
   agentIds.value = agentIds.value.includes(id) ? agentIds.value.filter((x) => x !== id) : [...agentIds.value, id]

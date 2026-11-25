@@ -1,3 +1,34 @@
+// 文件说明：glob.go — gosandbox/host 中 ExpandGlob 等符号的实现
+//
+// 用法
+//
+//	ExpandGlob(pattern string) ([]string, error)  // ExpandGlob 展开 glob 为当下存在的路径（Linux 的快照语义）
+//	同包调用：splitDenyEntry() → bwrap_args.go, policy.go；isGlobEntry() → bwrap_args.go, policy.go；parseGlob() → glob_test.go
+//
+// 调用架构
+//
+//	[上游] gocloudagent/cli, gocloudagent/tools, gosandbox/box, gosandbox/vm/box 等 5 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/host/glob.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] bwrap_args.go, bwrap_args_extra_test.go, cgroup.go, cgroup_linux.go, cgroup_linux_test.go 等 36 个
+//	[关键引用] splitDenyEntry ← bwrap_args.go, policy.go；isGlobEntry ← bwrap_args.go, policy.go；parseGlob ← glob_test.go
+//
+// 主要符号
+//
+//	const literalPrefix
+//	const MaxGlobMatches / maxGlobWalk
+//	var ErrGlobTooLarge
+//	type globKind int
+//	const gText / gSep / gAny / gStar / gGlobstar / gGlobstarSlash / gSet
+//	type globToken struct{…}
+//	splitDenyEntry(entry string) (path string, literal bool)
+//	isGlobEntry(entry string) bool
+//	... 另有 9 个顶层符号
+
 package host
 
 import (

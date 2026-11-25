@@ -1,27 +1,44 @@
+// 文件说明：llm_traces_test.go — internal/api 的单元测试（TestLLMTracesHandler_MissingProject、TestLLMTracesHandler_NilStore 等）
+//
+// 用法
+//
+//	go test ./internal/api -run 'TestLLMTracesHandler_MissingProject|TestLLMTracesHandler_NilStore|TestLLMTracesHandler_List|TestLLMTraceGroupsHandler'
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/api/llm_traces_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//
+// 主要符号
+//
+//	setupTracesRouter(t *testing.T, store *systemdb.Store, withProject bool) *echo.Echo
+//	TestLLMTracesHandler_MissingProject(t *testing.T)
+//	TestLLMTracesHandler_NilStore(t *testing.T)
+//	TestLLMTracesHandler_List(t *testing.T)
+//	setupTraceGroupsRouter(t *testing.T, store *systemdb.Store) *echo.Echo
+//	seedGroupedTraces(t *testing.T, store *systemdb.Store) time.Time
+//	TestLLMTraceGroupsHandler(t *testing.T)
+//	TestLLMTraceDetailHandler(t *testing.T)
+
 package api
 
 import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/labstack/echo/v4"
 
-	"github.com/linkxzhou/SimpleBase/internal/llmgateway"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
-
-// gatewayTraceForTest 构造一条网关侧 trace（等价于 llmgateway.Chat 成功后的记录）。
-func gatewayTraceForTest() llmgateway.LLMTrace {
-	return llmgateway.LLMTrace{
-		ProjectID: "proj-1", Provider: "openai", Model: "gpt-4o",
-		Status: "ok", Stream: true, DurationMs: 1234,
-		InputTokens: 10, OutputTokens: 5,
-	}
-}
 
 func setupTracesRouter(t *testing.T, store *systemdb.Store, withProject bool) *echo.Echo {
 	t.Helper()
@@ -114,33 +131,7 @@ func TestLLMTracesHandler_List(t *testing.T) {
 	}
 }
 
-// recorder 适配：ctx 带 request_id 落库；nil store 返回 nil。
-func TestLLMTraceRecorder(t *testing.T) {
-	if NewLLMTraceRecorder(nil) != nil {
-		t.Fatal("nil store should return nil")
-	}
-	store := openSystemAPI(t)
-	rec := NewLLMTraceRecorder(store)
-	ctx := WithRequestID(context.Background(), "rid-trace-1")
-	if err := rec.RecordTrace(ctx, gatewayTraceForTest()); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.FlushTraces(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	got, err := store.QueryLLMTraces(context.Background(), systemdb.LLMTraceQuery{ProjectID: "proj-1"})
-	if err != nil || len(got) != 1 {
-		t.Fatalf("traces=%d err=%v", len(got), err)
-	}
-	if got[0].RequestID != "rid-trace-1" || !got[0].Stream || got[0].Status != "ok" {
-		t.Fatalf("row=%+v", got[0])
-	}
-	if !strings.HasPrefix(got[0].ID, "") || got[0].ID == "" {
-		t.Fatal("id should be generated")
-	}
-}
-
-// —— 二期（planv6.5 §9.3）：分组列表 + 详情 span API + recorder 回退 ——
+// —— 二期（planv6.5 §9.3）：分组列表 + 详情 span API ——
 
 func setupTraceGroupsRouter(t *testing.T, store *systemdb.Store) *echo.Echo {
 	t.Helper()
@@ -260,45 +251,5 @@ func TestLLMTraceDetailHandler(t *testing.T) {
 	}
 	if len(body.Spans) != 0 {
 		t.Fatalf("missing spans=%d", len(body.Spans))
-	}
-}
-
-// recorder 回退：无 meta 时 trace_id=request_id、caller=api；有 meta 时透传。
-func TestLLMTraceRecorderFallback(t *testing.T) {
-	store := openSystemAPI(t)
-
-	// 无 meta：回退 request_id / api
-	ctx := WithRequestID(context.Background(), "req-fb")
-	tr := gatewayTraceForTest()
-	tr.InputJSON = `[{"role":"user","content":"x"}]`
-	if err := NewLLMTraceRecorder(store).RecordTrace(ctx, tr); err != nil {
-		t.Fatal(err)
-	}
-	// 有 meta：透传（caller=agent, trace_id=run-x）
-	ctx2 := llmgateway.WithTraceMeta(WithRequestID(context.Background(), "req-2"), "run-x", "agent")
-	tr2 := gatewayTraceForTest()
-	tr2.TraceID = "run-x"
-	tr2.Caller = "agent"
-	if err := NewLLMTraceRecorder(store).RecordTrace(ctx2, tr2); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.FlushTraces(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	got, err := store.QueryLLMTraces(context.Background(), systemdb.LLMTraceQuery{ProjectID: "proj-1"})
-	if err != nil || len(got) != 2 {
-		t.Fatalf("traces=%d err=%v", len(got), err)
-	}
-	byTrace := map[string]systemdb.LLMTrace{}
-	for _, r := range got {
-		byTrace[r.TraceID] = r
-	}
-	fb := byTrace["req-fb"]
-	if fb.Caller != "api" || fb.SpanKind != "llm" || fb.InputJSON == "" {
-		t.Fatalf("fallback row=%+v", fb)
-	}
-	agent := byTrace["run-x"]
-	if agent.Caller != "agent" || agent.RequestID != "req-2" {
-		t.Fatalf("agent row=%+v", agent)
 	}
 }

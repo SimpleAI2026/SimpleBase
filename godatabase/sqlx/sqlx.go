@@ -1,3 +1,31 @@
+// 文件说明：sqlx.go — godatabase/sqlx 中 Ident、Literal 等符号的实现
+//
+// 用法
+//
+//	Ident(name string) string  // Ident 把 name 写成双引号标识符，内部的 " 双写转义
+//	Literal(s string) string  // Literal 把 s 写成单引号字符串字面量，内部的 ' 双写转义
+//	IsIdentByte(c byte) bool  // IsIdentByte 判断 c 是否为 ASCII 标识符字节 [A-Za-z0-9_]
+//	IsSafeIdent(name string) bool  // IsSafeIdent 判断 name 是否可作为不加引号的标识符： 首字符为 Unicode 字母或下划线，其后为字母、数字或下划线
+//
+// 调用架构
+//
+//	[上游] godatabase, godatabase/ducklake, godatabase/filedb, godatabase/sqlguard 等 7 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] godatabase/sqlx/sqlx.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] sqlx_test.go
+//	[关键引用] Ident ← sqlx_test.go；Literal ← sqlx_test.go；IsIdentByte ← sqlx_test.go
+//
+// 主要符号
+//
+//	Ident(name string) string
+//	Literal(s string) string
+//	IsIdentByte(c byte) bool
+//	IsSafeIdent(name string) bool
+
 package sqlx
 
 import (

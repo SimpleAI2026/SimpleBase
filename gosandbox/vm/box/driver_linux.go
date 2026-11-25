@@ -1,5 +1,35 @@
 //go:build linux
 
+// 文件说明：driver_linux.go — gosandbox/vm/box 中 Driver、New 等符号的实现
+//
+// 用法
+//
+//	type Driver struct{…}  // Driver 是常驻沙盒驱动
+//	New(ctx context.Context, opts Options) (*Driver, error)  // New 校验配置并做一次真实的冒烟测试：起一个沙盒跑 true，不通过返回 vm.ErrUnavailable
+//
+// 调用架构
+//
+//	[上游] internal/app
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gosandbox/vm/box/driver_linux.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] capabilities.go, contracts_linux_test.go, diskuse_linux.go, driver_other.go, driver_test.go 等 15 个
+//
+// 主要符号
+//
+//	type Driver struct{…}
+//	New(ctx context.Context, opts Options) (*Driver, error)
+//	(d *Driver) logf(level, msg string, kv ...any)
+//	(d *Driver) lock(name string) *sync.Mutex
+//	(d *Driver) session(name string) *gosandboxbox.Session
+//	(d *Driver) ensure(ctx context.Context, t vm.Target) (*gosandboxbox.Session, error)
+//	(d *Driver) resolveLower(ctx context.Context, t vm.Target) (Lower, error)
+//	(d *Driver) agentEnv() []string
+//	... 另有 6 个顶层符号
+
 // Package box 是 vm.Driver 的常驻沙盒实现：每个沙盒一个 bwrap + 一个 agent。
 //
 // 与 vm/local 的区别：local 每条命令新起一个 bwrap，命令结束沙盒就不存在；

@@ -1,3 +1,32 @@
+// 文件说明：instruction_test.go — gofunction/internal/interp 的单元测试（TestStoreLookupExtractSelectEdges、TestStringIndexAndBlockingSelect 等）
+//
+// 用法
+//
+//	go test ./gofunction/internal/interp -run 'TestStoreLookupExtractSelectEdges|TestStringIndexAndBlockingSelect|TestAppendNilPointerElems|TestSelectDefaultAndSend'
+//
+// 调用架构
+//
+//	[上游] gofunction
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] gofunction/internal/interp/instruction_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库 / 第三方
+//	[同包] bench_test.go, cachetest_test.go, call.go, call_test.go, cheap_test.go 等 40 个
+//
+// 主要符号
+//
+//	TestStoreLookupExtractSelectEdges(t *testing.T)
+//	TestStringIndexAndBlockingSelect(t *testing.T)
+//	TestAppendNilPointerElems(t *testing.T)
+//	TestSelectDefaultAndSend(t *testing.T)
+//	TestGoStatementAndChannel(t *testing.T)
+//	TestTypeAssertCommaOk(t *testing.T)
+//	TestSlice3AndIndexAndField(t *testing.T)
+//	TestMapLookupCommaOk(t *testing.T)
+//	... 另有 9 个顶层符号
+
 package interp
 
 // 本文件覆盖 SSA 指令处理器：选择/通道/切片/类型断言/全局存储/range 迭代等。

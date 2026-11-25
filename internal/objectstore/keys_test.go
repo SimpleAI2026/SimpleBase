@@ -1,3 +1,32 @@
+// 文件说明：keys_test.go — internal/objectstore 的单元测试（TestKeyBuilderDatabasePrefix、TestKeyBuilderDescriptorKey 等）
+//
+// 用法
+//
+//	go test ./internal/objectstore -run 'TestKeyBuilderDatabasePrefix|TestKeyBuilderDescriptorKey|TestKeyBuilderEmptyRoot|TestKeyBuilderRejectsBadIDs'
+//
+// 调用架构
+//
+//	[上游] internal/agentbridge, internal/api, internal/app, internal/backup 等 6 个
+//	         │ 调用本包导出 API
+//	         ▼
+//	[本文件] internal/objectstore/keys_test.go
+//	         │ 依赖
+//	         ▼
+//	[下游] 仅标准库
+//	[同包] blob.go, blob_test.go, branches_test.go, client.go, client_test.go 等 24 个
+//
+// 主要符号
+//
+//	const testProject / testProject2 / testDB
+//	TestKeyBuilderDatabasePrefix(t *testing.T)
+//	TestKeyBuilderDescriptorKey(t *testing.T)
+//	TestKeyBuilderEmptyRoot(t *testing.T)
+//	TestKeyBuilderRejectsBadIDs(t *testing.T)
+//	TestKeyBuilderProjectIsolation(t *testing.T)
+//	TestKeyBuilderSystemAndCatalogPrefix(t *testing.T)
+//	TestKeyBuilderFilesPrefix(t *testing.T)
+//	... 另有 2 个顶层符号
+
 package objectstore
 
 import (
