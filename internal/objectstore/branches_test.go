@@ -359,9 +359,6 @@ func TestKeyBuilderRemaining(t *testing.T) {
 	if _, err := kb.DescriptorKey(proj, "short"); err == nil {
 		t.Fatal("invalid db")
 	}
-	if joinKey("", "/a/", "", "b") != "a/b" {
-		t.Fatalf("joinKey: %q", joinKey("", "/a/", "", "b"))
-	}
 	p, err := kb.DatabasePrefix(proj, db)
 	if err != nil || strings.Contains(p, "//") || strings.HasPrefix(p, "/") {
 		t.Fatalf("prefix %q %v", p, err)

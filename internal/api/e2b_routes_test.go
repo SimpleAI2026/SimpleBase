@@ -46,6 +46,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/linkxzhou/SimpleBase/internal/api/sandboxhttp"
 	"io"
 	"net"
 	"net/http"
@@ -480,7 +481,7 @@ func isE2BRoute(p string) bool {
 		strings.HasPrefix(p, "/process.Process/") || strings.HasPrefix(p, "/filesystem.Filesystem/")
 }
 
-func routerWith(t *testing.T, sb SandboxService) (*echo.Echo, string, Dependencies) {
+func routerWith(t *testing.T, sb sandboxhttp.SandboxService) (*echo.Echo, string, Dependencies) {
 	t.Helper()
 	deps, key := fullRouterDeps(t)
 	deps.Sandbox = sb
@@ -509,7 +510,7 @@ func TestE2BRouteSetLocked(t *testing.T) {
 	sb.interactive = true
 	deps, _ := fullRouterDeps(t)
 	deps.Sandbox = sb
-	deps.Terminal = &TerminalBridge{}
+	deps.Terminal = &sandboxhttp.TerminalBridge{}
 	e := NewRouter(deps)
 	want := e2bRouteSet()
 	// 终端的两条 ext 路由只在终端可用时存在。
@@ -563,7 +564,7 @@ func TestUnavailableSandboxAnswers503NotSPA(t *testing.T) {
 	if rec.Code != http.StatusServiceUnavailable || strings.Contains(rec.Body.String(), "<html") {
 		t.Fatalf("want 503 JSON, got %d %s", rec.Code, rec.Body.String())
 	}
-	var body e2bErrorBody
+	var body sandboxhttp.E2BErrorBody
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || body.Code != 503 || body.ErrorCode != "sandbox_unavailable" {
 		t.Fatalf("body = %s (%v)", rec.Body.String(), err)
 	}
@@ -927,7 +928,7 @@ func TestEnvdAccessTokenBinding(t *testing.T) {
 	e, _, deps := routerWith(t, sb)
 	a, _ := sb.Create(context.Background(), "proj-1", sandbox.CreateInput{Name: "boxa"}, "u")
 	b, _ := sb.Create(context.Background(), "proj-1", sandbox.CreateInput{Name: "boxb"}, "u")
-	signer := newEnvdTokenSigner(deps.Config.Auth.APIKeyHashSecret)
+	signer := sandboxhttp.NewEnvdTokenSigner(deps.Config.Auth.APIKeyHashSecret)
 	tokA := signer.Issue("proj-1", a.ID, time.Now().Add(time.Minute))
 
 	// 令牌 + 匹配的沙盒 ID：通过。
@@ -949,7 +950,7 @@ func TestEnvdAccessTokenBinding(t *testing.T) {
 		}
 	}
 	// 别的密钥签的令牌无效。
-	foreign := newEnvdTokenSigner("another-secret").Issue("proj-1", a.ID, time.Now().Add(time.Minute))
+	foreign := sandboxhttp.NewEnvdTokenSigner("another-secret").Issue("proj-1", a.ID, time.Now().Add(time.Minute))
 	if rec = call(e, "GET", "/health", "", "", map[string]string{"X-Access-Token": foreign, "E2b-Sandbox-Id": a.ID}); rec.Code != 401 {
 		t.Fatalf("foreign token: %d", rec.Code)
 	}
@@ -969,7 +970,7 @@ func TestEnvdAccessTokenBinding(t *testing.T) {
 }
 
 func TestEnvdTokenSignerDomainSeparation(t *testing.T) {
-	s := newEnvdTokenSigner("secret")
+	s := sandboxhttp.NewEnvdTokenSigner("secret")
 	tok := s.Issue("p", "s", time.Now().Add(time.Minute))
 	c, err := s.Verify(tok, time.Now())
 	if err != nil || c.Project != "p" || c.Sandbox != "s" {

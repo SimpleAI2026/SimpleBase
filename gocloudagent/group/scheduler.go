@@ -10,7 +10,10 @@
 
 package group
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
 
 // readyTask 挑选下一个可执行任务：按 ref 顺序找第一个 pending 且依赖满足的任务。
 // 人类任务（target_kind=human）由执行循环直接置 waiting_human，不经 Runner。
@@ -116,24 +119,10 @@ func Progress(tasks []Task) (percent int, summary string) {
 	}
 	percent = done * 100 / len(tasks)
 	var sb strings.Builder
-	sb.WriteString(itoa(done))
+	sb.WriteString(strconv.Itoa(done))
 	sb.WriteByte('/')
-	sb.WriteString(itoa(len(tasks)))
+	sb.WriteString(strconv.Itoa(len(tasks)))
 	return percent, sb.String() + " tasks"
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var b [20]byte
-	i := len(b)
-	for n > 0 {
-		i--
-		b[i] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(b[i:])
 }
 
 // contextPayload 拼接 context_from 引用的上游结果（[来自 @X 的结果] 段落）。

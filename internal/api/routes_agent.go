@@ -17,6 +17,7 @@ package api
 
 import (
 	"github.com/labstack/echo/v4"
+	"github.com/linkxzhou/SimpleBase/internal/api/agenthttp"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 )
 
@@ -26,7 +27,7 @@ import (
 // 不得改成 DatabaseWrite（创建 run 属于低门槛操作，SEC-04 只收紧
 // cancel/confirm）。调用方保证 deps.System != nil。
 func mountAgentRoutes(p *echo.Group, deps Dependencies, g routeGuards, bm *builtinMCPHandler) {
-	ah := newCloudAgentHandler(deps)
+	ah := agenthttp.New(deps.System, deps.AgentRun, deps.Usage, deps.Audit, deps.LLM, deps.Config.Instance.Writable)
 	p.GET("/agents/modules", ah.ListModules, g.require(auth.DatabaseRead))
 	p.GET("/agents", ah.ListAgents, g.require(auth.DatabaseRead))
 	p.GET("/agents/models", ah.ListAgentModels, g.require(auth.DatabaseRead))

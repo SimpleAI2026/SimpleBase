@@ -17,6 +17,8 @@ package api
 
 import (
 	"github.com/labstack/echo/v4"
+	"github.com/linkxzhou/SimpleBase/internal/api/functionhttp"
+	"github.com/linkxzhou/SimpleBase/internal/api/httpkit"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 )
 
@@ -25,7 +27,7 @@ import (
 // 调用方保证 deps.System != nil。
 func mountGoFunctionAndCronRoutes(p *echo.Group, deps Dependencies, g routeGuards) {
 	// 云函数管理面（ui-gofunction-plan §7.1）。writable=false 时写操作返回 503。
-	gh := NewGoFunctionHandler(deps.System, deps.Config.Instance.Writable, deps.Audit, deps.Config.Limits.MaxConcurrentGoRuns).WithRunner(deps.FunctionRunner)
+	gh := functionhttp.NewGoFunctionHandler(deps.System, deps.Config.Instance.Writable, deps.Audit, deps.Config.Limits.MaxConcurrentGoRuns).WithRunner(deps.FunctionRunner)
 	p.GET("/gofunctions", gh.List, g.delegable(auth.DatabaseRead))
 	p.POST("/gofunctions", gh.Create, g.delegable(auth.DatabaseWrite), g.writeGate)
 	p.GET("/gofunctions/:name", gh.Get, g.delegable(auth.DatabaseRead))
@@ -38,7 +40,7 @@ func mountGoFunctionAndCronRoutes(p *echo.Group, deps Dependencies, g routeGuard
 	p.POST("/gofunctions/:name/versions/:ver/test", gh.TestVersion, g.delegable(auth.DatabaseWrite), g.writeGate)
 
 	// 定时任务管理面（ui-cronjob-plan §6）。writable=false 时写操作返回 503。
-	cj := NewCronJobHandler(deps.System, deps.Config.Instance.Writable, deps.CronScheduler, deps.Audit).WithUsage(deps.Usage)
+	cj := functionhttp.NewCronJobHandler(deps.System, deps.Config.Instance.Writable, deps.CronScheduler, deps.Audit).WithUsage(deps.Usage)
 	p.GET("/cron-jobs", cj.List, g.delegable(auth.DatabaseRead))
 	p.POST("/cron-jobs", cj.Create, g.delegable(auth.DatabaseWrite), g.writeGate)
 	p.GET("/cron-jobs/:jobID", cj.Get, g.delegable(auth.DatabaseRead))
@@ -66,11 +68,11 @@ func mountGoRoutes(e *echo.Echo, deps Dependencies) {
 	}
 	authMW := deps.authMW()
 	delegable := func(perm auth.Permission) echo.MiddlewareFunc {
-		return auth.RequireDelegable(perm, PrincipalFromContext, auth.DelegationMark())
+		return auth.RequireDelegable(perm, httpkit.PrincipalFromContext, auth.DelegationMark())
 	}
-	h := NewGoFunctionHandler(deps.System, deps.Config.Instance.Writable, deps.Audit, deps.Config.Limits.MaxConcurrentGoRuns).WithRunner(deps.FunctionRunner)
-	goGrp := e.Group("/go/:projectID", authMW, newRateLimiter(deps.Config.Limits.RateLimit, deps.Metrics).middleware(postAuthStage), projectContextMiddlewareEcho(deps))
+	h := functionhttp.NewGoFunctionHandler(deps.System, deps.Config.Instance.Writable, deps.Audit, deps.Config.Limits.MaxConcurrentGoRuns).WithRunner(deps.FunctionRunner)
+	goGrp := e.Group("/go/:projectID", authMW, newRateLimiter(deps.Config.Limits.RateLimit, deps.Metrics).middleware(postAuthStage), projectContextMiddlewareEcho(deps.Catalog))
 	goGrp.POST("/:name/:functionName", h.Invoke, delegable(auth.DatabaseRead))
 	// 405 JSON：防止浏览器 GET 掉进 SPA index.html（验收 G11）；GET 不可委托。
-	goGrp.GET("/:name/:functionName", h.MethodNotAllowed, auth.Require(auth.DatabaseRead, PrincipalFromContext))
+	goGrp.GET("/:name/:functionName", h.MethodNotAllowed, auth.Require(auth.DatabaseRead, httpkit.PrincipalFromContext))
 }

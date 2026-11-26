@@ -38,17 +38,17 @@ func TestStageAuthObserverWritesSubStages(t *testing.T) {
 	timer := newStageTimer(context.Background())
 	obs := newStageAuthObserver()
 
-	obs.ObserveAuthStage(timer.ctx, auth.AuthStageLockWait, 1500*time.Microsecond)
-	obs.ObserveAuthStage(timer.ctx, auth.AuthStageUserLoad, 800*time.Microsecond)
-	obs.ObserveAuthStage(timer.ctx, auth.AuthStageUserConn, 100*time.Microsecond)
-	obs.ObserveAuthStage(timer.ctx, auth.AuthStageUserQuery, 200*time.Microsecond)
-	obs.ObserveAuthStage(timer.ctx, auth.AuthStageUserScan, 300*time.Microsecond)
-	obs.ObserveAuthStage(timer.ctx, auth.AuthStageFlightWait, 400*time.Microsecond)
-	obs.ObserveAuthStage(timer.ctx, auth.AuthStageFlightLoad, 500*time.Microsecond)
-	obs.ObserveAuthStage(timer.ctx, auth.AuthStageProjectExpand, 200*time.Microsecond)
-	obs.ObserveAuthStage(timer.ctx, auth.AuthStageSessionLoad, 50*time.Microsecond)
-	obs.ObserveAuthStage(timer.ctx, auth.AuthStageKeyLoad, 30*time.Microsecond)
-	obs.ObserveAuthCache(timer.ctx, auth.AuthCacheMiss)
+	obs.ObserveAuthStage(timer.WithContext(context.Background()), auth.AuthStageLockWait, 1500*time.Microsecond)
+	obs.ObserveAuthStage(timer.WithContext(context.Background()), auth.AuthStageUserLoad, 800*time.Microsecond)
+	obs.ObserveAuthStage(timer.WithContext(context.Background()), auth.AuthStageUserConn, 100*time.Microsecond)
+	obs.ObserveAuthStage(timer.WithContext(context.Background()), auth.AuthStageUserQuery, 200*time.Microsecond)
+	obs.ObserveAuthStage(timer.WithContext(context.Background()), auth.AuthStageUserScan, 300*time.Microsecond)
+	obs.ObserveAuthStage(timer.WithContext(context.Background()), auth.AuthStageFlightWait, 400*time.Microsecond)
+	obs.ObserveAuthStage(timer.WithContext(context.Background()), auth.AuthStageFlightLoad, 500*time.Microsecond)
+	obs.ObserveAuthStage(timer.WithContext(context.Background()), auth.AuthStageProjectExpand, 200*time.Microsecond)
+	obs.ObserveAuthStage(timer.WithContext(context.Background()), auth.AuthStageSessionLoad, 50*time.Microsecond)
+	obs.ObserveAuthStage(timer.WithContext(context.Background()), auth.AuthStageKeyLoad, 30*time.Microsecond)
+	obs.ObserveAuthCache(timer.WithContext(context.Background()), auth.AuthCacheMiss)
 
 	spent, _ := timer.Snapshot()
 	if spent[StageAuthLock] != 1500*time.Microsecond {
@@ -79,7 +79,7 @@ func TestStageAuthObserverWritesSubStages(t *testing.T) {
 		t.Fatalf("miss meta=%d", timer.Meta("auth_cache"))
 	}
 
-	obs.ObserveAuthCache(timer.ctx, auth.AuthCacheHit)
+	obs.ObserveAuthCache(timer.WithContext(context.Background()), auth.AuthCacheHit)
 	if timer.Meta("auth_cache") != 1 {
 		t.Fatalf("hit meta=%d", timer.Meta("auth_cache"))
 	}

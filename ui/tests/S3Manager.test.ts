@@ -32,6 +32,17 @@ async function changeFile(wrapper: Awaited<ReturnType<typeof mountWithApp>>['wra
   await input.trigger('change')
   await flushPromises()
 }
+function folderFile(path: string) {
+  const file = fileNamed(path.split('/').pop() || path)
+  Object.defineProperty(file, 'webkitRelativePath', { value: path, configurable: true })
+  return file
+}
+async function changeFolder(wrapper: Awaited<ReturnType<typeof mountWithApp>>['wrapper'], files: File[]) {
+  const input = wrapper.get('input[webkitdirectory]')
+  Object.defineProperty(input.element, 'files', { value: files, configurable: true })
+  await input.trigger('change')
+  await flushPromises()
+}
 
 installJsdomPolyfills()
 
@@ -360,5 +371,43 @@ describe('S3Manager (对象存储)', () => {
       expect(wrapper.text()).toContain('docs/')
       expect((wrapper.vm as any).publicHint('')).toBe('')
     })
+  })
+
+  it('uploads a selected folder preserving relative paths and skipping noise files', async () => {
+    const { wrapper } = await mountWithApp(S3Manager, { stubs: { ...realDialogStubs, ...realAlertDialogStubs } })
+    await changeFolder(wrapper, [
+      folderFile('dist/index.html'),
+      folderFile('dist/assets/app.js'),
+      folderFile('dist/.DS_Store')
+    ])
+    const keys = api.s3.upload.mock.calls.map((call) => call[1])
+    expect(keys).toEqual(['index.html', 'assets/app.js'])
+    expect(toast.success).toHaveBeenCalledWith('已上传 2 个文件')
+  })
+
+  it('cancels an in-flight folder upload', async () => {
+    const { wrapper } = await mountWithApp(S3Manager, { stubs: { ...realDialogStubs, ...realAlertDialogStubs } })
+    let aborted = false
+    api.s3.upload.mockImplementation(
+      (_pid: string, _key: string, _file: File, _pct: (n: number) => void, signal?: AbortSignal) =>
+        new Promise((_resolve, reject) => {
+          signal?.addEventListener('abort', () => {
+            aborted = true
+            reject(new Error('aborted'))
+          })
+        })
+    )
+    const input = wrapper.get('input[webkitdirectory]')
+    Object.defineProperty(input.element, 'files', {
+      value: [folderFile('dist/a.txt'), folderFile('dist/b.txt')],
+      configurable: true
+    })
+    await input.trigger('change')
+    await flushPromises()
+    await clickText(wrapper, '取消上传')
+    await flushPromises()
+    expect(aborted).toBe(true)
+    expect(api.s3.upload).toHaveBeenCalledTimes(1)
+    expect(toast.info).toHaveBeenCalledWith('已取消上传，已完成 0 个文件')
   })
 })

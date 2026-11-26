@@ -2,7 +2,7 @@
 //
 // 用法
 //
-//	同包调用：scopedPolicy() → realtime_handler.go；policyGate() → router.go
+//	同包调用：scopedPolicy() → ；policyGate() → router.go
 //
 // 调用架构
 //
@@ -13,8 +13,8 @@
 //	         │ 依赖
 //	         ▼
 //	[下游] internal/auth
-//	[同包] adapter.go, agent_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
-//	[关键引用] scopedPolicy() ← realtime_handler.go
+//	[同包] backup_handler.go, data_compat.go, error.go, file_compat.go, function_compat.go, health.go, mcp_builtin.go, mcp_builtin_admin.go 等 28 个
+//	[关键引用] scopedPolicy() ←（见各子包）
 //
 // 主要符号
 //
@@ -25,6 +25,7 @@
 package api
 
 import (
+	"github.com/linkxzhou/SimpleBase/internal/api/httpkit"
 	"net/http"
 	"strings"
 	"time"
@@ -35,7 +36,7 @@ import (
 
 func policyGate(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		principal, ok := PrincipalFromContext(c.Request().Context())
+		principal, ok := httpkit.PrincipalFromContext(c.Request().Context())
 		if !ok || principal.Scope == nil {
 			return next(c)
 		}
@@ -53,7 +54,7 @@ func policyGate(next echo.HandlerFunc) echo.HandlerFunc {
 			action = "invoke"
 		}
 		if !principal.Scope.Allows(policyResource(c), action, time.Now().UTC()) {
-			return WriteError(c, NewAPIError(http.StatusForbidden, "key_scope_denied", "key scope denied", requestID(c)))
+			return httpkit.WriteError(c, httpkit.NewAPIError(http.StatusForbidden, "key_scope_denied", "key scope denied", httpkit.RequestID(c)))
 		}
 		return next(c)
 	}
@@ -88,6 +89,6 @@ func policyResource(c echo.Context) string {
 }
 
 func scopedPolicy(c echo.Context) *auth.KeyPolicy {
-	principal := principalOf(c)
+	principal := httpkit.PrincipalOf(c)
 	return principal.Scope
 }

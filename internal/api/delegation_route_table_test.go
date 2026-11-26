@@ -61,6 +61,7 @@ var expectedDelegableRoutes = map[string]bool{
 	"GET /v1/projects/:projectID/databases/:databaseID/data/collections":                              true,
 	"POST /v1/projects/:projectID/databases/:databaseID/data/collections":                             true,
 	"GET /v1/projects/:projectID/databases/:databaseID/data/collections/:collection":                  true,
+	"GET /v1/projects/:projectID/databases/:databaseID/data/collections/:collection/access":           true,
 	"POST /v1/projects/:projectID/databases/:databaseID/data/collections/:collection/import":          true,
 	"DELETE /v1/projects/:projectID/databases/:databaseID/data/collections/:collection":               true,
 	"POST /v1/projects/:projectID/databases/:databaseID/data/collections/:collection/documents":       true,

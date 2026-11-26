@@ -67,4 +67,3 @@ func TestParseFieldsAndPickGolden(t *testing.T) {
 		t.Fatalf("nested = %v %v", v, ok)
 	}
 }
-

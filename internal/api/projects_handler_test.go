@@ -42,6 +42,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/linkxzhou/SimpleBase/internal/api/datahttp"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 )
@@ -88,7 +89,7 @@ func (f *fakeProjectCatalog) CreateProject(_ context.Context, _ auth.Principal, 
 	return f.created, nil
 }
 
-func setupProjectsRouter(t *testing.T, cat CatalogService, perms ...auth.Permission) *echo.Echo {
+func setupProjectsRouter(t *testing.T, cat datahttp.CatalogService, perms ...auth.Permission) *echo.Echo {
 	t.Helper()
 	e := echo.New()
 	e.HideBanner = true

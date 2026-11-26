@@ -23,6 +23,9 @@ package app
 
 import (
 	"context"
+	"github.com/linkxzhou/SimpleBase/internal/api/cataloghttp"
+	"github.com/linkxzhou/SimpleBase/internal/api/datahttp"
+	"github.com/linkxzhou/SimpleBase/internal/api/httpkit"
 	"net/http"
 	"time"
 
@@ -31,6 +34,9 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/agentbridge"
 	"github.com/linkxzhou/SimpleBase/internal/agentrun"
 	"github.com/linkxzhou/SimpleBase/internal/api"
+	"github.com/linkxzhou/SimpleBase/internal/api/backuphttp"
+	"github.com/linkxzhou/SimpleBase/internal/api/functionhttp"
+	"github.com/linkxzhou/SimpleBase/internal/api/sandboxhttp"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/collection"
 	"github.com/linkxzhou/SimpleBase/internal/config"
@@ -43,53 +49,53 @@ import (
 )
 
 type apiHandlers struct {
-	database        *api.DatabaseHandler
-	sql             *api.SQLHandler
-	data            *api.DataHandler
-	collectionMeta  *api.CollectionMetaHandler
-	backup          *api.BackupHandler
-	realtime        *api.RealtimeHandler
+	database        *datahttp.DatabaseHandler
+	sql             *datahttp.SQLHandler
+	data            *datahttp.DataHandler
+	collectionMeta  *datahttp.CollectionMetaHandler
+	backup          *backuphttp.Handler
+	realtime        *datahttp.RealtimeHandler
 	functionRunner  *functionrun.Runner
-	functionTrigger *api.FunctionTriggerHandler
+	functionTrigger *functionhttp.FunctionTriggerHandler
 	events          *eventFanout
-	schema          *api.SchemaHandler
-	kv              *api.KVHandler
-	kvService       api.KVService
-	kvInit          api.KVInitializer
-	terminal        *api.TerminalBridge
+	schema          *datahttp.SchemaHandler
+	kv              *datahttp.KVHandler
+	kvService       datahttp.KVService
+	kvInit          cataloghttp.KVInitializer
+	terminal        *sandboxhttp.TerminalBridge
 	runtime         *cloudagent.Runtime
 	agentRun        *agentrun.Service
 	cronScheduler   *cronjob.Scheduler
 }
 
-func (a *App) assembleDatabaseHandler(cfg config.Config) (*api.DatabaseHandler, api.KVInitializer) {
+func (a *App) assembleDatabaseHandler(cfg config.Config) (*datahttp.DatabaseHandler, cataloghttp.KVInitializer) {
 	// 删库清空用户数据（保留 KV / 项目文件 / 备份），并同步清理集合元数据。
 	var purgerSchemas collectionCleaner
 	if a.systemStore != nil {
 		purgerSchemas = collection.NewRepository(a.systemStore.DB(), a.systemStore.NotifyWrite)
 	}
-	dbHandler := api.NewDatabaseHandler(
-		api.NewDatabaseServiceAdapter(a.catalog, dbbridge.RegistryFrom(a.registry), newProjectPurger(a.fileFactory, a.fileSyncer, a.registry, purgerSchemas)),
+	dbHandler := datahttp.NewDatabaseHandler(
+		datahttp.NewDatabaseServiceAdapter(a.catalog, dbbridge.RegistryFrom(a.registry), newProjectPurger(a.fileFactory, a.fileSyncer, a.registry, purgerSchemas)),
 		cfg.Instance.Writable,
 	)
 	kvInit := a.kvInitializer()
 	if a.fileFactory != nil {
 		f := a.fileFactory
-		dbHandler.SnapshotFor = func(databaseID string) *api.DatabaseSnapshot {
+		dbHandler.SnapshotFor = func(databaseID string) *datahttp.DatabaseSnapshot {
 			return snapshotFromFileFactory(f, databaseID)
 		}
 	}
 	// 数据库列表「数据量」列使用缓存 + 后台有界并发刷新，避免逐库同步 COUNT(*)。
-	sqlSvcForStats := api.NewSQLServiceAdapter(a.catalog, dbbridge.RegistryFrom(a.registry), a.systemStore)
+	sqlSvcForStats := datahttp.NewSQLServiceAdapter(a.catalog, dbbridge.RegistryFrom(a.registry), a.systemStore)
 	countRows := func(ctx context.Context, db catalog.Database) (int64, error) {
-		return api.CountDatabaseRows(ctx, sqlSvcForStats, db)
+		return datahttp.CountDatabaseRows(ctx, sqlSvcForStats, db)
 	}
 	dbHandler.RowCountFor = countRows
 	var rowWatermark func(dbID string) (int64, int64)
 	if a.fileFactory != nil {
 		rowWatermark = a.fileFactory.SnapshotStatus
 	}
-	dbHandler.RowCounts = api.NewRowCountCache(api.RowCountCacheOptions{
+	dbHandler.RowCounts = datahttp.NewRowCountCache(datahttp.RowCountCacheOptions{
 		Count:     countRows,
 		Watermark: rowWatermark,
 		Logger:    a.logger,
@@ -99,13 +105,13 @@ func (a *App) assembleDatabaseHandler(cfg config.Config) (*api.DatabaseHandler, 
 
 // assembleFunctionPlane 构造云函数执行器与触发器队列。不向 fan-out 登记订阅方：
 // 领域事件的接线由 NewWithRegistry 在本函数返回后一次性完成（app.go、event_fanout.go）。
-func (a *App) assembleFunctionPlane(cfg config.Config) (*functionrun.Runner, *api.FunctionTriggerHandler) {
+func (a *App) assembleFunctionPlane(cfg config.Config) (*functionrun.Runner, *functionhttp.FunctionTriggerHandler) {
 	if a.systemStore == nil {
 		return nil, nil
 	}
 	functionRunner := functionrun.NewRunner(a.systemStore, cfg.Limits.MaxConcurrentGoRuns)
 	a.triggerDispatcher = trigger.NewDispatcher(a.systemStore, functionRunner, 1024, 4)
-	functionTriggerHandler := api.NewFunctionTriggerHandler(a.systemStore, a.triggerDispatcher, cfg.Instance.Writable)
+	functionTriggerHandler := functionhttp.NewFunctionTriggerHandler(a.systemStore, a.triggerDispatcher, cfg.Instance.Writable)
 	return functionRunner, functionTriggerHandler
 }
 
@@ -163,12 +169,13 @@ func (a *App) buildAPIDeps(cfg config.Config, reg prometheus.Registerer, h apiHa
 		KVHandler:              h.kv,
 		KVService:              h.kvService,
 		KVInit:                 h.kvInit,
-		Cache:                  api.NewCacheService(a.cacheMgr),
-		Usage:                  api.NewUsageService(a.usageSvc),
-		Audit:                  api.NewAuditService(a.auditSvc),
-		LLM:                    api.NewLLMService(a.llmSvc),
+		Cache:                  httpkit.NewCacheService(a.cacheMgr),
+		Usage:                  httpkit.NewUsageService(a.usageSvc),
+		Audit:                  httpkit.NewAuditService(a.auditSvc),
+		LLM:                    httpkit.NewLLMService(a.llmSvc),
 		S3FileStore:            a.fileStore,
 		System:                 a.systemStore,
+		SiteTraffic:            a.usageSvc,
 		CloudAgent:             h.runtime,
 		AgentRun:               h.agentRun,
 		Delegations:            a.delegations,

@@ -2,7 +2,7 @@
 //
 // 用法
 //
-//	同包调用：mcpServerHandler → mcp_builtin_admin.go, mcp_handler_test.go；mcpTestResult → mcp_builtin_admin.go
+//	同包调用：mcpServerHandler → mcp_builtin_admin.go, ；mcpTestResult → mcp_builtin_admin.go
 //
 // 调用架构
 //
@@ -13,8 +13,8 @@
 //	         │ 依赖
 //	         ▼
 //	[下游] 仅标准库 / 第三方
-//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
-//	[关键引用] mcpServerHandler ← mcp_builtin_admin.go, mcp_handler_test.go；mcpTestResult ← mcp_builtin_admin.go
+//	[同包] backup_handler.go, data_compat.go, error.go, file_compat.go, function_compat.go, health.go, mcp_builtin.go, mcp_builtin_admin.go 等 28 个
+//	[关键引用] mcpServerHandler ← mcp_builtin_admin.go, ；mcpTestResult ← mcp_builtin_admin.go
 //
 // 主要符号
 //
@@ -39,6 +39,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/linkxzhou/SimpleBase/internal/api/httpkit"
 	"net/http"
 	"strings"
 	"time"
@@ -58,13 +59,12 @@ type mcpServerHandler struct {
 	testConnect func(ctx context.Context, srv systemdb.MCPServer) ([]string, error)
 	// builtin 为 nil 表示实例级开关关闭（agent.mcp.builtin=false）。
 	builtin *builtinMCPHandler
-	audit   AuditService
-	// publicURL / publicOverride 用于拼内置 MCP 的对外端点（public_base.go 三级回退）。
+	audit   httpkit.AuditService
+	// publicURL / publicOverride 用于拼内置 MCP 的对外端点（httpkit.PublicBaseURL 三级回退）。
 	publicURL, publicOverride string
 }
 
-// ErrMCPNameReserved 表示 Server 名占用了内置 MCP 的保留名（simplebase、sb-*）。
-var ErrMCPNameReserved = errors.New("mcp server name is reserved")
+// httpkit.ErrMCPNameReserved 表示 Server 名占用了内置 MCP 的保留名（simplebase、sb-*）。
 
 type mcpServerDTO struct {
 	ID            string         `json:"id"`
@@ -112,13 +112,13 @@ func toMCPServerDTO(m systemdb.MCPServer) mcpServerDTO {
 }
 
 func (h *mcpServerHandler) List(c echo.Context) error {
-	pc, err := requireProject(c)
+	pc, err := httpkit.RequireProject(c)
 	if err != nil {
-		return WriteError(c, err)
+		return httpkit.WriteError(c, err)
 	}
 	list, err := h.store.ListMCPServers(c.Request().Context(), pc.ID)
 	if err != nil {
-		return WriteError(c, err)
+		return httpkit.WriteError(c, err)
 	}
 	out := make([]mcpServerDTO, 0, len(list))
 	for _, m := range list {
@@ -137,46 +137,46 @@ type mcpServerBody struct {
 }
 
 func (h *mcpServerHandler) Create(c echo.Context) error {
-	pc, err := requireProject(c)
+	pc, err := httpkit.RequireProject(c)
 	if err != nil {
-		return WriteError(c, err)
+		return httpkit.WriteError(c, err)
 	}
 	if h.writableGuard(c) != nil {
 		return nil
 	}
 	var body mcpServerBody
 	if err := c.Bind(&body); err != nil {
-		return WriteError(c, err)
+		return httpkit.WriteError(c, err)
 	}
 	name := strings.TrimSpace(body.Name)
 	if name == "" {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "name is required"))
+		return httpkit.WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "name is required"))
 	}
 	if !validMCPName(name) {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "name must match [A-Za-z0-9_-]+"))
+		return httpkit.WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "name must match [A-Za-z0-9_-]+"))
 	}
 	if reservedMCPName(name) {
-		return WriteError(c, ErrMCPNameReserved)
+		return httpkit.WriteError(c, httpkit.ErrMCPNameReserved)
 	}
 	url := strings.TrimSpace(body.URL)
 	if url == "" {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "url is required"))
+		return httpkit.WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "url is required"))
 	}
 	// 上限校验：避免单项目把配置表撑爆（§6-4）。
 	n, err := h.store.CountMCPServers(c.Request().Context(), pc.ID)
 	if err != nil {
-		return WriteError(c, err)
+		return httpkit.WriteError(c, err)
 	}
 	if limit := h.maxServers(); limit > 0 && n >= limit {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "too many mcp servers for this project"))
+		return httpkit.WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "too many mcp servers for this project"))
 	}
 	headersJSON, err := json.Marshal(body.Headers)
 	if err != nil {
-		return WriteError(c, err)
+		return httpkit.WriteError(c, err)
 	}
 	policyJSON, err := json.Marshal(body.ToolsPolicy)
 	if err != nil {
-		return WriteError(c, err)
+		return httpkit.WriteError(c, err)
 	}
 	enabled := true
 	if body.Enabled != nil {
@@ -193,15 +193,15 @@ func (h *mcpServerHandler) Create(c echo.Context) error {
 		ToolsPolicyJSON: string(policyJSON),
 	})
 	if err != nil {
-		return WriteError(c, err)
+		return httpkit.WriteError(c, err)
 	}
 	return c.JSON(http.StatusOK, toMCPServerDTO(saved))
 }
 
 func (h *mcpServerHandler) Update(c echo.Context) error {
-	pc, err := requireProject(c)
+	pc, err := httpkit.RequireProject(c)
 	if err != nil {
-		return WriteError(c, err)
+		return httpkit.WriteError(c, err)
 	}
 	if h.writableGuard(c) != nil {
 		return nil
@@ -209,21 +209,21 @@ func (h *mcpServerHandler) Update(c echo.Context) error {
 	id := c.Param("serverID")
 	cur, err := h.store.GetMCPServer(c.Request().Context(), pc.ID, id)
 	if errors.Is(err, sql.ErrNoRows) {
-		return WriteError(c, echo.NewHTTPError(http.StatusNotFound, "mcp server not found"))
+		return httpkit.WriteError(c, echo.NewHTTPError(http.StatusNotFound, "mcp server not found"))
 	}
 	if err != nil {
-		return WriteError(c, err)
+		return httpkit.WriteError(c, err)
 	}
 	var body mcpServerBody
 	if err := c.Bind(&body); err != nil {
-		return WriteError(c, err)
+		return httpkit.WriteError(c, err)
 	}
 	if v := strings.TrimSpace(body.Name); v != "" {
 		if !validMCPName(v) {
-			return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "name must match [A-Za-z0-9_-]+"))
+			return httpkit.WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "name must match [A-Za-z0-9_-]+"))
 		}
 		if reservedMCPName(v) && !strings.EqualFold(v, cur.Name) {
-			return WriteError(c, ErrMCPNameReserved)
+			return httpkit.WriteError(c, httpkit.ErrMCPNameReserved)
 		}
 		cur.Name = v
 	}
@@ -234,14 +234,14 @@ func (h *mcpServerHandler) Update(c echo.Context) error {
 	if body.Headers != nil {
 		b, err := json.Marshal(body.Headers)
 		if err != nil {
-			return WriteError(c, err)
+			return httpkit.WriteError(c, err)
 		}
 		cur.HeadersJSON = string(b)
 	}
 	if body.ToolsPolicy != nil {
 		b, err := json.Marshal(body.ToolsPolicy)
 		if err != nil {
-			return WriteError(c, err)
+			return httpkit.WriteError(c, err)
 		}
 		cur.ToolsPolicyJSON = string(b)
 	}
@@ -253,24 +253,24 @@ func (h *mcpServerHandler) Update(c echo.Context) error {
 	}
 	saved, err := h.store.UpdateMCPServer(c.Request().Context(), cur)
 	if err != nil {
-		return WriteError(c, err)
+		return httpkit.WriteError(c, err)
 	}
 	return c.JSON(http.StatusOK, toMCPServerDTO(saved))
 }
 
 func (h *mcpServerHandler) Delete(c echo.Context) error {
-	pc, err := requireProject(c)
+	pc, err := httpkit.RequireProject(c)
 	if err != nil {
-		return WriteError(c, err)
+		return httpkit.WriteError(c, err)
 	}
 	if h.writableGuard(c) != nil {
 		return nil
 	}
 	if err := h.store.ArchiveMCPServer(c.Request().Context(), pc.ID, c.Param("serverID")); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return WriteError(c, echo.NewHTTPError(http.StatusNotFound, "mcp server not found"))
+			return httpkit.WriteError(c, echo.NewHTTPError(http.StatusNotFound, "mcp server not found"))
 		}
-		return WriteError(c, err)
+		return httpkit.WriteError(c, err)
 	}
 	return c.JSON(http.StatusOK, map[string]any{"ok": true})
 }
@@ -284,19 +284,19 @@ type mcpTestResult struct {
 
 // Test 建立一次临时连接并列出工具（planv6.2 §6-2）。
 func (h *mcpServerHandler) Test(c echo.Context) error {
-	pc, err := requireProject(c)
+	pc, err := httpkit.RequireProject(c)
 	if err != nil {
-		return WriteError(c, err)
+		return httpkit.WriteError(c, err)
 	}
 	if h.testConnect == nil {
-		return WriteError(c, echo.NewHTTPError(http.StatusServiceUnavailable, "mcp is not enabled"))
+		return httpkit.WriteError(c, echo.NewHTTPError(http.StatusServiceUnavailable, "mcp is not enabled"))
 	}
 	srv, err := h.store.GetMCPServer(c.Request().Context(), pc.ID, c.Param("serverID"))
 	if errors.Is(err, sql.ErrNoRows) {
-		return WriteError(c, echo.NewHTTPError(http.StatusNotFound, "mcp server not found"))
+		return httpkit.WriteError(c, echo.NewHTTPError(http.StatusNotFound, "mcp server not found"))
 	}
 	if err != nil {
-		return WriteError(c, err)
+		return httpkit.WriteError(c, err)
 	}
 	// 测试有明确超时上限：不跟随 Server 配置里的长超时，避免挂住请求。
 	ctx, cancel := context.WithTimeout(c.Request().Context(), mcp.DefaultConnectTimeout*2)
@@ -311,12 +311,12 @@ func (h *mcpServerHandler) Test(c echo.Context) error {
 
 // writableGuard 是写接口的前置检查：只读实例拒绝写入。
 func (h *mcpServerHandler) writableGuard(c echo.Context) error {
-	p, ok := PrincipalFromContext(c.Request().Context())
+	p, ok := httpkit.PrincipalFromContext(c.Request().Context())
 	if !ok {
 		return nil
 	}
 	if !canWriteMCP(p) {
-		_ = WriteError(c, echo.NewHTTPError(http.StatusForbidden, "write permission required"))
+		_ = httpkit.WriteError(c, echo.NewHTTPError(http.StatusForbidden, "write permission required"))
 		return errors.New("forbidden")
 	}
 	return nil

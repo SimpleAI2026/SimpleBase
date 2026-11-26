@@ -140,11 +140,19 @@ type LLMProviders struct {
 // ProjectQuota 是 project 维度的资源配额（plan9.md）。
 // 零值表示不限制。数据库与 LLM 共用 project 维度但资源池独立。
 type ProjectQuota struct {
-	ProjectID       string
-	MaxDatabases    int   // 最大数据库数；0 不限
-	MaxStorageBytes int64 // 最大存储字节；0 不限
-	MaxLLMRequests  int64 // 每周期最大 LLM 请求数；0 不限
-	MaxLLMTokens    int64 // 每周期最大 LLM token 数；0 不限
-	PeriodSeconds   int   // 配额周期秒数；默认 3600
-	UpdatedAt       time.Time
+	ProjectID          string
+	MaxDatabases       int   // 最大数据库数；0 不限
+	MaxStorageBytes    int64 // 最大存储字节；0 不限
+	MaxLLMRequests     int64 // 每周期最大 LLM 请求数；0 不限
+	MaxLLMTokens       int64 // 每周期最大 LLM token 数；0 不限
+	MaxSiteRequests    int64 // 站点每日最大请求数；0 不限
+	MaxSiteEgressBytes int64 // 站点每日最大出口字节；0 不限
+	PeriodSeconds      int   // 配额周期秒数；默认 3600（站点固定按 UTC 日聚合）
+	UpdatedAt          time.Time
+}
+
+// SiteTraffic 是单项目单日的站点流量累计。
+type SiteTraffic struct {
+	Requests int64
+	Bytes    int64
 }

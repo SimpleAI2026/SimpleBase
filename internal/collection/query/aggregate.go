@@ -92,8 +92,17 @@ func ParseAggregateQuery(values url.Values, source string, schema *collection.Co
 	return ParseAggregateEnv(values, source, CollectionEnv(schema, dialect))
 }
 
+// ParseAggregateQueryFiltered 在用户过滤之外追加服务端条件（如 owner 行级过滤）。
+func ParseAggregateQueryFiltered(values url.Values, source string, schema *collection.Collection, dialect godatabase.Dialect, extraWhere string, extraArgs []any) (AggregateQuery, error) {
+	return parseAggregateEnv(values, source, CollectionEnv(schema, dialect), extraWhere, extraArgs)
+}
+
 // ParseAggregateEnv 是聚合解析的共用入口：集合与 SQL 表只在 env（字段解析、过滤、散点排序）上不同。
 func ParseAggregateEnv(values url.Values, source string, env AggregateEnv) (AggregateQuery, error) {
+	return parseAggregateEnv(values, source, env, "", nil)
+}
+
+func parseAggregateEnv(values url.Values, source string, env AggregateEnv, extraWhere string, extraArgs []any) (AggregateQuery, error) {
 	mode := strings.TrimSpace(values.Get("mode"))
 	if mode != "" && mode != "points" {
 		return AggregateQuery{}, collection.InvalidQuery("mode must be points")
@@ -105,6 +114,14 @@ func ParseAggregateEnv(values url.Values, source string, env AggregateEnv) (Aggr
 	filterSQL, filterArgs, err := env.Filter(values.Get("filter"))
 	if err != nil {
 		return AggregateQuery{}, err
+	}
+	if extraWhere != "" {
+		if filterSQL == "" {
+			filterSQL = extraWhere
+		} else {
+			filterSQL = "(" + filterSQL + ") AND " + extraWhere
+		}
+		filterArgs = append(filterArgs, extraArgs...)
 	}
 	where := ""
 	if filterSQL != "" {

@@ -1,5 +1,5 @@
 /**
- * 云助手空会话的提示词（plan/planv6.7/legacy-plan-consolidation-plan.md §4.8）。
+ * 云助手空会话的提示词。
  *
  * 只登记 i18n key，文案在 `locales/zh-CN.ts` + `en-US.ts` 的
  * `pages.agents.prompts.<module>.<n>`。按 Agent 的 module 取，

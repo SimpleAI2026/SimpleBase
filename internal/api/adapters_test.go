@@ -1,33 +1,25 @@
-// 文件说明：adapters_test.go — internal/api 的单元测试（TestDatabaseServiceAdapter、TestSQLServiceAdapter 等）
+// 文件说明：adapters_test.go — httpkit 共享端口适配器用例（缓存 / 配额 / 审计 / LLM）
 //
 // 用法
 //
-//	go test ./internal/api -run 'TestDatabaseServiceAdapter|TestSQLServiceAdapter|TestSystemLeaseAdapter|TestSQLLeaseAdapter_WithRegistry'
-//	同包调用：stubCatalog → agent_skills_router_e2e_test.go, oai_e2e_test.go
+//	go test ./internal/api -run 'TestPlan79ConstructorsNil|TestCacheServiceAdapter|TestUsageAndAuditAdapters|TestLLMServiceAdapter'
 //
 // 调用架构
 //
-//	[上游] internal/app
-//	         │ 调用本包导出 API
+//	[上游] 本包测试（路由级用例复用 stubCatalog）
+//	         │ 同包调用
 //	         ▼
 //	[本文件] internal/api/adapters_test.go
 //	         │ 依赖
 //	         ▼
-//	[下游] 仅标准库 / 第三方
-//	[同包] adapter.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go, agent_dto.go 等 207 个
-//	[关键引用] stubCatalog ← agent_skills_router_e2e_test.go, oai_e2e_test.go
+//	[下游] internal/api/httpkit（被测适配器）、internal/llmgateway、godatabase/cache
 //
 // 主要符号
 //
-//	type stubCatalog struct{…}
-//	(s *stubCatalog) CreateDatabase(_ context.Context, in catalog.CreateDatabaseInput) (catalog.Database, error)
-//	(s *stubCatalog) GetDatabase(context.Context, auth.Principal, string, string) (catalog.Database, error)
-//	(s *stubCatalog) ListDatabases(context.Context, auth.Principal, string, catalog.Page) ([]catalog.Database, str...
-//	(s *stubCatalog) BeginDeleteDatabase(context.Context, auth.Principal, string, string) (catalog.Database, error...
-//	(s *stubCatalog) DeleteDatabaseSync(_ context.Context, _ auth.Principal, _, id string, closer func(context.Con...
-//	(s *stubCatalog) ResolveProjectTenant(context.Context, string) (string, error)
-//	(s *stubCatalog) ListProjects(context.Context, auth.Principal) ([]catalog.Project, error)
-//	... 另有 27 个顶层符号
+//	stubCatalog（路由级用例复用的 catalog 桩）
+//	TestPlan79ConstructorsNil / TestCacheServiceAdapter / TestUsageAndAuditAdapters / TestLLMServiceAdapter
+//
+// 数据面适配器（DatabaseService / SQLService / lease）的用例已随实现迁到 internal/api/datahttp。
 
 package api
 
@@ -39,9 +31,9 @@ import (
 	"os"
 	"testing"
 
-	"github.com/linkxzhou/SimpleBase/godatabase"
+	"github.com/voocel/litellm/providers"
+
 	"github.com/linkxzhou/SimpleBase/godatabase/cache"
-	"github.com/linkxzhou/SimpleBase/godatabase/registry"
 	"github.com/linkxzhou/SimpleBase/internal/audit"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
@@ -49,9 +41,6 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 	"github.com/linkxzhou/SimpleBase/internal/usage"
-	"github.com/voocel/litellm/providers"
-
-	_ "github.com/uglyer/go-sqlite3"
 )
 
 type stubCatalog struct {
@@ -129,189 +118,6 @@ func (s *stubCatalog) CreateProject(_ context.Context, _ auth.Principal, in cata
 	}
 	s.createPrj = catalog.Project{ID: in.ID, Name: in.Name}
 	return s.createPrj, nil
-}
-
-type stubRegistry struct {
-	lease      *registry.Lease
-	acquireErr error
-	closeErr   error
-	closedID   string
-}
-
-func (s *stubRegistry) Acquire(context.Context, catalog.Database, godatabase.AccessMode) (*registry.Lease, error) {
-	if s.acquireErr != nil {
-		return nil, s.acquireErr
-	}
-	return s.lease, nil
-}
-func (s *stubRegistry) CloseDatabase(_ context.Context, id string) error {
-	s.closedID = id
-	return s.closeErr
-}
-
-type stubPurger struct{ n int }
-
-func (s *stubPurger) DeletePrefix(context.Context, string) error {
-	s.n++
-	return nil
-}
-
-type stubSystemStore struct {
-	meta catalog.Database
-	db   *sql.DB
-}
-
-func (s *stubSystemStore) Meta() catalog.Database { return s.meta }
-func (s *stubSystemStore) DB() *sql.DB            { return s.db }
-
-type memFactory struct{}
-
-func (memFactory) Open(_ context.Context, _ godatabase.Spec, _ godatabase.AccessMode) (*sql.DB, error) {
-	return sql.Open("sqlite3", ":memory:")
-}
-
-func TestDatabaseServiceAdapter(t *testing.T) {
-	cat := &stubCatalog{
-		db:     catalog.Database{ID: "db-1", Name: "n", ProjectID: "p"},
-		list:   []catalog.Database{{ID: "db-1"}},
-		tenant: "ten",
-	}
-	reg := &stubRegistry{lease: &registry.Lease{}}
-	purger := &stubPurger{}
-	svc := NewDatabaseServiceAdapter(cat, reg, purger)
-
-	ctx := context.Background()
-	p := auth.Principal{APIKeyID: "k"}
-	if _, err := svc.CreateDatabase(ctx, catalog.CreateDatabaseInput{Name: "x", ProjectID: "p"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.GetDatabase(ctx, p, "p", "db-1"); err != nil {
-		t.Fatal(err)
-	}
-	if list, cur, err := svc.ListDatabases(ctx, p, "p", catalog.Page{}); err != nil || cur != "next" || len(list) != 1 {
-		t.Fatalf("list=%v cur=%s err=%v", list, cur, err)
-	}
-	if _, err := svc.BeginDeleteDatabase(ctx, p, "p", "db-1"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.DeleteDatabase(ctx, p, "p", "db-1"); err != nil {
-		t.Fatal(err)
-	}
-	if purger.n != 1 {
-		t.Fatalf("purger calls=%d", purger.n)
-	}
-	if reg.closedID != "db-1" {
-		t.Fatalf("close id=%s", reg.closedID)
-	}
-	// nil purger still works
-	svc2 := NewDatabaseServiceAdapter(cat, reg, nil)
-	if _, err := svc2.DeleteDatabase(ctx, p, "p", "db-1"); err != nil {
-		t.Fatal(err)
-	}
-
-	reg.acquireErr = errors.New("no lease")
-	sqlSvc := NewSQLServiceAdapter(cat, reg, nil)
-	if _, err := sqlSvc.Acquire(ctx, cat.db, godatabase.ReadWrite); err == nil {
-		t.Fatal("expected acquire error")
-	}
-}
-
-func TestSQLServiceAdapter(t *testing.T) {
-	cat := &stubCatalog{db: catalog.Database{ID: "u1", Kind: catalog.DatabaseKindUser}, list: []catalog.Database{{ID: "u1"}}}
-	reg := &stubRegistry{lease: &registry.Lease{}}
-	sysDB, err := sql.Open("sqlite3", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = sysDB.Close() })
-	sys := &stubSystemStore{meta: catalog.Database{ID: "sys", Kind: catalog.DatabaseKindSystem}, db: sysDB}
-	svc := NewSQLServiceAdapter(cat, reg, sys)
-
-	ctx := context.Background()
-	p := auth.Principal{}
-	if _, err := svc.GetDatabase(ctx, p, "p", "u1"); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := svc.(*sqlServiceAdapter).ListDatabases(ctx, p, "p", catalog.Page{}); err != nil {
-		t.Fatal(err)
-	}
-
-	// system + readonly → systemLeaseAdapter
-	sysDBRow := catalog.Database{ID: "sys", Kind: catalog.DatabaseKindSystem}
-	lease, err := svc.Acquire(ctx, sysDBRow, godatabase.ReadOnly)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := lease.(*systemLeaseAdapter); !ok {
-		t.Fatalf("want systemLeaseAdapter, got %T", lease)
-	}
-
-	// user db → sqlLeaseAdapter (or acquire error)
-	userLease, err := svc.Acquire(ctx, cat.db, godatabase.ReadWrite)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := userLease.(*sqlLeaseAdapter); !ok {
-		t.Fatalf("want sqlLeaseAdapter, got %T", userLease)
-	}
-
-	reg.acquireErr = errors.New("boom")
-	if _, err := svc.Acquire(ctx, cat.db, godatabase.ReadOnly); err == nil {
-		t.Fatal("expected error")
-	}
-
-	// nil system: even system db goes to registry
-	reg.acquireErr = nil
-	svcNoSys := NewSQLServiceAdapter(cat, reg, nil)
-	l, err := svcNoSys.Acquire(ctx, sysDBRow, godatabase.ReadOnly)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := l.(*sqlLeaseAdapter); !ok {
-		t.Fatalf("nil system should use registry, got %T", l)
-	}
-}
-
-func TestSystemLeaseAdapter(t *testing.T) {
-	db, err := sql.Open("sqlite3", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	if _, err := db.Exec(`CREATE TABLE t(id INTEGER); INSERT INTO t VALUES (7)`); err != nil {
-		t.Fatal(err)
-	}
-	s := &systemLeaseAdapter{conn: db}
-	s.Release() // no-op
-	res, err := s.Query(context.Background(), godatabase.Statement{SQL: "SELECT id FROM t"}, 10)
-	if err != nil || len(res.Rows) != 1 {
-		t.Fatalf("query: %+v err=%v", res, err)
-	}
-	if _, err := s.Execute(context.Background(), godatabase.Statement{SQL: "DELETE FROM t"}); !errors.Is(err, catalog.ErrSystemProtected) {
-		t.Fatalf("execute: %v", err)
-	}
-	if _, err := s.Batch(context.Background(), nil, true); !errors.Is(err, catalog.ErrSystemProtected) {
-		t.Fatalf("batch: %v", err)
-	}
-}
-
-func TestSQLLeaseAdapter_WithRegistry(t *testing.T) {
-	reg := registry.New(memFactory{}, nil, registry.Options{Writable: true}, nil, nil)
-	lease, err := reg.Acquire(context.Background(), godatabase.Spec{ID: "db-sql", Status: godatabase.StatusReady}, godatabase.ReadWrite)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ad := &sqlLeaseAdapter{lease: lease}
-	if _, err := ad.Query(context.Background(), godatabase.Statement{SQL: "SELECT 1"}, 10); err != nil {
-		t.Fatalf("query: %v", err)
-	}
-	if _, err := ad.Execute(context.Background(), godatabase.Statement{SQL: "CREATE TABLE x(id INT)"}); err != nil {
-		t.Fatalf("execute: %v", err)
-	}
-	if _, err := ad.Batch(context.Background(), []godatabase.Statement{{SQL: "INSERT INTO x VALUES (1)"}}, true); err != nil {
-		t.Fatalf("batch: %v", err)
-	}
-	ad.Release()
 }
 
 func TestPlan79ConstructorsNil(t *testing.T) {
@@ -467,10 +273,17 @@ func TestLLMServiceAdapter(t *testing.T) {
 	}
 
 	// Next error path on adapter
-	bad := &llmStreamReaderAdapter{inner: &fakeGWStream{err: errors.New("chunk")}}
+	bad := &llmStreamReaderAdapter{Inner: &fakeGWStream{err: errors.New("chunk")}}
 	if _, err := bad.Next(); err == nil {
 		t.Fatal("expected next err")
 	}
 }
 
 var _ objectstore.Deleter = (*stubPurger)(nil)
+
+type stubPurger struct{ n int }
+
+func (s *stubPurger) DeletePrefix(context.Context, string) error {
+	s.n++
+	return nil
+}

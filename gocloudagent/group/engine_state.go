@@ -12,13 +12,14 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/linkxzhou/SimpleBase/gocloudagent/agentcore"
 	"github.com/linkxzhou/SimpleBase/gocloudagent/plan"
 )
 
 // ---------------------------------------------------------------------------
 // 内部辅助
 // ---------------------------------------------------------------------------
+
+const maxGroupContentChars = 2000
 
 var (
 	errNeedReplan  = errors.New("group: assistant requested replan")
@@ -235,10 +236,6 @@ func stepsOf(d plan.Decision, tasks []Task) []plan.Step {
 		}
 	}
 	return out
-}
-
-func truncate(s string) string {
-	return agentcore.Truncate(s, 2000)
 }
 
 // HistoryOf 返回轮次历史的副本（replan 上下文用）。

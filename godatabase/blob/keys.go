@@ -75,7 +75,7 @@ func (k KeyBuilder) ProjectPrefix(projectID string) (string, error) {
 	if err := ValidateProjectID(projectID); err != nil {
 		return "", err
 	}
-	return joinKey(k.base(), projectID), nil
+	return JoinKey(k.base(), projectID), nil
 }
 
 // DatabasePrefix 返回某个数据库的完整前缀（不含尾部 "/"）。
@@ -87,7 +87,7 @@ func (k KeyBuilder) DatabasePrefix(projectID, databaseID string) (string, error)
 	if err := validateID("database_id", databaseID); err != nil {
 		return "", err
 	}
-	return joinKey(k.base(), projectID, "databases", databaseID), nil
+	return JoinKey(k.base(), projectID, "databases", databaseID), nil
 }
 
 // DataPrefix 返回 data/ 子前缀（DuckLake DATA_PATH；本包不直接解析 Parquet）。
@@ -126,11 +126,12 @@ func validateID(name string, id string) error {
 	return nil
 }
 
-// joinKey 将若干已校验的分段拼成 key，并保证：
-//   - 不以 "/" 开头（避免 bucket 根路径歧义）
-//   - 不出现连续 "/"
-//   - 不出现 ".."
-func joinKey(parts ...string) string {
+// JoinKey 将若干分段拼成对象键：去掉每段前后的 "/"、跳过空段，再以单个 "/" 连接。
+// 因此结果不以 "/" 开头，段与段之间不出现连续的 "/"；段内部的字符原样保留。
+//
+// JoinKey 只负责拼接，不做校验：传入的分段必须已经过 ValidateProjectID / validateID，
+// 或者是代码里写死的常量名，这样结果里才不会出现 ".." 或路径穿越。
+func JoinKey(parts ...string) string {
 	cleaned := make([]string, 0, len(parts))
 	for _, p := range parts {
 		// 去掉前后多余 "/"，跳过空段
@@ -194,7 +195,7 @@ func (k KeyBuilder) RootListingPrefix() string {
 // InstanceFormatKey 返回实例级 catalog 格式标记对象键（ducklake-duckdb-catalog-plan §4.1）。
 // 与 CAS 探针同在 _system/ 下；PutIfAbsent 创建，只有 reset 能删除。
 func (k KeyBuilder) InstanceFormatKey() string {
-	return joinKey(k.base(), SystemPrefix, "instance-format.json")
+	return JoinKey(k.base(), SystemPrefix, "instance-format.json")
 }
 
 // ProjectDatabasePrefix 返回项目数据库持久化前缀（不含尾部 "/"）。

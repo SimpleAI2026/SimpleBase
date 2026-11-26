@@ -3,6 +3,7 @@ package gosdk
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -130,6 +131,7 @@ type SiteInfo struct {
 	BaseURL     string `json:"baseUrl,omitempty"`
 	Publishable bool   `json:"publishable"`
 	Reason      string `json:"reason,omitempty"`
+	Mode        string `json:"mode,omitempty"`
 }
 
 // PublicPathResult is the acknowledgement of PUT /s3/public.
@@ -146,9 +148,17 @@ func (c *Client) GetSite(ctx context.Context) (*SiteInfo, error) {
 	return &out, err
 }
 
+// SetPublic marks one file or folder as publicly served.
+func (c *Client) SetPublic(ctx context.Context, key, kind string, public bool) (*PublicPathResult, error) {
+	if kind != "file" && kind != "folder" {
+		return nil, fmt.Errorf("kind must be file or folder")
+	}
+	var out PublicPathResult
+	err := c.requestJSON(ctx, http.MethodPut, c.projectPath("/s3/public"), nil, map[string]any{"key": key, "kind": kind, "public": public}, &out)
+	return &out, err
+}
+
 // SetPublicFolder marks an object folder (key must end with "/") as publicly served.
 func (c *Client) SetPublicFolder(ctx context.Context, key string, public bool) (*PublicPathResult, error) {
-	var out PublicPathResult
-	err := c.requestJSON(ctx, http.MethodPut, c.projectPath("/s3/public"), nil, map[string]any{"key": key, "kind": "folder", "public": public}, &out)
-	return &out, err
+	return c.SetPublic(ctx, key, "folder", public)
 }

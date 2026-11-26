@@ -54,14 +54,35 @@ type Service struct {
 	mu      sync.Mutex
 	buffer  []catalog.UsageEvent
 	flushAt time.Time
+
+	// 站点流量按 UTC 日聚合，内存累计后周期写 sys_site_traffic。
+	siteMu       sync.Mutex
+	siteDay      string
+	siteCounters map[string]*siteCounter
+	siteQuota    map[string]siteQuotaEntry
+	sitePending  int64
+	siteFlushAt  time.Time
+}
+
+type siteCounter struct {
+	day      string
+	requests int64
+	bytes    int64
+}
+
+type siteQuotaEntry struct {
+	quota   catalog.ProjectQuota
+	expires time.Time
 }
 
 // NewService 构造 Service。
 func NewService(repo catalog.Repository, logger observability.Logger) *Service {
 	return &Service{
-		repo:   repo,
-		logger: logger,
-		now:    time.Now,
+		repo:         repo,
+		logger:       logger,
+		now:          time.Now,
+		siteCounters: map[string]*siteCounter{},
+		siteQuota:    map[string]siteQuotaEntry{},
 	}
 }
 
@@ -98,6 +119,184 @@ func (s *Service) RecordSandbox(ctx context.Context, projectID, requestID string
 		ID: uuid.NewString(), ProjectID: projectID, Kind: "sandbox", RequestID: requestID,
 		DurationMs: durationMs, OccurredAt: s.now(),
 	})
+}
+
+// AllowSite 检查站点配额并记一次请求；配额读取失败按可用性优先放行。
+func (s *Service) AllowSite(ctx context.Context, projectID string) error {
+	day := s.now().UTC().Format("2006-01-02")
+	counter, err := s.siteCounterFor(ctx, projectID, day)
+	if err != nil {
+		s.warnSite("site quota counter", err)
+		return nil
+	}
+	quota, err := s.siteQuotaFor(ctx, projectID)
+	if err != nil {
+		s.warnSite("site quota", err)
+		return nil
+	}
+	s.siteMu.Lock()
+	exceeded := (quota.MaxSiteRequests > 0 && counter.requests >= quota.MaxSiteRequests) ||
+		(quota.MaxSiteEgressBytes > 0 && counter.bytes >= quota.MaxSiteEgressBytes)
+	if !exceeded {
+		counter.requests++
+		s.sitePending++
+		if s.siteFlushAt.IsZero() {
+			s.siteFlushAt = s.now()
+		}
+	}
+	requests, bytes := counter.requests, counter.bytes
+	s.siteMu.Unlock()
+	if exceeded {
+		return fmt.Errorf("%w: site requests=%d bytes=%d", ErrSiteQuotaExceeded, requests, bytes)
+	}
+	return s.maybeFlushSite(ctx)
+}
+
+// SetSiteQuota 更新项目的站点每日请求 / 出口配额，并让缓存立即失效。
+func (s *Service) SetSiteQuota(ctx context.Context, projectID string, maxRequests, maxEgressBytes int64) error {
+	quota, err := s.repo.GetQuota(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	quota.ProjectID = projectID
+	quota.MaxSiteRequests = maxRequests
+	quota.MaxSiteEgressBytes = maxEgressBytes
+	if err := s.repo.UpsertQuota(ctx, quota); err != nil {
+		return err
+	}
+	s.siteMu.Lock()
+	delete(s.siteQuota, projectID)
+	s.siteMu.Unlock()
+	return nil
+}
+
+// RecordSite 记录一次站点响应的字节数。
+func (s *Service) RecordSite(ctx context.Context, projectID string, bytes int64) error {
+	if bytes <= 0 {
+		return nil
+	}
+	day := s.now().UTC().Format("2006-01-02")
+	counter, err := s.siteCounterFor(ctx, projectID, day)
+	if err != nil {
+		s.warnSite("site traffic counter", err)
+		return nil
+	}
+	s.siteMu.Lock()
+	counter.bytes += bytes
+	s.siteMu.Unlock()
+	return s.maybeFlushSite(ctx)
+}
+
+// FlushSite 把内存中的站点流量写入 sys_site_traffic；失败时把计数放回内存。
+func (s *Service) FlushSite(ctx context.Context) error {
+	store, ok := s.repo.(catalog.SiteTrafficStore)
+	if !ok {
+		return nil
+	}
+	s.siteMu.Lock()
+	snapshot := s.siteCounters
+	s.siteCounters = map[string]*siteCounter{}
+	s.sitePending = 0
+	s.siteFlushAt = s.now()
+	s.siteMu.Unlock()
+
+	var firstErr error
+	for projectID, counter := range snapshot {
+		if counter.requests == 0 && counter.bytes == 0 {
+			continue
+		}
+		if err := store.IncrementSiteTraffic(ctx, projectID, counter.day, counter.requests, counter.bytes); err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			s.warnSite("site traffic flush", err)
+			s.siteMu.Lock()
+			if s.siteDay == counter.day {
+				current := s.siteCounters[projectID]
+				if current == nil {
+					current = &siteCounter{day: counter.day}
+					s.siteCounters[projectID] = current
+				}
+				current.requests += counter.requests
+				current.bytes += counter.bytes
+				s.sitePending += counter.requests
+			}
+			s.siteMu.Unlock()
+		}
+	}
+	return firstErr
+}
+
+func (s *Service) siteCounterFor(ctx context.Context, projectID, day string) (*siteCounter, error) {
+	s.siteMu.Lock()
+	if s.siteDay != day {
+		s.siteDay = day
+		s.siteCounters = map[string]*siteCounter{}
+		s.sitePending = 0
+		s.siteFlushAt = s.now()
+	}
+	counter := s.siteCounters[projectID]
+	s.siteMu.Unlock()
+	if counter != nil {
+		return counter, nil
+	}
+
+	var base catalog.SiteTraffic
+	if store, ok := s.repo.(catalog.SiteTrafficStore); ok {
+		var err error
+		base, err = store.GetSiteTraffic(ctx, projectID, day)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	s.siteMu.Lock()
+	defer s.siteMu.Unlock()
+	if s.siteDay != day {
+		s.siteDay = day
+		s.siteCounters = map[string]*siteCounter{}
+		s.sitePending = 0
+		s.siteFlushAt = s.now()
+	}
+	if counter = s.siteCounters[projectID]; counter == nil {
+		counter = &siteCounter{day: day, requests: base.Requests, bytes: base.Bytes}
+		s.siteCounters[projectID] = counter
+	}
+	return counter, nil
+}
+
+func (s *Service) siteQuotaFor(ctx context.Context, projectID string) (catalog.ProjectQuota, error) {
+	s.siteMu.Lock()
+	entry, ok := s.siteQuota[projectID]
+	s.siteMu.Unlock()
+	if ok && s.now().Before(entry.expires) {
+		return entry.quota, nil
+	}
+	quota, err := s.repo.GetQuota(ctx, projectID)
+	if err != nil {
+		return catalog.ProjectQuota{}, err
+	}
+	s.siteMu.Lock()
+	s.siteQuota[projectID] = siteQuotaEntry{quota: quota, expires: s.now().Add(15 * time.Second)}
+	s.siteMu.Unlock()
+	return quota, nil
+}
+
+func (s *Service) maybeFlushSite(ctx context.Context) error {
+	s.siteMu.Lock()
+	due := s.sitePending >= 64 || (!s.siteFlushAt.IsZero() && s.now().Sub(s.siteFlushAt) >= 5*time.Second)
+	s.siteMu.Unlock()
+	if !due {
+		return nil
+	}
+	return s.FlushSite(ctx)
+}
+
+func (s *Service) warnSite(scope string, err error) {
+	if s.logger == nil {
+		return
+	}
+	s.logger.Warn("usage: "+scope+" failed", zap.String("err", err.Error()))
 }
 
 // LLMUsage 是 LLM token 用量（与 llmgateway.Usage 一致，避免循环依赖）。
@@ -189,5 +388,6 @@ func (s *Service) Flush(ctx context.Context) error {
 
 // 错误定义。
 var (
-	ErrQuotaExceeded = errors.New("usage: quota exceeded")
+	ErrQuotaExceeded     = errors.New("usage: quota exceeded")
+	ErrSiteQuotaExceeded = errors.New("usage: site quota exceeded")
 )

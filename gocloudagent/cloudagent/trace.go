@@ -83,7 +83,7 @@ func (t Tracer) Payload(msg, label, content string) {
 }
 
 func (t Tracer) Redact(s string) string {
-	return truncate(agentcore.RedactSecrets(s), traceMaxChars)
+	return agentcore.Truncate(agentcore.RedactSecrets(s), traceMaxChars)
 }
 
 // HashSummary returns a length and SHA-256 prefix without retaining content.

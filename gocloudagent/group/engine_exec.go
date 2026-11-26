@@ -2,7 +2,7 @@
 //
 // 用法：由 engine.go 的 launch 或 engine_state.go 的 ensureExecuting 启动。
 // 调用架构：Engine.execute → runOne / settle / replan → Store / Runner / broker。
-// 主要符号：execute、runOne、settle、replan、summarize、cancelFromWithin。
+// 主要符号：execute、step、runOne、settle、replan、summarize、cancelFromWithin。
 
 package group
 
@@ -28,119 +28,123 @@ func (e *Engine) execute(at *activeTurn, ctx context.Context, turn Turn, g Group
 		_ = e.Store.Release(context.WithoutCancel(ctx), turn.ThreadID, turn.ID)
 		e.reg.release(turn.ID)
 	}()
-	for {
-		if ctx.Err() != nil {
-			e.cancelFromWithin(ctx, turn, b)
-			return
-		}
-		current, ok, err := e.Store.LoadTurn(ctx, turn.ID)
-		if err != nil {
-			e.failTurn(ctx, turn, "turn_store_failed", err)
+	for !e.step(at, ctx, b, &turn, g) {
+	}
+}
+
+// step 推进一次执行循环；done=true 表示执行循环应退出。
+func (e *Engine) step(at *activeTurn, ctx context.Context, b *broker, turn *Turn, g Group) (done bool) {
+	if ctx.Err() != nil {
+		e.cancelFromWithin(ctx, *turn, b)
+		return true
+	}
+	current, ok, err := e.Store.LoadTurn(ctx, turn.ID)
+	if err != nil {
+		e.failTurn(ctx, *turn, "turn_store_failed", err)
+		b.finish(EndFailed)
+		return true
+	}
+	if ok {
+		*turn = current
+	}
+	if TerminalTurn(turn.Status) {
+		b.finish(endReasonOf(turn.Status))
+		return true
+	}
+	if turn.Status == TurnAwaitingPlanConfirm {
+		b.pause()
+		return true
+	}
+	tasks, err := e.Store.LoadTasks(ctx, turn.ID)
+	if err != nil {
+		e.failTurn(ctx, *turn, "turn_store_failed", err)
+		b.finish(EndFailed)
+		return true
+	}
+
+	// 人工任务就绪 → waiting_human（等人不是错误，CB-BE 旧语义保留）。
+	if ht, ok := humanReady(tasks); ok {
+		if err := e.transitionTask(ctx, ht.ID, TaskPending, TaskWaitingHuman, "", ""); err != nil {
+			e.failTurn(ctx, *turn, "turn_store_failed", err)
 			b.finish(EndFailed)
-			return
+			return true
 		}
-		if ok {
-			turn = current
-		}
-		if TerminalTurn(turn.Status) {
-			b.finish(endReasonOf(turn.Status))
-			return
-		}
-		if turn.Status == TurnAwaitingPlanConfirm {
-			b.pause()
-			return
-		}
-		tasks, err := e.Store.LoadTasks(ctx, turn.ID)
-		if err != nil {
-			e.failTurn(ctx, turn, "turn_store_failed", err)
+		ht.Status = TaskWaitingHuman
+		if err := e.transitionTurn(ctx, turn.ID, turn.Status, TurnWaitingHuman, ""); err != nil {
+			e.failTurn(ctx, *turn, "turn_store_failed", err)
 			b.finish(EndFailed)
-			return
+			return true
 		}
-
-		// 人工任务就绪 → waiting_human（等人不是错误，CB-BE 旧语义保留）。
-		if ht, ok := humanReady(tasks); ok {
-			if err := e.transitionTask(ctx, ht.ID, TaskPending, TaskWaitingHuman, "", ""); err != nil {
-				e.failTurn(ctx, turn, "turn_store_failed", err)
-				b.finish(EndFailed)
-				return
-			}
-			ht.Status = TaskWaitingHuman
-			if err := e.transitionTurn(ctx, turn.ID, turn.Status, TurnWaitingHuman, ""); err != nil {
-				e.failTurn(ctx, turn, "turn_store_failed", err)
-				b.finish(EndFailed)
-				return
-			}
-			turn.Status = TurnWaitingHuman
-			if _, err := b.publish(ctx, turn.ID, Event{Type: EventHuman, TaskID: ht.ID,
-				Data: humanJSON(g.HumanName, ht.Message, g.HumanID)}); err != nil {
-				e.failTurn(ctx, turn, "turn_store_failed", err)
-				return
-			}
-			tasks, err = e.Store.LoadTasks(ctx, turn.ID)
-			if err != nil {
-				e.failTurn(ctx, turn, "turn_store_failed", err)
-				b.finish(EndFailed)
-				return
-			}
+		turn.Status = TurnWaitingHuman
+		if _, err := b.publish(ctx, turn.ID, Event{Type: EventHuman, TaskID: ht.ID,
+			Data: humanJSON(g.HumanName, ht.Message, g.HumanID)}); err != nil {
+			e.failTurn(ctx, *turn, "turn_store_failed", err)
+			return true
 		}
-
-		// 人工待办释放会话与执行循环；回复动作会重新启动。先处理回复/取消竞态。
-		if HasWaitingHuman(tasks) {
-			if ctx.Err() != nil {
-				e.cancelFromWithin(ctx, turn, b)
-				return
-			}
-			current, _, err := e.Store.LoadTurn(ctx, turn.ID)
-			if err != nil {
-				e.failTurn(ctx, turn, "turn_store_failed", err)
-				b.finish(EndFailed)
-				return
-			}
-			if current.Status == TurnWaitingHuman {
-				b.pause()
-				return
-			}
-			turn = current
-			continue
-		}
-
-		// 串行执行就绪任务（§13.13：并发默认 1）。
-		if t, ok := readyTask(tasks); ok {
-			if err := e.runOne(ctx, at, b, turn, g, t, tasks); err != nil {
-				if ctx.Err() != nil || errors.Is(err, context.Canceled) {
-					e.cancelFromWithin(ctx, turn, b)
-					return
-				}
-				if errors.Is(err, errNeedReplan) {
-					// 助手请求再规划：回到栅栏（有上限）。
-					if rerr := e.replan(ctx, at, b, &turn, g); rerr != nil {
-						e.failTurn(ctx, turn, "replan_failed", rerr)
-						b.finish(EndFailed)
-						return
-					}
-					continue
-				}
-				e.failTurn(ctx, turn, "run_failed", err)
-				b.finish(EndFailed)
-				return
-			}
-			continue
-		}
-
-		// 无就绪任务：终局判定。
-		done := e.settle(ctx, at, b, turn, g, tasks)
-		if done {
-			return
-		}
-		// settle 未终局（如等待中的轮次被外部推进）：下一轮再查。
-		select {
-		case <-ctx.Done():
-			e.cancelFromWithin(ctx, turn, b)
-			return
-		case <-at.humanCh:
-		case <-time.After(200 * time.Millisecond):
+		tasks, err = e.Store.LoadTasks(ctx, turn.ID)
+		if err != nil {
+			e.failTurn(ctx, *turn, "turn_store_failed", err)
+			b.finish(EndFailed)
+			return true
 		}
 	}
+
+	// 人工待办释放会话与执行循环；回复动作会重新启动。先处理回复/取消竞态。
+	if HasWaitingHuman(tasks) {
+		if ctx.Err() != nil {
+			e.cancelFromWithin(ctx, *turn, b)
+			return true
+		}
+		current, _, err := e.Store.LoadTurn(ctx, turn.ID)
+		if err != nil {
+			e.failTurn(ctx, *turn, "turn_store_failed", err)
+			b.finish(EndFailed)
+			return true
+		}
+		if current.Status == TurnWaitingHuman {
+			b.pause()
+			return true
+		}
+		*turn = current
+		return false
+	}
+
+	// 串行执行就绪任务（§13.13：并发默认 1）。
+	if t, ok := readyTask(tasks); ok {
+		if err := e.runOne(ctx, at, b, *turn, g, t, tasks); err != nil {
+			if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+				e.cancelFromWithin(ctx, *turn, b)
+				return true
+			}
+			if errors.Is(err, errNeedReplan) {
+				// 助手请求再规划：回到栅栏（有上限）。
+				if rerr := e.replan(ctx, at, b, turn, g); rerr != nil {
+					e.failTurn(ctx, *turn, "replan_failed", rerr)
+					b.finish(EndFailed)
+					return true
+				}
+				return false
+			}
+			e.failTurn(ctx, *turn, "run_failed", err)
+			b.finish(EndFailed)
+			return true
+		}
+		return false
+	}
+
+	// 无就绪任务：终局判定。
+	if e.settle(ctx, at, b, *turn, g, tasks) {
+		return true
+	}
+	// settle 未终局（如等待中的轮次被外部推进）：下一轮再查。
+	select {
+	case <-ctx.Done():
+		e.cancelFromWithin(ctx, *turn, b)
+		return true
+	case <-at.humanCh:
+	case <-time.After(200 * time.Millisecond):
+	}
+	return false
 }
 
 // runOne 执行一个任务并更新进度。
@@ -192,7 +196,7 @@ func (e *Engine) runOne(ctx context.Context, at *activeTurn, b *broker, turn Tur
 	case res.Canceled:
 		return context.Canceled
 	case res.Failed:
-		if err := e.transitionTask(ctx, t.ID, TaskRunning, TaskFailed, truncate(res.Content), res.ErrorCode); err != nil {
+		if err := e.transitionTask(ctx, t.ID, TaskRunning, TaskFailed, agentcore.Truncate(res.Content, maxGroupContentChars), res.ErrorCode); err != nil {
 			return err
 		}
 		t.Status = TaskFailed
@@ -208,7 +212,7 @@ func (e *Engine) runOne(ctx context.Context, at *activeTurn, b *broker, turn Tur
 		}
 		return nil
 	default:
-		if err := e.transitionTask(ctx, t.ID, TaskRunning, TaskCompleted, truncate(res.Content), ""); err != nil {
+		if err := e.transitionTask(ctx, t.ID, TaskRunning, TaskCompleted, agentcore.Truncate(res.Content, maxGroupContentChars), ""); err != nil {
 			return err
 		}
 		t.Status = TaskCompleted
@@ -278,7 +282,7 @@ func (e *Engine) settle(ctx context.Context, at *activeTurn, b *broker, turn Tur
 	var results []string
 	for _, t := range tasks {
 		if t.Status == TaskCompleted {
-			results = append(results, truncate(t.Result))
+			results = append(results, agentcore.Truncate(t.Result, maxGroupContentChars))
 		}
 		if t.Status == TaskFailed || t.Status == TaskBlocked {
 			anyFailed = true
@@ -300,7 +304,7 @@ func (e *Engine) settle(ctx context.Context, at *activeTurn, b *broker, turn Tur
 			Data: progressJSON(100, summary, stepsOf(turn.Decision, tasks))})
 		d := turn.Decision
 		d.Action = plan.ActionComplete
-		d.Progress = plan.Progress{Percent: 100, Summary: truncate(summary)}
+		d.Progress = plan.Progress{Percent: 100, Summary: agentcore.Truncate(summary, maxGroupContentChars)}
 		_ = e.Store.SaveDecision(ctx, turn.ID, d, turn.ConfirmState)
 	}
 	if err := e.transitionTurn(ctx, turn.ID, currentTurnStatus(turn, tasks), TurnCompleted, ""); err != nil {
@@ -314,7 +318,7 @@ func (e *Engine) settle(ctx context.Context, at *activeTurn, b *broker, turn Tur
 func (e *Engine) handoverHuman(ctx context.Context, b *broker, turn Turn, g Group) {
 	ht := Task{
 		ID: turn.ID + "-h1", TurnID: turn.ID, Ref: "h1", TargetKind: "human", TargetID: g.HumanID,
-		Message: "自动执行失败且再规划次数已用完，请人工接管：" + truncate(turn.Decision.Goal),
+		Message: "自动执行失败且再规划次数已用完，请人工接管：" + agentcore.Truncate(turn.Decision.Goal, maxGroupContentChars),
 		Status:  TaskWaitingHuman,
 	}
 	if err := e.Store.CreateTasks(ctx, turn.ID, []Task{ht}); err != nil {
@@ -344,9 +348,9 @@ func (e *Engine) replan(ctx context.Context, at *activeTurn, b *broker, turn *Tu
 	hist := append([]plan.Turn(nil), turn.HistoryOf()...)
 	for _, t := range tasks {
 		if t.Status == TaskCompleted && t.Result != "" {
-			hist = append(hist, plan.Turn{Role: "assistant", Speaker: t.TargetID, Content: truncate(t.Result)})
+			hist = append(hist, plan.Turn{Role: "assistant", Speaker: t.TargetID, Content: agentcore.Truncate(t.Result, maxGroupContentChars)})
 		} else if t.Status == TaskFailed && t.Result != "" {
-			hist = append(hist, plan.Turn{Role: "assistant", Speaker: t.TargetID, Content: "任务失败：" + truncate(t.Result)})
+			hist = append(hist, plan.Turn{Role: "assistant", Speaker: t.TargetID, Content: "任务失败：" + agentcore.Truncate(t.Result, maxGroupContentChars)})
 		}
 	}
 	in := TurnInput{

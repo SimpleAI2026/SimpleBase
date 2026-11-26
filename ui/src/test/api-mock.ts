@@ -77,7 +77,10 @@ export const api = {
     truncate: vi.fn(),
     getCollectionSchema: vi.fn(),
     putCollectionSchema: vi.fn(),
-    deleteCollectionSchema: vi.fn()
+    deleteCollectionSchema: vi.fn(),
+    getCollectionAccess: vi.fn(),
+    putCollectionAccess: vi.fn(),
+    deleteCollectionAccess: vi.fn()
   },
   s3: {
     list: vi.fn(),
@@ -373,6 +376,9 @@ export function applyApiDefaults() {
   api.db.getCollectionSchema.mockResolvedValue({ name: 'users', fields: [] })
   api.db.putCollectionSchema.mockResolvedValue({ name: 'users', fields: [] })
   api.db.deleteCollectionSchema.mockResolvedValue(undefined)
+  api.db.getCollectionAccess.mockResolvedValue({ mode: 'off', ownerField: 'owner_id', enforced: false })
+  api.db.putCollectionAccess.mockResolvedValue({ mode: 'off', ownerField: 'owner_id', enforced: false })
+  api.db.deleteCollectionAccess.mockResolvedValue({ mode: 'off', ownerField: 'owner_id', enforced: false })
   api.s3.list.mockResolvedValue([])
   api.s3.listDetailed.mockResolvedValue({ folders: [], objects: [], folderMeta: [] })
   api.s3.presign.mockResolvedValue({ url: 'https://example.test/obj' })

@@ -39,6 +39,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"github.com/linkxzhou/SimpleBase/internal/api/sandboxhttp"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -164,10 +165,10 @@ func newE2E(t *testing.T) *e2eEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bridge := &TerminalBridge{Fingerprint: sshd.Fingerprint(hostKey)}
+	bridge := &sandboxhttp.TerminalBridge{Fingerprint: sshd.Fingerprint(hostKey)}
 	deps.Terminal = bridge
-	h := NewSandboxHandler(mgr, true, deps.Audit, deps.System, nil, deps)
-	srv, err := sshd.New(sshd.Options{HostKey: hostKey, Authenticator: NewSSHAuthenticator(h), Sessions: mgr})
+	h := sandboxhttp.NewSandboxHandler(mgr, true, deps.Audit, deps.System, nil, sandboxDeps(deps))
+	srv, err := sshd.New(sshd.Options{HostKey: hostKey, Authenticator: sandboxhttp.NewSSHAuthenticator(h), Sessions: mgr})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -432,8 +433,8 @@ func wsReadUntil(t *testing.T, ws *websocket.Conn, want string) string {
 			t.Fatalf("timeout waiting for %q; got %q", want, sb.String())
 		}
 		_ = ws.SetReadDeadline(time.Now().Add(time.Second))
-		var f wsFrame
-		if err := wsFrameCodec.Receive(ws, &f); err != nil {
+		var f sandboxhttp.WSFrame
+		if err := sandboxhttp.WSFrameCodec.Receive(ws, &f); err != nil {
 			if ne, ok := err.(interface{ Timeout() bool }); ok && ne.Timeout() {
 				continue
 			}
@@ -474,15 +475,15 @@ func TestBrowserTerminalEndToEnd(t *testing.T) {
 	deadline := time.Now().Add(5 * time.Second)
 	for !gotExit && time.Now().Before(deadline) {
 		_ = ws.SetReadDeadline(time.Now().Add(time.Second))
-		var f wsFrame
-		if err := wsFrameCodec.Receive(ws, &f); err != nil {
+		var f sandboxhttp.WSFrame
+		if err := sandboxhttp.WSFrameCodec.Receive(ws, &f); err != nil {
 			if ne, ok := err.(interface{ Timeout() bool }); ok && ne.Timeout() {
 				continue
 			}
 			break
 		}
 		if f.Text {
-			var ctl termControl
+			var ctl sandboxhttp.TermControl
 			if json.Unmarshal(f.Data, &ctl) == nil && ctl.Type == "exit" {
 				gotExit = ctl.Code == 3
 				break
@@ -580,19 +581,19 @@ func TestTerminalTicketRequiresWriteAndNotAgentSource(t *testing.T) {
 }
 
 func TestTicketStoreExpiryAndCapacity(t *testing.T) {
-	s := newTicketStore()
+	s := sandboxhttp.NewTicketStore()
 	now := time.Now()
-	tok, ok := s.Issue(terminalTicket{ProjectID: "p", SandboxID: "s"}, now)
+	tok, ok := s.Issue(sandboxhttp.TerminalTicket{ProjectID: "p", SandboxID: "s"}, now)
 	if !ok || tok == "" {
 		t.Fatal("issue failed")
 	}
-	if _, ok := s.RedeemFor(tok, "s", now.Add(ticketTTL+time.Second)); ok {
+	if _, ok := s.RedeemFor(tok, "s", now.Add(sandboxhttp.TicketTTL+time.Second)); ok {
 		t.Fatal("expired ticket redeemed")
 	}
 	if _, ok := s.RedeemFor(tok, "s", now); ok {
 		t.Fatal("a failed redeem must still consume the ticket")
 	}
-	tok2, _ := s.Issue(terminalTicket{ProjectID: "p", SandboxID: "s"}, now)
+	tok2, _ := s.Issue(sandboxhttp.TerminalTicket{ProjectID: "p", SandboxID: "s"}, now)
 	if _, ok := s.RedeemFor(tok2, "other", now); ok {
 		t.Fatal("redeemed against another sandbox")
 	}
@@ -600,17 +601,17 @@ func TestTicketStoreExpiryAndCapacity(t *testing.T) {
 		t.Fatal("a ticket presented for the wrong sandbox must be burned")
 	}
 	// 容量上限：不过期的存量满了就拒绝。
-	full := newTicketStore()
-	for i := 0; i < ticketMaxLive; i++ {
-		if _, ok := full.Issue(terminalTicket{SandboxID: "s"}, now); !ok {
+	full := sandboxhttp.NewTicketStore()
+	for i := 0; i < sandboxhttp.TicketMaxLive; i++ {
+		if _, ok := full.Issue(sandboxhttp.TerminalTicket{SandboxID: "s"}, now); !ok {
 			t.Fatalf("issue %d failed early", i)
 		}
 	}
-	if _, ok := full.Issue(terminalTicket{SandboxID: "s"}, now); ok {
+	if _, ok := full.Issue(sandboxhttp.TerminalTicket{SandboxID: "s"}, now); ok {
 		t.Fatal("store must refuse once full of live tickets")
 	}
 	// 过期项会被回收腾出空间。
-	if _, ok := full.Issue(terminalTicket{SandboxID: "s"}, now.Add(2*ticketTTL)); !ok {
+	if _, ok := full.Issue(sandboxhttp.TerminalTicket{SandboxID: "s"}, now.Add(2*sandboxhttp.TicketTTL)); !ok {
 		t.Fatal("expired tickets should be reclaimed")
 	}
 }
@@ -636,8 +637,8 @@ func TestSameOrigin(t *testing.T) {
 		{"not a url", "a.example", false},
 		{"null", "a.example", false},
 	} {
-		if got := sameOrigin(mk(tc.origin, tc.host)); got != tc.want {
-			t.Errorf("sameOrigin(%q, %q) = %v, want %v", tc.origin, tc.host, got, tc.want)
+		if got := sandboxhttp.SameOrigin(mk(tc.origin, tc.host)); got != tc.want {
+			t.Errorf("sandboxhttp.SameOrigin(%q, %q) = %v, want %v", tc.origin, tc.host, got, tc.want)
 		}
 	}
 }

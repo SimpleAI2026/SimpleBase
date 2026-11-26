@@ -147,6 +147,20 @@ var systemTables = []systemTable{
 			period_seconds BIGINT NOT NULL,
 			updated_at TIMESTAMP NOT NULL
 		)`},
+	{name: "sys_site_quotas", ddl: `CREATE TABLE IF NOT EXISTS sys_site_quotas (
+			project_id VARCHAR NOT NULL,
+			max_requests BIGINT NOT NULL,
+			max_egress_bytes BIGINT NOT NULL,
+			period_seconds BIGINT NOT NULL,
+			updated_at TIMESTAMP NOT NULL
+		)`},
+	{name: "sys_site_traffic", ddl: `CREATE TABLE IF NOT EXISTS sys_site_traffic (
+			project_id VARCHAR NOT NULL,
+			day VARCHAR NOT NULL,
+			requests BIGINT NOT NULL,
+			bytes BIGINT NOT NULL,
+			updated_at TIMESTAMP NOT NULL
+		)`},
 	{name: "sys_metric_samples", ddl: `CREATE TABLE IF NOT EXISTS sys_metric_samples (
 			id VARCHAR NOT NULL,
 			project_id VARCHAR NOT NULL,

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/linkxzhou/SimpleBase/gocloudagent/agentcore"
 	"github.com/linkxzhou/SimpleBase/gocloudagent/plan"
 )
 
@@ -215,19 +216,19 @@ func (e *Engine) ReplyHuman(ctx context.Context, taskID string, reply Reply) (Tu
 	if outcome == ReplyUnable {
 		to, errorCode = TaskFailed, "human_unable"
 	}
-	if err := e.transitionTask(ctx, taskID, TaskWaitingHuman, to, truncate(reply.Text), errorCode); err != nil {
+	if err := e.transitionTask(ctx, taskID, TaskWaitingHuman, to, agentcore.Truncate(reply.Text, maxGroupContentChars), errorCode); err != nil {
 		return turn, err
 	}
 	b := e.brokerOf(turn.ID)
 	task.Status = to
-	task.Result = truncate(reply.Text)
+	task.Result = agentcore.Truncate(reply.Text, maxGroupContentChars)
 	task.ErrorCode = errorCode
 	if _, err := b.publish(ctx, turn.ID, Event{Type: EventTask, TaskID: taskID,
 		Data: taskJSON(task, indexTask([]Task{task}, task), 1)}); err != nil {
 		return turn, err
 	}
 	if _, err := b.publish(ctx, turn.ID, Event{Type: EventHuman, TaskID: taskID,
-		Data: humanJSON("", truncate(reply.Text))}); err != nil {
+		Data: humanJSON("", agentcore.Truncate(reply.Text, maxGroupContentChars))}); err != nil {
 		return turn, err
 	}
 	if turn.Status == TurnWaitingHuman {
@@ -362,7 +363,7 @@ func (e *Engine) headlessResult(ctx context.Context, turn Turn) TurnResult {
 			content = t.Result
 		}
 	}
-	return TurnResult{TurnID: turn.ID, Status: turn.Status, Content: truncate(content)}
+	return TurnResult{TurnID: turn.ID, Status: turn.Status, Content: agentcore.Truncate(content, maxGroupContentChars)}
 }
 
 // Converge 把本进程不再活动但库内未终态的轮次收敛为 interrupted（重启恢复）。

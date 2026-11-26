@@ -8,7 +8,7 @@
 
 - `app`：依赖装配与服务生命周期。`assembleDeps` 按序创建对象存储、系统库、catalog、registry、auth、llmgateway、usage、audit、云 Agent、cron、备份等；`Close` 反向释放；`RunWithSignal` 监听 SIGINT/SIGTERM 并在超时内优雅退出；`reset.go` / `doctor.go` 是运维子命令。
 - `config`：从 `config.yaml` 加载非密钥配置，再用 `SIMPLEBASE_` 前缀环境变量覆盖（密钥与 `SIMPLEBASE_CONFIG_PATH` 引导路径除外）。`config.example.yaml` 是可加载的字段清单。
-- `api`：HTTP 路由层（Echo v4）。`router.go` 装配全局中间件与 `/v1` 路由；各资源 `*_handler.go`；`context.go` 请求上下文（Principal、ProjectContext、RequestID）；`error.go` 统一错误协议；`adapter.go` 把 `Dependencies` 接口适配到具体实现；`perfbench/` 是压测用例。`/v1/projects/:projectID/v1/chat/completions|responses|models` 是 OpenAI 兼容出口。
+- `api`：HTTP 入口内核（Echo v4）。`router.go` 装配全局中间件与 `/v1` 路由；`routes_*.go` 只做路由注册与守卫（`routeGuards` / `policyGate` / `projectContextMiddlewareEcho`）；`error.go` 是 Echo 错误兜底（E2B 分流 + `httpkit.ErrorHandler`）；`stage_timing.go` 只剩认证子阶段观察者；内置 MCP（`mcp_builtin*.go` / `mcp_dispatch.go` / `mcp_handler.go`）留在内核侧，因为它经 `subRequest` 回到完整路由树；`Dependencies` 直接引用业务子包类型，不保留 `*_compat.go` 转发层。业务 handler 全部在子包：`httpkit`（协议内核）、`agenthttp`（云 Agent / 协作群）、`datahttp`（数据库 / SQL / Schema / 集合 / KV / 实时）、`sandboxhttp`（沙盒 + E2B + SSH 终端）、`functionhttp`（云函数 / 触发器 / 定时任务）、`filehttp`（对象存储 + 站点）、`iamhttp`（登录 / 用户 / API Key / 终端用户）、`llmhttp`（OpenAI 兼容出口 + trace 查询）、`opshttp`（指标 / 日志 / 设置 / 配额审计 / 迁移状态）、`cataloghttp`（项目）、`backuphttp`（备份恢复）。`perfbench/` 是压测用例。`TestKernelResidueFiles` 锁定顶层文件清单。
 - `web`：`go:embed` 内嵌的前端构建产物与 SPA fallback。
 
 ### 身份、元数据与数据
@@ -33,7 +33,7 @@
 ### Agent 与 LLM
 
 - `agentbridge`：SimpleBase 宿主 Agent 业务与独立模块 `gocloudagent` 的适配（`RuntimeProvider`、工具、模块目录、命令授权、委托签发、`InProcessCLI`、agent 定时任务）。`agentskills/simplebase/` 是 `go:embed` 的技能文档。
-- `api` 同时是群聊引擎的宿主适配：`collab_group_{engine,store,runner,stream}.go` 实现 `gocloudagent/group` 的 Store / Runner / Members 端口，`agent_plan_tools.go` 把 `plan.Tools` 接到每一次云助手 run（固定六阶段计划模式已由 plan 工具取代）。
+- `agentrun`：Agent 协作上下文的应用服务。固定助手会话的 run（创建 / 执行 / 收尾 / 取消 / 审批放行）、协作群轮次（提交 / 订阅 / 动作）、群定时（实现 `agentbridge.GroupCronRunner`）、run 事件环与确认表、规划工具装配、工作台标签解析都在这里；它是群聊引擎的宿主适配（`group_store.go` / `group_runner.go` / `group_engine.go` 实现 `gocloudagent/group` 的 Store / Runner / Members 端口）。生命周期归 `app`：`BeginShutdown` 取消在途 run / 轮次，`Wait` 等收尾落库；仓储经消费方窄接口注入，不认识 HTTP。
 - `llmgateway`：provider 配置、Chat / Stream、CredentialRef；密钥禁止从环境变量自动发现。
 - `sbcli`：`simplebase` 命令行（含 `dev plan/apply`）与命令只读判定 `CommandReadOnly`。
 
@@ -51,14 +51,29 @@
 
 ## 依赖关系
 
-以下由 `go list` 生成，只列 `internal/` 内部依赖，依赖只能自上而下：
+以下由 `go list` 生成，只列 `internal/` 内部依赖，依赖只能自上而下。`api/<context>http` 是业务域入站适配（只提供 handler，
+路由注册仍在 `api`，不得 import `api` / `app` / 同级子包），`api/httpkit` 是协议内核叶子包（错误协议 / 上下文 / SSE /
+审计辅助 / 计时，不 import `api` 与子包）：
 
 ```text
-app         → agentbridge alerts api audit auth backup catalog collection config cronjob dbbridge
-              functionrun llmgateway objectstore observability sandbox sandbox/sshd systemdb trigger usage
-api         → agentbridge audit auth backup catalog collection config cronjob e2bproto functionrun llmgateway
-              objectstore observability realtime sandbox sandbox/sshd systemdb trigger usage web utils/{crontab,strutil,keyedlock}
-agentbridge → agentbridge/agentskills auth cronjob llmgateway sbcli systemdb utils/{mask,strutil}
+app         → agentbridge agentrun alerts api api/backuphttp api/cataloghttp api/datahttp api/functionhttp api/httpkit api/sandboxhttp
+              audit auth backup catalog collection config cronjob dbbridge functionrun llmgateway objectstore observability sandbox
+              sandbox/sshd systemdb trigger usage utils/strutil
+api         → agentbridge agentrun api/agenthttp api/backuphttp api/cataloghttp api/datahttp api/filehttp api/functionhttp api/httpkit
+              api/iamhttp api/llmhttp api/opshttp api/sandboxhttp auth catalog config cronjob functionrun objectstore observability systemdb web
+api/httpkit → agentbridge agentrun audit auth catalog llmgateway objectstore observability sandbox systemdb usage
+api/agenthttp → agentbridge agentrun api/httpkit auth systemdb utils/strutil
+api/datahttp → api/httpkit auth catalog collection collection/query dbbridge observability realtime utils/strutil
+api/sandboxhttp → api/httpkit auth catalog config e2bproto observability sandbox sandbox/sshd systemdb utils/strutil
+api/filehttp → api/httpkit config objectstore systemdb utils/strutil
+api/functionhttp → agentbridge agentrun api/httpkit collection cronjob functionrun objectstore systemdb trigger utils/{crontab,strutil}
+api/iamhttp → api/httpkit auth collection utils/strutil
+api/llmhttp → agentbridge api/httpkit llmgateway systemdb
+api/opshttp → api/httpkit auth config observability systemdb utils/strutil
+api/cataloghttp → api/httpkit auth catalog observability
+api/backuphttp → api/httpkit backup catalog
+agentrun    → agentbridge audit auth catalog llmgateway systemdb usage   （cronjob / agentbridge 不得反向 import）
+agentbridge → agentbridge/agentskills auth catalog cronjob dbbridge llmgateway objectstore sbcli systemdb utils/{mask,strutil}
 systemdb    → auth catalog dbbridge objectstore observability utils/{mask,strutil,keyedlock}
 llmgateway  → catalog observability systemdb
 usage       → catalog llmgateway observability
@@ -68,9 +83,8 @@ cronjob     → systemdb ;  functionrun → systemdb ;  trigger → functionrun 
 audit       → catalog observability ;  dbbridge → catalog observability
 sandbox     → config ;  sandbox/sshd → sandbox ;  sbcli → utils/mask
 alerts / objectstore → observability ;  auth / config / observability → utils/strutil
-collection / e2bproto / realtime / web / utils/* → （无 internal 依赖）
+collection / e2bproto / realtime / web / utils/* → （无 internal 依赖）；collection/query → collection utils/strutil
 ```
-
 `catalog → auth`、`systemdb → auth` 是实际存在的合法依赖（`auth` 只依赖 `utils/strutil`，无环）。
 
 嵌套独立模块（不得 import 根模块任何包）：`godatabase`、`gocloudagent`、`gosandbox`、`gofunction`，均位于仓库根；宿主类型经 `dbbridge` / `agentbridge` 适配注入。

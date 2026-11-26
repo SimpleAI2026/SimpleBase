@@ -22,6 +22,8 @@
 package api
 
 import (
+	"github.com/linkxzhou/SimpleBase/internal/api/agenthttp"
+	"github.com/linkxzhou/SimpleBase/internal/api/filehttp"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -33,8 +35,8 @@ import (
 func TestWritableGuardsRejectAgentAndStorageWrites(t *testing.T) {
 	off := false
 	e := echo.New()
-	agents := &cloudAgentHandler{writable: off}
-	storage := &S3Handler{writable: off}
+	agents := agenthttp.New(nil, nil, nil, nil, nil, off)
+	storage := filehttp.NewS3Handler(filehttp.S3HandlerDeps{Writable: off})
 	e.POST("/agents", agents.CreateAgent)
 	e.PATCH("/agents/:agentID", agents.PatchAgent)
 	e.DELETE("/agents/:agentID", agents.DeleteAgent)

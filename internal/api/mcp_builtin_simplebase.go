@@ -13,7 +13,7 @@
 //	         │ 依赖
 //	         ▼
 //	[下游] 仅标准库 / 第三方
-//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[同包] backup_handler.go, data_compat.go, error.go, file_compat.go, function_compat.go, health.go, mcp_builtin.go, mcp_builtin_admin.go 等 28 个
 //
 // 主要符号
 //
@@ -26,6 +26,7 @@ package api
 
 import (
 	"encoding/json"
+	"github.com/linkxzhou/SimpleBase/internal/api/httpkit"
 
 	"github.com/linkxzhou/SimpleBase/gocloudagent/mcp"
 )
@@ -306,6 +307,6 @@ var simplebaseTools = []builtinAPITool{
 	},
 }
 
-func buildSimplebaseTools(b *builtinMCPBuilder, pc ProjectContext) *mcp.ServerSpec {
+func buildSimplebaseTools(b *builtinMCPBuilder, pc httpkit.ProjectContext) *mcp.ServerSpec {
 	return b.buildServerFromTools(simplebaseTools, pc)
 }

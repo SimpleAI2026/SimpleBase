@@ -4,6 +4,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"github.com/linkxzhou/SimpleBase/internal/api/datahttp"
 	"path/filepath"
 
 	"github.com/linkxzhou/SimpleBase/godatabase"
@@ -11,7 +12,6 @@ import (
 	"github.com/linkxzhou/SimpleBase/godatabase/ducklake"
 	"github.com/linkxzhou/SimpleBase/godatabase/filedb"
 	"github.com/linkxzhou/SimpleBase/godatabase/registry"
-	"github.com/linkxzhou/SimpleBase/internal/api"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/config"
 	"github.com/linkxzhou/SimpleBase/internal/dbbridge"
@@ -129,12 +129,12 @@ func (a *App) newSystemDatabaseFactory() *ducklake.Factory {
 }
 
 // snapshotFromFileFactory 返回项目文件同步水位（databaseID 或 projectID 均可）。
-func snapshotFromFileFactory(f *filedb.Factory, databaseID string) *api.DatabaseSnapshot {
+func snapshotFromFileFactory(f *filedb.Factory, databaseID string) *datahttp.DatabaseSnapshot {
 	last, lag := f.SnapshotStatus(databaseID)
 	if last == 0 && lag == 0 {
 		return nil
 	}
-	return &api.DatabaseSnapshot{LastSyncedSnapshot: last, SyncLag: lag}
+	return &datahttp.DatabaseSnapshot{LastSyncedSnapshot: last, SyncLag: lag}
 }
 
 func duckLakeOptions(cfg config.DuckLakeConfig) ducklake.Options {

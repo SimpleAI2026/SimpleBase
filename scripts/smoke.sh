@@ -23,10 +23,10 @@ echo "==> (cd gosandbox) go build + go vet（独立模块）"
 echo "==> (cd godatabase) go build + go vet（独立模块）"
 (cd godatabase && GOWORK=off go build ./... && GOWORK=off go vet ./...)
 echo "==> go vet（云 Agent 相关包）"
-go vet ./internal/agentbridge ./internal/systemdb ./internal/api ./internal/llmgateway ./internal/agentjob
+go vet ./internal/agentbridge ./internal/agentrun ./internal/systemdb ./internal/api ./internal/llmgateway
 echo "==> 云 Agent 全链路测试（fakellm，无需 API key）"
 (cd gocloudagent && GOWORK=off go test -timeout 300s -count=1 ./...)
-go test -timeout 300s -count=1 ./internal/agentbridge ./internal/systemdb ./internal/api ./internal/llmgateway ./internal/agentjob
+go test -timeout 300s -count=1 ./internal/agentbridge ./internal/agentrun ./internal/systemdb ./internal/api ./internal/llmgateway
 go test -timeout 300s -count=1 -run TestAgentSkillsE2E ./internal/api
 
 if [[ -d ui && -f ui/package.json ]]; then

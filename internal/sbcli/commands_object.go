@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"flag"
 	"io"
 	"os"
 	"strings"
@@ -103,4 +104,37 @@ func cmdSitePublish(ctx context.Context, c *gosdk.Client, _ loadedConfig, args [
 		return nil, usagef("site_prefix_not_allowed: only --prefix %s can be published", sitePublishPrefix)
 	}
 	return c.SetPublicFolder(ctx, prefix, true)
+}
+
+// cmdSiteEnable 公开约定站点前缀 web/；站点没有实例级总开关。
+func cmdSiteEnable(ctx context.Context, c *gosdk.Client, _ loadedConfig, _ []string, _ io.Reader) (any, error) {
+	return c.SetPublicFolder(ctx, sitePublishPrefix, true)
+}
+
+// cmdSiteDisable 取消约定站点前缀 web/ 的公开。
+func cmdSiteDisable(ctx context.Context, c *gosdk.Client, _ loadedConfig, _ []string, _ io.Reader) (any, error) {
+	return c.SetPublicFolder(ctx, sitePublishPrefix, false)
+}
+
+// cmdObjectPublic 设置单文件 / 文件夹的外部访问；文件夹 key 必须以 "/" 结尾。
+func cmdObjectPublic(ctx context.Context, c *gosdk.Client, _ loadedConfig, args []string, _ io.Reader) (any, error) {
+	set := flag.NewFlagSet("simplebase", flag.ContinueOnError)
+	set.SetOutput(io.Discard)
+	key := set.String("key", "", "")
+	kind := set.String("kind", "file", "")
+	on := set.Bool("on", false, "")
+	off := set.Bool("off", false, "")
+	if err := set.Parse(args); err != nil {
+		return nil, usagef("%s", err.Error())
+	}
+	if strings.TrimSpace(*key) == "" {
+		return nil, usagef("--key is required")
+	}
+	if *on == *off {
+		return nil, usagef("use exactly one of --on or --off")
+	}
+	if *kind == "folder" && !strings.HasSuffix(*key, "/") {
+		return nil, usagef("folder key must end with /")
+	}
+	return c.SetPublic(ctx, *key, *kind, *on)
 }

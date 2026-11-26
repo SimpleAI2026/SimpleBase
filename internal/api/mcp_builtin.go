@@ -2,7 +2,7 @@
 //
 // 用法
 //
-//	同包调用：builtinAPITool → mcp_builtin_simplebase.go, mcp_builtin_test.go；builtinMCP → mcp_builtin_session.go, mcp_builtin_simplebase.go；builtinMCPHandler → mcp_builtin_session.go, mcp_builtin_session_test.go
+//	同包调用：builtinAPITool → mcp_builtin_simplebase.go, ；builtinMCP → mcp_builtin_session.go, mcp_builtin_simplebase.go；builtinMCPHandler → mcp_builtin_session.go,
 //
 // 调用架构
 //
@@ -13,8 +13,8 @@
 //	         │ 依赖
 //	         ▼
 //	[下游] 仅标准库 / 第三方
-//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
-//	[关键引用] builtinAPITool ← mcp_builtin_simplebase.go, mcp_builtin_test.go；builtinMCP ← mcp_builtin_session.go, mcp_builtin_simplebase.go；builtinMCPHandler ← mcp_builtin_session.go, mcp_builtin_session_test.go
+//	[同包] backup_handler.go, data_compat.go, error.go, file_compat.go, function_compat.go, health.go, mcp_builtin_admin.go, mcp_builtin_session.go 等 28 个
+//	[关键引用] builtinAPITool ← mcp_builtin_simplebase.go, ；builtinMCP ← mcp_builtin_session.go, mcp_builtin_simplebase.go；builtinMCPHandler ← mcp_builtin_session.go,
 //
 // 主要符号
 //
@@ -34,6 +34,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"github.com/linkxzhou/SimpleBase/internal/api/httpkit"
 	"net/http"
 	"strings"
 	"sync"
@@ -64,7 +65,7 @@ type builtinMCP struct {
 	Name      string // simplebase / sb-xxx
 	TitleKey  string // 前端文案 key
 	Available func(deps Dependencies) bool
-	Build     func(b *builtinMCPBuilder, pc ProjectContext) *mcp.ServerSpec
+	Build     func(b *builtinMCPBuilder, pc httpkit.ProjectContext) *mcp.ServerSpec
 }
 
 var builtinMCPs = []builtinMCP{simplebaseAPIMCP}
@@ -100,9 +101,9 @@ func (h *builtinMCPHandler) Serve(c echo.Context) error {
 	if !h.deps.Config.Agent.MCP.Builtin {
 		return c.JSON(http.StatusNotFound, map[string]any{"status": 404, "message": "builtin mcp not enabled"})
 	}
-	pc, err := requireProject(c)
+	pc, err := httpkit.RequireProject(c)
 	if err != nil {
-		return WriteError(c, err)
+		return httpkit.WriteError(c, err)
 	}
 	// 系统项目禁止 MCP 暴露（§3.4 #3）。
 	if catalog.IsSystemProject(pc.ID) {
@@ -115,7 +116,7 @@ func (h *builtinMCPHandler) Serve(c echo.Context) error {
 	// 项目级开关（§3.4 #2）：`mcp.builtin.<name>.enabled`。
 	enabled, err := h.checkProjectSetting(c.Request().Context(), pc.ID, name)
 	if err != nil {
-		return WriteError(c, err)
+		return httpkit.WriteError(c, err)
 	}
 	if !enabled {
 		return c.JSON(http.StatusNotFound, map[string]any{"status": 404, "message": "builtin mcp disabled for this project"})
@@ -141,7 +142,7 @@ func (h *builtinMCPHandler) MethodNotAllowed(c echo.Context) error {
 }
 
 // resolveSpec 按 (name, pid) 返回 spec；缓存 60 秒。未找到注册或 Available=false 返回 nil。
-func (h *builtinMCPHandler) resolveSpec(name string, pc ProjectContext) (*mcp.ServerSpec, bool) {
+func (h *builtinMCPHandler) resolveSpec(name string, pc httpkit.ProjectContext) (*mcp.ServerSpec, bool) {
 	cacheKey := pc.ID + ":" + name
 	now := time.Now()
 	h.mu.RLock()
@@ -199,7 +200,7 @@ type builtinMCPBuilder struct {
 }
 
 // buildServerFromTools 是工具表转 spec 的快捷入口。
-func (b *builtinMCPBuilder) buildServerFromTools(tools []builtinAPITool, pc ProjectContext) *mcp.ServerSpec {
+func (b *builtinMCPBuilder) buildServerFromTools(tools []builtinAPITool, pc httpkit.ProjectContext) *mcp.ServerSpec {
 	out := make([]mcp.ServerTool, 0, len(tools))
 	for _, t := range tools {
 		out = append(out, b.toServerTool(t, pc))
@@ -212,7 +213,7 @@ func (b *builtinMCPBuilder) buildServerFromTools(tools []builtinAPITool, pc Proj
 	}
 }
 
-func (b *builtinMCPBuilder) toServerTool(t builtinAPITool, pc ProjectContext) mcp.ServerTool {
+func (b *builtinMCPBuilder) toServerTool(t builtinAPITool, pc httpkit.ProjectContext) mcp.ServerTool {
 	return mcp.ServerTool{
 		Name:        t.Name,
 		Description: t.Description,

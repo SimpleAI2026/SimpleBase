@@ -13,7 +13,7 @@
 //	         │ 依赖
 //	         ▼
 //	[下游] 仅标准库 / 第三方（echo）
-//	[同包] router.go
+//	[同包] backup_handler.go, data_compat.go, error.go, file_compat.go, function_compat.go, health.go, mcp_builtin.go, mcp_builtin_admin.go 等 28 个
 //
 // 主要符号
 //
@@ -23,6 +23,7 @@
 package api
 
 import (
+	"github.com/linkxzhou/SimpleBase/internal/api/sandboxhttp"
 	"net/http"
 	"strconv"
 	"strings"
@@ -65,7 +66,7 @@ func skipLargeUploadBodyLimit(s3Enabled, sandboxEnabled bool) middleware.Skipper
 		if strings.HasSuffix(p, "/import") {
 			return true
 		}
-		return sandboxEnabled && (p == "/files" || p == e2bEnvdPrefix+"/files")
+		return sandboxEnabled && (p == "/files" || p == sandboxhttp.E2BEnvdPrefix+"/files")
 	}
 }
 

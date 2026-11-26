@@ -50,6 +50,8 @@ import type {
 import type {
   AggregateQuery,
   AggregateResult,
+  CollectionAccessRule,
+  CollectionAccessRuleInput,
   CollectionImportResult,
   CollectionInfo,
   CollectionSchema,
@@ -286,6 +288,22 @@ export interface Api {
       dryRun?: boolean
     ) => Promise<CollectionSchema | SchemaDryRunResult>
     deleteCollectionSchema: (projectId: string, databaseId: string, collection: string) => Promise<void>
+    getCollectionAccess: (
+      projectId: string,
+      databaseId: string,
+      collection: string
+    ) => Promise<CollectionAccessRule>
+    putCollectionAccess: (
+      projectId: string,
+      databaseId: string,
+      collection: string,
+      rule: CollectionAccessRuleInput
+    ) => Promise<CollectionAccessRule>
+    deleteCollectionAccess: (
+      projectId: string,
+      databaseId: string,
+      collection: string
+    ) => Promise<CollectionAccessRule>
   }
   /** Key-Value 数据服务：项目级单端点 */
   kv: {
@@ -306,7 +324,8 @@ export interface Api {
       projectId: string,
       key: string,
       file: File,
-      onProgress?: (percent: number) => void
+      onProgress?: (percent: number) => void,
+      signal?: AbortSignal
     ) => Promise<S3Object>
     /** 站点（发布网站）状态 */
     getSite: (projectId: string) => Promise<S3SiteInfo>

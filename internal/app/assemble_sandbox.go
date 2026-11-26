@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/linkxzhou/SimpleBase/internal/api/sandboxhttp"
 	"net"
 	"os"
 	"path/filepath"
@@ -28,7 +29,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func (a *App) assembleSandbox(ctx context.Context, cfg config.Config, logger observability.Logger) *api.TerminalBridge {
+func (a *App) assembleSandbox(ctx context.Context, cfg config.Config, logger observability.Logger) *sandboxhttp.TerminalBridge {
 	if cfg.Sandbox.Enabled && a.systemStore != nil {
 		var driver vm.Driver
 		driverLog := sandboxDriverLog(logger)
@@ -255,7 +256,7 @@ func sandboxDriverLog(l observability.Logger) vm.LogFunc {
 //
 // 返回的 TerminalBridge 里 Server 先是 nil：SSH 服务端在 buildHTTPServers 中、路由树之前由
 // bindSandboxSSHAuth 挂上。因此这里只准备主机密钥与指纹。
-func (a *App) setupSandboxTerminal(cfg config.Config, logger observability.Logger) *api.TerminalBridge {
+func (a *App) setupSandboxTerminal(cfg config.Config, logger observability.Logger) *sandboxhttp.TerminalBridge {
 	keyPath := cfg.Sandbox.SSH.HostKeyPath
 	if keyPath == "" {
 		keyPath = filepath.Join(cfg.Storage.DataDir, "sandbox_ssh_host_ed25519")
@@ -268,13 +269,13 @@ func (a *App) setupSandboxTerminal(cfg config.Config, logger observability.Logge
 		return nil
 	}
 	a.sshHostKey = signer
-	return &api.TerminalBridge{Fingerprint: sshd.Fingerprint(signer), SSHListen: strings.TrimSpace(cfg.Sandbox.SSH.Listen)}
+	return &sandboxhttp.TerminalBridge{Fingerprint: sshd.Fingerprint(signer), SSHListen: strings.TrimSpace(cfg.Sandbox.SSH.Listen)}
 }
 
 // bindSandboxSSHAuth 构造 SSH 服务端并按需开放外部端口，返回服务端供 TerminalBridge 使用。
 // 认证器用同一份 deps 另建一个 SandboxHandler（只走票据校验与项目沙盒查找，不挂路由）。
-func (a *App) bindSandboxSSHAuth(t *api.TerminalBridge, deps api.Dependencies) *sshd.Server {
-	h := api.NewSandboxHandler(deps.Sandbox, deps.Config.Instance.Writable, deps.Audit, deps.System, deps.SandboxUsage, deps)
+func (a *App) bindSandboxSSHAuth(t *sandboxhttp.TerminalBridge, deps api.Dependencies) *sshd.Server {
+	h := sandboxhttp.NewSandboxHandler(deps.Sandbox, deps.Config.Instance.Writable, deps.Audit, deps.System, deps.SandboxUsage, sandboxhttp.Deps{Config: deps.Config, Logger: deps.Logger, Auth: deps.Auth, Catalog: deps.Catalog, Images: deps.Images, Terminal: t})
 	audit := func(ctx context.Context, id sshd.Identity, kind string, d time.Duration, exit int) {
 		if a.auditSvc == nil {
 			return
@@ -282,7 +283,7 @@ func (a *App) bindSandboxSSHAuth(t *api.TerminalBridge, deps api.Dependencies) *
 		_ = a.auditSvc.Record(ctx, audit.Event{ProjectID: id.ProjectID, PrincipalID: id.Actor, Kind: "sandbox.terminal." + kind,
 			Status: "ok", Detail: fmt.Sprintf("%s duration_ms=%d exit=%d", id.SandboxID, d.Milliseconds(), exit)})
 	}
-	srv, err := sshd.New(sshd.Options{HostKey: a.sshHostKey, Authenticator: api.NewSSHAuthenticator(h), Sessions: a.sandboxMgr, Audit: audit})
+	srv, err := sshd.New(sshd.Options{HostKey: a.sshHostKey, Authenticator: sandboxhttp.NewSSHAuthenticator(h), Sessions: a.sandboxMgr, Audit: audit})
 	if err != nil {
 		if a.logger != nil {
 			a.logger.Warn("sandbox terminal disabled", zap.Error(err))

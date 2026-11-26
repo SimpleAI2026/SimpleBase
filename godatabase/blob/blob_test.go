@@ -22,6 +22,7 @@
 //	TestKeyBuilderRejectsBadIDs(t *testing.T)
 //	TestProjectDatabaseKeys(t *testing.T)
 //	TestValidateProjectID(t *testing.T)
+//	TestJoinKey(t *testing.T)
 //	TestNewProjectIDIsValid(t *testing.T)
 //	TestMemoryRoundTrip(t *testing.T)
 //	TestMemoryPutIfAbsent(t *testing.T)
@@ -141,6 +142,29 @@ func TestValidateProjectID(t *testing.T) {
 		if err := ValidateProjectID(bad); err == nil {
 			t.Fatalf("expected %q to be rejected", bad)
 		}
+	}
+}
+
+// JoinKey 只做拼接：去掉首尾 "/"、跳过空段；段内部的字符（包括 ".."）原样保留，校验是调用方的责任。
+func TestJoinKey(t *testing.T) {
+	cases := []struct {
+		name  string
+		parts []string
+		want  string
+	}{
+		{"no parts", nil, ""},
+		{"only empty parts", []string{"", "/", "//"}, ""},
+		{"trims slashes and skips empty segments", []string{"", "/a/", "", "b"}, "a/b"},
+		{"nested prefix", []string{"root", "proj1", "databases", "uuid"}, "root/proj1/databases/uuid"},
+		{"slashes around every part", []string{"/root/", "/a/", "/b/"}, "root/a/b"},
+		{"keeps inner characters verbatim", []string{"a.b", "x..y", "c//d"}, "a.b/x..y/c//d"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := JoinKey(tc.parts...); got != tc.want {
+				t.Fatalf("JoinKey(%q) = %q, want %q", tc.parts, got, tc.want)
+			}
+		})
 	}
 }
 

@@ -25,6 +25,10 @@ package api
 import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"github.com/linkxzhou/SimpleBase/internal/api/filehttp"
+	"github.com/linkxzhou/SimpleBase/internal/api/iamhttp"
+	"github.com/linkxzhou/SimpleBase/internal/api/llmhttp"
+	"github.com/linkxzhou/SimpleBase/internal/api/opshttp"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/config"
 )
@@ -41,7 +45,7 @@ func mountV1Routes(e *echo.Echo, deps Dependencies) {
 	mountAuthRoutes(v1, deps, g)
 	ph := NewProjectsHandler(deps.Catalog, deps.Users)
 	mountProjectListRoutes(v1, deps, g, ph)
-	p := v1.Group("/projects/:projectID", projectContextMiddlewareEcho(deps))
+	p := v1.Group("/projects/:projectID", projectContextMiddlewareEcho(deps.Catalog))
 	mountDatabaseRoutes(p, deps, g, ph)
 	mountBackupRealtimeRoutes(p, deps, g)
 	mountKVRoutes(p, deps, g)
@@ -56,12 +60,12 @@ func mountAuthRoutes(v1 *echo.Group, deps Dependencies, g routeGuards) {
 	if deps.Sessions == nil || deps.Users == nil {
 		return
 	}
-	ah := NewAuthHandler(deps.Sessions, deps.Users).WithAudit(deps.Audit)
+	ah := iamhttp.NewAuthHandler(deps.Sessions, deps.Users).WithAudit(deps.Audit)
 	v1.POST("/auth/logout", ah.Logout)
 	v1.GET("/auth/me", ah.Me)
 	v1.PUT("/auth/password", ah.ChangePassword, g.writeGate)
 
-	uh := NewUsersHandler(deps.Users, deps.Sessions)
+	uh := iamhttp.NewUsersHandler(deps.Users, deps.Sessions)
 	v1.GET("/users", uh.List)
 	v1.POST("/users", uh.Create, g.writeGate)
 	v1.GET("/users/:id", uh.Get)
@@ -74,7 +78,7 @@ func mountProjectListRoutes(v1 *echo.Group, deps Dependencies, g routeGuards, ph
 	// 存储设置：以 config.yaml 为准，仅 superadminl1 可改（planv6.0 阶段 E）。
 	// 修改后需要停服 → ./build.sh reset -y → 重启，不迁移数据。
 	if deps.System != nil {
-		ssh := &settingsStorageHandler{cfg: deps.Config, path: config.ConfigFilePath(), logger: deps.Logger}
+		ssh := opshttp.NewStorageSettingsHandler(deps.Config, config.ConfigFilePath(), deps.Logger)
 		v1.GET("/system/storage", ssh.GetStorage, g.require(auth.DatabaseRead))
 		v1.PUT("/system/storage", ssh.PutStorage, g.writeGate)
 	}
@@ -101,7 +105,7 @@ func mountDatabaseRoutes(p *echo.Group, deps Dependencies, g routeGuards, ph *Pr
 		// SYNC-01：auth 仓储直接写 sys_api_keys，绕过 systemdb 的 notifyWrite；
 		// 写成功后显式触发 catalog 同步，防止“吊销是唯一一次写入”时崩溃恢复
 		// 后 Key 仍然有效。
-		kh := NewAPIKeysHandler(deps.Auth, deps.System.DB(), deps.System.NotifyWrite)
+		kh := iamhttp.NewAPIKeysHandler(deps.Auth, deps.System.DB(), deps.System.NotifyWrite)
 		p.POST("/api-keys", kh.Create, g.require(auth.DatabaseRead), g.writeGate)
 		p.GET("/api-keys", kh.List, g.require(auth.DatabaseRead))
 		p.DELETE("/api-keys/:keyID", kh.Delete, g.require(auth.DatabaseRead), g.writeGate)
@@ -141,6 +145,10 @@ func mountDatabaseRoutes(p *echo.Group, deps Dependencies, g routeGuards, ph *Pr
 		p.PUT("/databases/:databaseID/data/collections/:collection/documents/:id", dh.UpdateDocument, g.delegable(auth.DatabaseWrite), g.writeGate)
 		p.DELETE("/databases/:databaseID/data/collections/:collection/documents/:id", dh.DeleteDocument, g.delegable(auth.DatabaseWrite), g.writeGate)
 		p.DELETE("/databases/:databaseID/data/collections/:collection", dh.TruncateCollection, g.delegable(auth.ProjectAdmin), g.writeGate)
+		// 行级访问规则：读规则沿用数据库读权限；变更只允许项目管理员（不外委）。
+		p.GET("/databases/:databaseID/data/collections/:collection/access", dh.GetAccessRule, g.delegable(auth.DatabaseRead))
+		p.PUT("/databases/:databaseID/data/collections/:collection/access", dh.PutAccessRule, g.require(auth.ProjectAdmin), g.writeGate)
+		p.DELETE("/databases/:databaseID/data/collections/:collection/access", dh.DeleteAccessRule, g.require(auth.ProjectAdmin), g.writeGate)
 	}
 	if deps.CollectionMetaHandler != nil {
 		mh := deps.CollectionMetaHandler
@@ -189,7 +197,7 @@ func mountKVRoutes(p *echo.Group, deps Dependencies, g routeGuards) {
 // 三个内置角色与 API Key 签发白名单均已包含它，因此是语义对齐而非权限收紧。
 func mountLLMRoutes(p *echo.Group, deps Dependencies, g routeGuards) {
 	if deps.LLM != nil {
-		lh := &LLMHandler{svc: deps.LLM, usage: deps.Usage, audit: deps.Audit, store: deps.System}
+		lh := llmhttp.NewLLMHandler(deps.LLM, deps.Usage, deps.Audit, deps.System)
 		oa := p.Group("/v1")
 		oa.POST("/chat/completions", lh.ChatCompletions, g.require(auth.LLMInvoke))
 		oa.POST("/responses", lh.Responses, g.require(auth.LLMInvoke))
@@ -200,11 +208,11 @@ func mountLLMRoutes(p *echo.Group, deps Dependencies, g routeGuards) {
 // mountUsageAuditRoutes 挂载配额与审计查询路由（Plan 9）。
 func mountUsageAuditRoutes(p *echo.Group, deps Dependencies, g routeGuards) {
 	if deps.Usage != nil {
-		qh := &QuotaHandler{svc: deps.Usage}
+		qh := opshttp.NewQuotaHandler(deps.Usage)
 		p.GET("/quota", qh.GetQuota, g.delegable(auth.DatabaseRead))
 	}
 	if deps.Audit != nil {
-		ah := &AuditHandler{svc: deps.Audit}
+		ah := opshttp.NewAuditHandler(deps.Audit)
 		p.GET("/audit", ah.ListOperations, g.delegable(auth.DatabaseRead))
 	}
 }
@@ -215,7 +223,7 @@ func mountS3Routes(e *echo.Echo, p *echo.Group, deps Dependencies, g routeGuards
 	if deps.S3FileStore == nil {
 		return
 	}
-	sh := &S3Handler{store: deps.S3FileStore, index: deps.System, writable: deps.Config.Instance.Writable, tokenSecret: deps.Config.Files.TokenSecret, allowedMIME: deps.Config.Files.AllowedMIME, events: deps.TriggerEvents, sites: deps.Sites, sitesCfg: deps.Config.Sites, cfgHTTPPublicURL: deps.Config.HTTP.PublicURL}
+	sh := filehttp.NewS3Handler(filehttp.S3HandlerDeps{Store: deps.S3FileStore, Index: deps.System, Writable: deps.Config.Instance.Writable, TokenSecret: deps.Config.Files.TokenSecret, AllowedMIME: deps.Config.Files.AllowedMIME, Events: deps.TriggerEvents, Sites: deps.Sites, SitesCfg: deps.Config.Sites, SiteTraffic: deps.SiteTraffic, PublicURL: deps.Config.HTTP.PublicURL})
 	p.GET("/s3/objects", sh.ListObjects, g.delegable(auth.DatabaseRead))
 	p.GET("/s3/objects/content", sh.DownloadObject, g.delegable(auth.DatabaseRead))
 	p.POST("/s3/objects", sh.UploadObject, g.delegable(auth.DatabaseWrite), g.writeGate, middleware.BodyLimit(bodyLimit(s3UploadBodyLimit)))
@@ -227,6 +235,9 @@ func mountS3Routes(e *echo.Echo, p *echo.Group, deps Dependencies, g routeGuards
 	// 委托主体对 PUT /s3/public 只能操作 web/ 文件夹（见 S3Handler.PutPublic），
 	// 其余路由（含公开路径列表）仍不可委托。
 	p.GET("/s3/site", sh.GetSite, g.delegable(auth.DatabaseRead))
+	// 系统管理员下线任意项目站点（关闭全部公开路径并写审计）。
+	e.POST("/v1/system/projects/:projectID/site/takedown", sh.TakedownSite, g.writeGate)
+	e.PUT("/v1/system/projects/:projectID/site/quota", sh.PutSiteQuota, g.writeGate)
 	p.GET("/s3/public", sh.ListPublic, g.require(auth.DatabaseRead))
 	p.PUT("/s3/public", sh.PutPublic, g.delegable(auth.DatabaseAdmin), g.writeGate)
 	e.GET("/files/:token", sh.DownloadLinkedObject)
@@ -248,7 +259,7 @@ func mountSystemRoutes(e *echo.Echo, v1, p *echo.Group, deps Dependencies, g rou
 	}
 	mountAgentRoutes(p, deps, g, bm)
 
-	migrationH := NewMigrationHandler(deps.System)
+	migrationH := opshttp.NewMigrationHandler(deps.System)
 	p.GET("/migrations/status", migrationH.Status, g.require(auth.ProjectAdmin))
 	p.GET("/migrations/plan", migrationH.Plan, g.require(auth.ProjectAdmin))
 
@@ -269,11 +280,11 @@ func mountSystemRoutes(e *echo.Echo, v1, p *echo.Group, deps Dependencies, g rou
 // mountObservabilityRoutesV1 挂载 /v1 下的指标、日志、设置与 LLM trace 查询路由。
 // 与根级 mountObservabilityRoutes（/metrics、pprof，router 入口）无关。
 func mountObservabilityRoutesV1(v1, p *echo.Group, deps Dependencies, g routeGuards) {
-	mh := &metricsHandler{store: deps.System}
+	mh := opshttp.NewMetricsHandler(deps.System)
 	p.GET("/metrics/summary", mh.Summary, g.require(auth.DatabaseRead))
 	p.GET("/metrics/trend", mh.Trend, g.require(auth.DatabaseRead))
 
-	lh := &logsHTTPHandler{store: deps.System}
+	lh := opshttp.NewLogsHandler(deps.System)
 	// planv6.0 §3.1：logs 只读可委托；retention 管理（GET/PUT）不可委托。
 	p.GET("/logs", lh.List, g.delegable(auth.DatabaseRead))
 	p.GET("/logs/stats", lh.Stats, g.delegable(auth.DatabaseRead))
@@ -281,19 +292,19 @@ func mountObservabilityRoutesV1(v1, p *echo.Group, deps Dependencies, g routeGua
 	p.GET("/logs/retention", lh.GetRetention, g.require(auth.DatabaseRead))
 	p.PUT("/logs/retention", lh.PutRetention, g.require(auth.ProjectAdmin), g.writeGate)
 
-	seth := &settingsHandler{store: deps.System}
+	seth := opshttp.NewProjectSettingsHandler(deps.System)
 	p.GET("/settings", seth.GetProject, g.require(auth.DatabaseRead))
 	p.PUT("/settings", seth.PutProject, g.require(auth.ProjectAdmin), g.writeGate)
 	v1.GET("/settings", seth.GetGlobal, g.require(auth.ProjectAdmin))
 	v1.PUT("/settings", seth.PutGlobal, g.require(auth.ProjectAdmin), g.writeGate)
 
-	sess := &llmSessionHandler{store: deps.System}
+	sess := opshttp.NewLLMSessionHandler(deps.System)
 	p.GET("/llm/settings", sess.GetSettings, g.require(auth.DatabaseRead))
 	p.PUT("/llm/settings", sess.PutSettings, g.require(auth.ProjectAdmin), g.writeGate)
 
 	// 模型调用 trace 查询（planv6.5）：只读、可委托，与 /logs 同权限级。
 	// 二期（§9.3）：分组列表 + 详情 span 时间线。
-	lth := &llmTracesHandler{store: deps.System}
+	lth := llmhttp.NewTracesHandler(deps.System)
 	p.GET("/llm/traces", lth.List, g.delegable(auth.DatabaseRead))
 	p.GET("/llm/trace-groups", lth.Groups, g.delegable(auth.DatabaseRead))
 	p.GET("/llm/trace-groups/:traceId", lth.Detail, g.delegable(auth.DatabaseRead))

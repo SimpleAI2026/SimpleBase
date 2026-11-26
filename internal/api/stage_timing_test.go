@@ -23,7 +23,7 @@
 //	TestStageTimerNilSafe(t *testing.T)
 //	TestStageTimerObserveAndSnapshot(t *testing.T)
 //	TestStageScopeDoneIdempotent(t *testing.T)
-//	(t *StageTimer) SnapshotT(stage Stage) time.Duration
+//	snapshotT(t *StageTimer, stage Stage) time.Duration
 //	TestPerfStageMiddlewareDisabledByDefault(t *testing.T)
 //	... 另有 15 个顶层符号
 
@@ -33,8 +33,8 @@ package api
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
+	"github.com/labstack/echo/v4"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -43,8 +43,6 @@ import (
 
 	_ "github.com/uglyer/go-sqlite3"
 
-	"github.com/labstack/echo/v4"
-	"github.com/linkxzhou/SimpleBase/godatabase"
 	"github.com/linkxzhou/SimpleBase/internal/observability"
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -121,18 +119,18 @@ func TestStageScopeDoneIdempotent(t *testing.T) {
 	scope := timer.StageScope(StageProject)
 	time.Sleep(2 * time.Millisecond)
 	scope.Done()
-	first := timer.SnapshotT(StageProject)
+	first := snapshotT(timer, StageProject)
 	if first <= 0 {
 		t.Fatalf("project stage missing: %v", first)
 	}
 	scope.Done() // 第二次必须无效果
-	if again := timer.SnapshotT(StageProject); again != first {
+	if again := snapshotT(timer, StageProject); again != first {
 		t.Fatalf("Done not idempotent: first=%v again=%v", first, again)
 	}
 }
 
-// SnapshotT 是测试辅助：读取单段累计。
-func (t *StageTimer) SnapshotT(stage Stage) time.Duration {
+// snapshotT 是测试辅助：读取单段累计。
+func snapshotT(t *StageTimer, stage Stage) time.Duration {
 	spent, _ := t.Snapshot()
 	return spent[stage]
 }
@@ -253,11 +251,11 @@ func TestTimedAuthMiddlewareWraps(t *testing.T) {
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			timer := newStageTimer(c.Request().Context())
-			c.SetRequest(c.Request().WithContext(timer.ctx))
+			c.SetRequest(c.Request().WithContext(timer.WithContext(context.Background())))
 			t0 := time.Now()
 			err := next(c)
 			wall = time.Since(t0)
-			authStage = timer.SnapshotT(StageAuth)
+			authStage = snapshotT(timer, StageAuth)
 			return err
 		}
 	})
@@ -296,9 +294,9 @@ func TestTimedAuthMiddlewareFailureStillRecords(t *testing.T) {
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			timer := newStageTimer(c.Request().Context())
-			c.SetRequest(c.Request().WithContext(timer.ctx))
+			c.SetRequest(c.Request().WithContext(timer.WithContext(context.Background())))
 			err := next(c)
-			authStage = timer.SnapshotT(StageAuth)
+			authStage = snapshotT(timer, StageAuth)
 			return err
 		}
 	})
@@ -316,87 +314,6 @@ func TestTimedAuthMiddlewareFailureStillRecords(t *testing.T) {
 		t.Fatalf("auth stage not recorded on failure path: %v", authStage)
 	}
 }
-
-// —— timedLease ——
-
-func TestWrapTimedLeaseNoopWithoutTimer(t *testing.T) {
-	lease := newFakeLease(t)
-	if got := WrapTimedLease(context.Background(), lease); got != SQLLease(lease) {
-		t.Fatalf("should return original lease, got %T", got)
-	}
-	if got := WrapTimedLease(context.Background(), nil); got != nil {
-		t.Fatal("nil lease should stay nil")
-	}
-}
-
-func TestWrapTimedLeaseRecordsExec(t *testing.T) {
-	timer := newStageTimer(context.Background())
-	ctx := timer.ctx
-	lease := WrapTimedLease(ctx, newFakeLease(t))
-	if _, ok := lease.(*timedLease); !ok {
-		t.Fatalf("want timedLease, got %T", lease)
-	}
-	if _, err := lease.Execute(ctx, godatabase.Statement{SQL: "CREATE TABLE t(id INT)"}); err != nil {
-		t.Fatal(err)
-	}
-	res, err := lease.Query(ctx, godatabase.Statement{SQL: "SELECT 1 AS v"}, 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(res.Rows) != 1 {
-		t.Fatalf("rows=%d", len(res.Rows))
-	}
-	if d := timer.SnapshotT(StageDBExec); d <= 0 {
-		t.Fatal("db_exec not recorded")
-	}
-	if timer.Meta("rows") != 1 {
-		t.Fatalf("rows meta=%d", timer.Meta("rows"))
-	}
-
-	if _, err := lease.Batch(ctx, []godatabase.Statement{{SQL: "INSERT INTO t VALUES (1)"}}, true); err != nil {
-		t.Fatal(err)
-	}
-	lease.NotifyWrite(ctx) // 记入 on_write
-	if d := timer.SnapshotT(StageOnWrite); d < 0 {
-		t.Fatal("on_write negative")
-	}
-	lease.Release()
-}
-
-// fakeLease 是最小 SQLLease 实现（内存 sqlite，满足 Query/Execute/Batch/Raw/NotifyWrite）。
-type fakeLease struct {
-	db *sql.DB
-}
-
-func newFakeLease(t *testing.T) *fakeLease {
-	t.Helper()
-	db, err := sql.Open("sqlite3", ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	return &fakeLease{db: db}
-}
-
-func (f *fakeLease) Release() {}
-
-func (f *fakeLease) Query(ctx context.Context, stmt godatabase.Statement, maxRows int) (godatabase.QueryResult, error) {
-	return godatabase.Query(ctx, f.db, stmt, maxRows)
-}
-
-func (f *fakeLease) Execute(ctx context.Context, stmt godatabase.Statement) (godatabase.QueryResult, error) {
-	return godatabase.Execute(ctx, f.db, stmt)
-}
-
-func (f *fakeLease) Batch(ctx context.Context, stmts []godatabase.Statement, transactional bool) ([]godatabase.QueryResult, error) {
-	return godatabase.Batch(ctx, f.db, stmts, transactional)
-}
-
-func (f *fakeLease) Raw() *sql.DB { return f.db }
-
-func (f *fakeLease) NotifyWrite(ctx context.Context) {}
-
-// —— observability 指标 ——
 
 func TestMetricsObserveStage(t *testing.T) {
 	reg := prometheus.NewRegistry()

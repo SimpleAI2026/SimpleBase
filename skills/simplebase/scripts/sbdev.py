@@ -1335,6 +1335,44 @@ def list_foreign_objects(cli, files, prefix: str):
     return sorted(groups.items()), truncated
 
 
+def list_foreign_keys(cli, files, prefix: str):
+    """列出 prefix 下、不属于本次构建的对象 key（用于 --prune）。"""
+    try:
+        data = cli("object", "list", "--prefix", prefix)
+    except CLIError:
+        return [], False
+    items = data.get("objects") if isinstance(data, dict) else data
+    if not isinstance(items, list):
+        return [], False
+    uploaded = {key for key, _ in files}
+    truncated = len(items) > SITE_OBJECT_SCAN_LIMIT
+    keys = []
+    for it in items[:SITE_OBJECT_SCAN_LIMIT]:
+        key = it.get("key") if isinstance(it, dict) else None
+        if not isinstance(key, str) or not key.startswith(prefix) or key in uploaded:
+            continue
+        keys.append(key)
+    return keys, truncated
+
+
+def prune_foreign_objects(cli, files, prefix: str) -> int:
+    """删除 prefix 内不属于本次构建的对象；返回删除数量。"""
+    keys, truncated = list_foreign_keys(cli, files, prefix)
+    for key in keys:
+        if not key.startswith(prefix):
+            continue
+        try:
+            cli("object", "delete", "--key", key)
+        except CLIError as e:
+            raise Fail(f"删除旧对象 {key} 失败：{e.err_code}: {e.message}", EXIT_REMOTE)
+        say(f"  prune   object     {key}")
+    if truncated:
+        warn(f"对象列表超过 {SITE_OBJECT_SCAN_LIMIT} 条，--prune 只处理了前 {SITE_OBJECT_SCAN_LIMIT} 个")
+    if not keys:
+        say("  prune   object     （无）")
+    return len(keys)
+
+
 def warn_foreign_objects(groups, truncated: bool, prefix: str) -> None:
     if not groups:
         return
@@ -1396,8 +1434,8 @@ def cmd_site_deploy(args) -> int:
     files, prefix = collect_site_files(ws.root, args.dist, args.prefix)
     t = Target(args, ws)
     t.require_http()
-    if not t.is_local and not args.yes:
-        say(f"目标是远端 {t.label}（{t.key}），先看站点发布计划：")
+    if not args.yes and (not t.is_local or args.prune):
+        say(f"目标是 {t.label}（{t.key}），先看站点发布计划：")
         for key, _ in files[:20]:
             say(f"  upload  object     {key}")
         if len(files) > 20:
@@ -1408,7 +1446,20 @@ def cmd_site_deploy(args) -> int:
             if t.bin and os.access(t.bin, os.X_OK):
                 groups, truncated = list_foreign_objects(CLI(t), files, prefix)
                 warn_foreign_objects(groups, truncated, prefix)
-        say("确认将构建产物上传并发布后，加 --yes 重跑 site deploy。")
+        if args.prune:
+            if t.bin and os.access(t.bin, os.X_OK):
+                keys, truncated = list_foreign_keys(CLI(t), files, prefix)
+                for key in keys[:20]:
+                    say(f"  prune   object     {key}")
+                if len(keys) > 20:
+                    say(f"  ... 其余 {len(keys) - 20} 个旧对象（共 {len(keys)} 个）")
+                if truncated:
+                    warn(f"对象列表超过 {SITE_OBJECT_SCAN_LIMIT} 条，--prune 只处理前 {SITE_OBJECT_SCAN_LIMIT} 个")
+                if not keys:
+                    say("  prune   object     （无）")
+            else:
+                say("  prune   object     前缀内不属于本次构建的旧对象")
+        say("确认后加 --yes 重跑 site deploy。")
         return EXIT_CONFIRM
     t.require()
     if not args.no_publish:
@@ -1427,6 +1478,8 @@ def cmd_site_deploy(args) -> int:
             say(f"  upload  object     {key}")
     except CLIError as e:
         raise Fail(f"`simplebase {' '.join(e.argv[:2])}` 失败：{e.err_code}: {e.message}", EXIT_REMOTE)
+    if args.prune:
+        prune_foreign_objects(cli, files, prefix)
     if args.no_publish:
         say(f"完成：已上传 {len(files)} 个文件（--no-publish，未改动站点与公开路径开关）。")
         return EXIT_OK
@@ -1501,6 +1554,7 @@ def main(argv=None) -> int:
     sd.add_argument("--dist", required=True, help="前端编译输出目录（如 dist 或 web/dist）")
     sd.add_argument("--prefix", default="", help="对象存储目标目录前缀（缺省发布到站点根 /，例 app/）")
     sd.add_argument("--no-publish", action="store_true", help="只上传静态文件，不开启站点与外部访问开关")
+    sd.add_argument("--prune", action="store_true", help="删除前缀内不属于本次构建的旧对象（需 --yes）")
     sd.add_argument("--yes", action="store_true", help="远端目标的确认开关")
     sd.add_argument("--json", action="store_true", help="最后一行额外输出 JSON：subdomain / base_url / url")
     sd.set_defaults(fn=cmd_site_deploy)

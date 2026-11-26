@@ -37,7 +37,7 @@ func historyToSchema(history []Message) []*schema.Message {
 	budget := maxHistoryChars
 	for i := len(history) - 1; i >= 0; i-- {
 		message := history[i]
-		message.Content = truncate(message.Content, 2000)
+		message.Content = agentcore.Truncate(message.Content, 2000)
 		if len(message.Content) > budget {
 			break
 		}
@@ -83,7 +83,7 @@ func toolHistorySummary(raw string) string {
 		if i >= 5 {
 			break
 		}
-		b.WriteString("- " + truncate(card.Name+" "+card.Arguments+" → "+agentcore.RedactSecrets(card.Content), 600) + "\n")
+		b.WriteString("- " + agentcore.Truncate(card.Name+" "+card.Arguments+" → "+agentcore.RedactSecrets(card.Content), 600) + "\n")
 	}
 	return b.String()
 }

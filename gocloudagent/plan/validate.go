@@ -140,6 +140,20 @@ func Validate(d Decision, c Constraints) error {
 	if len(d.Dispatches) > limits.MaxDispatches {
 		return fmt.Errorf("%w: %d dispatches exceed %d", ErrTooLarge, len(d.Dispatches), limits.MaxDispatches)
 	}
+	refIdx, err := validateMembers(d, c, limits)
+	if err != nil {
+		return err
+	}
+	if err := validateDependencyGraph(d, refIdx, limits.MaxDepth); err != nil {
+		return err
+	}
+	if err := validateSteps(d); err != nil {
+		return err
+	}
+	return validateComplexSteps(d)
+}
+
+func validateMembers(d Decision, c Constraints, limits Limits) (map[string]int, error) {
 	members := make(map[string]bool, len(c.Members))
 	for _, m := range c.Members {
 		members[m] = true
@@ -149,52 +163,56 @@ func Validate(d Decision, c Constraints) error {
 	covered := make(map[string]bool, len(d.Dispatches))
 	for i, t := range d.Dispatches {
 		if _, dup := refIdx[t.Ref]; dup {
-			return fmt.Errorf("%w: duplicate ref %q", ErrInvalid, t.Ref)
+			return nil, fmt.Errorf("%w: duplicate ref %q", ErrInvalid, t.Ref)
 		}
 		refIdx[t.Ref] = i
 		if t.Message == "" {
-			return fmt.Errorf("%w: dispatch %q has empty message", ErrInvalid, t.Ref)
+			return nil, fmt.Errorf("%w: dispatch %q has empty message", ErrInvalid, t.Ref)
 		}
 		if len([]rune(t.Message)) > limits.MaxMessage {
-			return fmt.Errorf("%w: dispatch %q message is too long", ErrInvalid, t.Ref)
+			return nil, fmt.Errorf("%w: dispatch %q message is too long", ErrInvalid, t.Ref)
 		}
 		switch t.Risk {
 		case "", RiskRead, RiskWrite, RiskDestructive:
 		default:
-			return fmt.Errorf("%w: dispatch %q has unknown risk %q", ErrInvalid, t.Ref, t.Risk)
+			return nil, fmt.Errorf("%w: dispatch %q has unknown risk %q", ErrInvalid, t.Ref, t.Risk)
 		}
 		switch t.TargetKind {
 		case TargetAgent:
 			if !members[t.TargetID] {
-				return fmt.Errorf("%w: dispatch %q targets %q", ErrMemberMissing, t.Ref, t.TargetID)
+				return nil, fmt.Errorf("%w: dispatch %q targets %q", ErrMemberMissing, t.Ref, t.TargetID)
 			}
 			covered[t.TargetID] = true
 		case TargetHuman:
 			if c.HumanDisabled {
-				return fmt.Errorf("%w: dispatch %q", ErrHumanDisabled, t.Ref)
+				return nil, fmt.Errorf("%w: dispatch %q", ErrHumanDisabled, t.Ref)
 			}
 			if c.HumanID == "" || t.TargetID != c.HumanID {
-				return fmt.Errorf("%w: dispatch %q", ErrHumanUnavailable, t.Ref)
+				return nil, fmt.Errorf("%w: dispatch %q", ErrHumanUnavailable, t.Ref)
 			}
 			hasHuman = true
 		default:
-			return fmt.Errorf("%w: dispatch %q has unknown target kind %q", ErrInvalid, t.Ref, t.TargetKind)
+			return nil, fmt.Errorf("%w: dispatch %q has unknown target kind %q", ErrInvalid, t.Ref, t.TargetKind)
 		}
 	}
 	for _, m := range c.Mentioned {
 		if !covered[m] {
-			return fmt.Errorf("%w: %q", ErrMentionMissing, m)
+			return nil, fmt.Errorf("%w: %q", ErrMentionMissing, m)
 		}
 	}
 	if c.MentionedHuman && !hasHuman {
 		if c.HumanDisabled {
-			return ErrHumanDisabled
+			return nil, ErrHumanDisabled
 		}
 		if c.HumanID == "" {
-			return ErrHumanUnavailable
+			return nil, ErrHumanUnavailable
 		}
-		return fmt.Errorf("%w: mentioned human is not assigned", ErrMentionMissing)
+		return nil, fmt.Errorf("%w: mentioned human is not assigned", ErrMentionMissing)
 	}
+	return refIdx, nil
+}
+
+func validateDependencyGraph(d Decision, refIdx map[string]int, maxDepth int) error {
 	// 依赖与上下文只能引用更早的 ref（天然无环），按序递推深度。
 	depths := make([]int, len(d.Dispatches))
 	for i, t := range d.Dispatches {
@@ -214,29 +232,31 @@ func Validate(d Decision, c Constraints) error {
 			}
 		}
 		depths[i] = depth
-		if depth > limits.MaxDepth {
-			return fmt.Errorf("%w: depth %d exceeds %d", ErrTooDeep, depth, limits.MaxDepth)
+		if depth > maxDepth {
+			return fmt.Errorf("%w: depth %d exceeds %d", ErrTooDeep, depth, maxDepth)
 		}
 	}
-	if err := validateSteps(d); err != nil {
-		return err
+	return nil
+}
+
+func validateComplexSteps(d Decision) error {
+	if d.Complexity != ComplexityComplex {
+		return nil
 	}
-	if d.Complexity == ComplexityComplex {
-		// §13.4：complex 计划必须带 steps（simple 忽略 steps）。
-		if len(d.Steps) == 0 {
-			return fmt.Errorf("%w: complex plan requires steps", ErrInvalid)
+	// §13.4：complex 计划必须带 steps（simple 忽略 steps）。
+	if len(d.Steps) == 0 {
+		return fmt.Errorf("%w: complex plan requires steps", ErrInvalid)
+	}
+	steps := make(map[string]bool, len(d.Steps))
+	for _, s := range d.Steps {
+		steps[s.ID] = true
+	}
+	for _, t := range d.Dispatches {
+		if t.StepID == "" {
+			return fmt.Errorf("%w: dispatch %q requires step_id in a complex plan", ErrInvalid, t.Ref)
 		}
-		steps := make(map[string]bool, len(d.Steps))
-		for _, s := range d.Steps {
-			steps[s.ID] = true
-		}
-		for _, t := range d.Dispatches {
-			if t.StepID == "" {
-				return fmt.Errorf("%w: dispatch %q requires step_id in a complex plan", ErrInvalid, t.Ref)
-			}
-			if !steps[t.StepID] {
-				return fmt.Errorf("%w: dispatch %q references unknown step %q", ErrInvalid, t.Ref, t.StepID)
-			}
+		if !steps[t.StepID] {
+			return fmt.Errorf("%w: dispatch %q references unknown step %q", ErrInvalid, t.Ref, t.StepID)
 		}
 	}
 	return nil

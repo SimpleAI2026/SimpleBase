@@ -24,6 +24,19 @@ group: 云助手
 
 内置助手默认不可写：写命令会直接返回 `write_not_allowed`，不会先弹出确认。需要在「编辑助手」里打开「允许写操作」。本地 `gocloudagent` 二进制的 shell 工具会剥离凭据类环境变量（包括 `SIMPLEBASE_TOKEN`），shell 里的 `simplebase` 需要事先配置好配置文件，详见仓库 `docs/cli.md`。
 
+## 内置 MCP Server
+
+SimpleBase 会把当前项目的常用 API 封装成一个内置 MCP Server，任何支持 Streamable HTTP 的 MCP 客户端都可以直接连接：
+
+- 主入口：`POST /v1/projects/:projectID/mcp`；扩展入口：`POST /v1/projects/:projectID/mcp/builtin/:name`。
+- 鉴权：`Authorization: Bearer <API Key 或委托令牌>`，调用范围限定在令牌所属项目；不支持 OAuth。
+- 内置名字 `simplebase` 为保留名，用户配置的外部 Server 不能使用 `simplebase` 或 `sb-` 前缀。
+- 工具集精选（单个 Server 最多 64 个），覆盖项目信息、数据库 / 集合查询、文档读写、KV、对象存储、云函数与定时任务；单次工具结果上限 32 KiB。
+- 默认开启，可在「工作台 → 模型 → MCP」的内置 Server 区域关闭；启停状态存项目设置，不新增系统表。
+- 云助手调用内置 Server 使用进程内会话，不经过回环 HTTP；外部 MCP 连接器仍拒绝回环与私网地址。
+
+与外部 Server 的区别：外部 Server 由用户配置地址与凭据、存 `sys_mcp_servers`；内置 Server 不需要配置地址，工具随服务端版本更新，且不能重命名。
+
 ## 安全提醒
 
 Agent 的自然语言输入与工具输出均可能包含不可信文本。不要把敏感 Key 放在提示词、沙盒命令环境变量或对话上下文中；高风险写入优先走明确的 API 权限边界。

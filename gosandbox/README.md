@@ -20,9 +20,10 @@ netx/                  出网档位（none / egress）与 pasta 用户态出网
 snapshot/              快照与 fork：文件系统归档（内容寻址）
 internal/executil/     模块私有的进程输出限额与环境工具
 internal/fsx/          模块私有的原子写与目录树删除
+internal/ptyx/         模块私有的伪终端打开与窗口大小设置；host 与 agent 共用（linux / darwin 各一份实现，其它平台返回 ErrUnsupported）
 ```
 
-依赖方向只有 `vm/* → box → {proto, netx, host}`，`vm/box` 另直接用 `image`、`snapshot`；`host` 与 `stream` 不 import 其它新包。驱动与镜像/快照共享的少量内部实现位于 `internal/executil`、`internal/fsx`，它们不是对外 API，也不 import 任何平台包。`vm/local` 与 `vm/box` 在隔离不可用时都返回 `ErrUnavailable` / `ErrBackend`，**不会退回裸执行**。云沙盒不依赖任何第三方沙盒服务或 SDK；镜像拉取直接实现 registry 协议，不引入 `go-containerregistry`。
+依赖方向只有 `vm/* → box → {proto, netx, host}`，`vm/box` 另直接用 `image`、`snapshot`；`host` 与 `stream` 除 `internal/` 外不 import 模块内其它包。模块私有的内部实现都在 `internal/`，不是对外 API，也都不 import 模块内其它包：`executil`（host、vm 使用）与 `fsx`（image、snapshot、vm 使用）是平台无关的；`ptyx`（host、agent 使用）按平台分文件实现，是其中唯一带平台分支的。`vm/local` 与 `vm/box` 在隔离不可用时都返回 `ErrUnavailable` / `ErrBackend`，**不会退回裸执行**。云沙盒不依赖任何第三方沙盒服务或 SDK；镜像拉取直接实现 registry 协议，不引入 `go-containerregistry`。
 
 ## vm/box：常驻 agent 后端
 

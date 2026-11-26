@@ -63,7 +63,7 @@ func (e *toolEvents) result(mv *adk.MessageVariant) {
 	// 先对完整结果判定失败，再截断展示：超长失败信封截断后不再是合法 JSON。
 	isErr := agentcore.ToolResultIsError(content)
 	truncated := len([]rune(content)) > maxToolCardChars
-	content = truncate(content, maxToolCardChars)
+	content = agentcore.Truncate(content, maxToolCardChars)
 	duration := time.Since(e.starts[id]).Milliseconds()
 	if e.starts[id].IsZero() {
 		duration = 0

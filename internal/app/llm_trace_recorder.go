@@ -23,8 +23,8 @@ package app
 
 import (
 	"context"
+	"github.com/linkxzhou/SimpleBase/internal/api/httpkit"
 
-	"github.com/linkxzhou/SimpleBase/internal/api"
 	"github.com/linkxzhou/SimpleBase/internal/llmgateway"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 )
@@ -47,7 +47,7 @@ func (r *llmTraceRecorder) RecordTrace(ctx context.Context, t llmgateway.LLMTrac
 		return nil
 	}
 	// Stream 场景 ctx 可能已随请求结束取消，request_id 此刻仍在 ctx 值里可读。
-	requestID := api.RequestIDFromContext(ctx)
+	requestID := httpkit.RequestIDFromContext(ctx)
 	traceID := t.TraceID
 	if traceID == "" {
 		traceID = requestID

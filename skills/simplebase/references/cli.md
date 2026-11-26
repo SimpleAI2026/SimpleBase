@@ -64,8 +64,14 @@ simplebase dev status --dir .                   # 读取 .simplebase/lock.json�
 
 ```bash
 python3 scripts/sbdev.py site status    -C .
-python3 scripts/sbdev.py site deploy    -C . --dist dist [--prefix app/] [--no-publish] [--yes]
+python3 scripts/sbdev.py site deploy    -C . --dist dist [--prefix app/] [--no-publish] [--prune] [--yes]
 python3 scripts/sbdev.py site unpublish -C . [--yes]
+
+# 直接 CLI：发布 / 取消约定站点前缀 web/，以及单文件与文件夹外部访问
+simplebase site enable            # 等价于 object public --key web/ --kind folder --on
+simplebase site disable           # 取消 web/ 前缀的公开
+simplebase object public --key web/app.js --on
+simplebase object public --key web/ --kind folder --on
 ```
 
 `site deploy` 不带 `--prefix` 会公开整个对象根，公开前会提示前缀下不属于本次产物的已有对象（只提示、不阻断）；已有业务对象时用 `--prefix`。站点面只读，没有后端接口。

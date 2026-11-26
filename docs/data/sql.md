@@ -63,6 +63,7 @@ curl -sS -X POST "$BASE/v1/projects/$PROJECT/databases/$DATABASE/query" \
 | 新建 / 批量新建文档 | `POST /:collection/documents`、`POST /:collection/documents/batch` | write |
 | 单条读取 | `GET /:collection/documents/:id` | read |
 | 整体替换 / 部分更新 / 删除 | `PUT` / `PATCH` / `DELETE /:collection/documents/:id` | write |
+| 读取 / 设置 / 关闭行级规则 | `GET` / `PUT` / `DELETE /:collection/access` | read / project:admin / project:admin |
 
 列表支持 `limit`（1–200，默认 50）、`cursor`、`offset`、`sort`、`filter`、`fields` 和 `count`。响应含结构化 `items`、可选 `next_cursor/total/request_id`；旧 `rows` 扁平字段暂时保留。cursor 与 offset 互斥，且仅用于默认 `-created_at,id DESC` 排序；自定义排序请使用 offset。
 
@@ -80,6 +81,21 @@ curl -sS --get "$BASE/v1/projects/$PROJECT/databases/$DATABASE/data/collections/
 JSON 列过滤有全表扫描成本，超过 `limits.max_filter_scan_rows` 返回 `filter_scan_limit_exceeded`。`count=1` 默认关闭，仅在需要总数时开启。`fields` 支持 `payload.owner.name` 形式的嵌套裁剪，`id` 始终保留。
 
 Schema 支持 `text/number/bool/date/email/url/select/json`，以及 required、unique、default、长度/范围、pattern、select 候选值、hidden 和 readonly。`PUT meta?dry_run=1` 只检查现有文档，不落库；删除字段或注销 Schema 不删除文档中的旧键。未注册 Schema 的旧集合继续保持宽松 JSON 模式。批量写入在单事务执行，错误中的 `failed_index` 是零基序号。
+
+### 行级访问规则
+
+集合可以按 owner 字段做行级隔离（默认关闭）：
+
+```json
+{"mode": "owner_write", "owner_field": "owner_id"}
+```
+
+- `off`：不限制；`owner_read`：非管理员只能读取 owner 为自己的文档；`owner_write`：读写都只能操作自己的文档。
+- 创建文档时服务端写入当前主体（`user:<id>` 或 `key:<id>`）；非管理员不能通过请求体伪造或转移 owner。
+- 项目管理员（`project:admin` 或 `database:admin`）绕过规则；终端用户与委托令牌使用自身主体。
+- 列表、按 id、聚合与导出都按 owner 过滤；批量写入与导入在创建时写入 owner；更新 / 补丁 / 删除校验目标行 owner。
+- 规则只约束集合文档 API。SQL 通道仍按项目权限放行，不受 owner 过滤；需要行级隔离时请使用集合文档接口。
+- 越权返回 `403 forbidden_row`，不区分「不存在」与「无权」；规则变更写审计，只记录模式与 owner 字段。
 
 `PATCH` 使用 JSON merge patch：`null` 删除键，嵌套对象递归合并。`PUT` 是整体替换。
 

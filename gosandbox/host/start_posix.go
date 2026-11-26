@@ -38,6 +38,8 @@ import (
 	"os"
 	"os/exec"
 	"syscall"
+
+	"github.com/linkxzhou/SimpleBase/gosandbox/internal/ptyx"
 )
 
 // killGroup 向整个进程组发信号（子进程以 Setpgid 启动，pgid == pid）。
@@ -70,7 +72,14 @@ func attachStdio(c *exec.Cmd, pty *PTYSize, setDarwinAttr bool) (
 	err error,
 ) {
 	if pty != nil {
-		master, slave, perr := openPTY(*pty)
+		master, slave, perr := ptyx.Open()
+		if perr == nil {
+			// 窗口大小总是设置：设不上就关掉两端，不留一个尺寸未知的终端。
+			if perr = ptyx.SetWinsize(master, pty.Rows, pty.Cols); perr != nil {
+				master.Close()
+				slave.Close()
+			}
+		}
 		if perr != nil {
 			return nil, nil, nil, nil, nil, unavailable("open pty: %v", perr)
 		}
@@ -127,5 +136,5 @@ func (p *process) Resize(size PTYSize) error {
 	if p.ptmx == nil {
 		return ErrNotPTY
 	}
-	return setWinsize(p.ptmx, size)
+	return ptyx.SetWinsize(p.ptmx, size.Rows, size.Cols)
 }

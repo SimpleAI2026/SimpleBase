@@ -21,7 +21,7 @@ export interface ProjectLlmDefaults {
 
 interface SettingsState {
   theme: ThemeMode
-  /** 界面语言（默认中文，不做浏览器探测，见 plan/planv6.7/legacy-plan-consolidation-plan.md） */
+  /** 界面语言（默认中文，不做浏览器探测） */
   locale: LocaleCode
   /** projectId → 默认模型与连接信息 */
   projectDefaults: Record<string, ProjectLlmDefaults>

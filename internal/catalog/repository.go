@@ -92,6 +92,12 @@ type UsageSummary struct {
 	DatabaseStorage int64
 }
 
+// SiteTrafficStore 是站点流量的可选仓储能力；不支持时配额与统计降级为不启用。
+type SiteTrafficStore interface {
+	IncrementSiteTraffic(ctx context.Context, projectID, day string, requests, bytes int64) error
+	GetSiteTraffic(ctx context.Context, projectID, day string) (SiteTraffic, error)
+}
+
 // LLMProviderStore 抽象 LLM 供应商配置的持久化（plan8.md）。
 // 密钥以密文存储；读取时由 Service 层解密。
 type LLMProviderStore interface {

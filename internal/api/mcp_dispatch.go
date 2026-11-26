@@ -2,7 +2,7 @@
 //
 // 用法
 //
-//	同包调用：mcpCaller → mcp_builtin.go；withMCPCaller() → mcp_builtin.go；dispatchBuiltinTool() → mcp_builtin.go, mcp_builtin_test.go
+//	同包调用：mcpCaller → mcp_builtin.go；withMCPCaller() → mcp_builtin.go；dispatchBuiltinTool() → mcp_builtin.go,
 //
 // 调用架构
 //
@@ -13,8 +13,8 @@
 //	         │ 依赖
 //	         ▼
 //	[下游] 仅标准库 / 第三方
-//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
-//	[关键引用] mcpCaller ← mcp_builtin.go；withMCPCaller ← mcp_builtin.go；dispatchBuiltinTool ← mcp_builtin.go, mcp_builtin_test.go
+//	[同包] backup_handler.go, data_compat.go, error.go, file_compat.go, function_compat.go, health.go, mcp_builtin.go, mcp_builtin_admin.go 等 28 个
+//	[关键引用] mcpCaller ← mcp_builtin.go；withMCPCaller ← mcp_builtin.go；dispatchBuiltinTool ← mcp_builtin.go,
 //
 // 主要符号
 //
@@ -37,6 +37,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/linkxzhou/SimpleBase/internal/api/datahttp"
+	"github.com/linkxzhou/SimpleBase/internal/api/httpkit"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -81,7 +83,7 @@ var errMCPNoCaller = errors.New("mcp caller identity missing")
 
 // dispatchBuiltinTool 把一次 tools/call 转成 `/v1` 子请求。
 // HTTP 状态 >= 400 时返回 IsError 结果（正文原样给模型，便于自我纠正），不转协议错误。
-func dispatchBuiltinTool(ctx context.Context, e *echo.Echo, deps Dependencies, pc ProjectContext, t builtinAPITool, arguments []byte) (mcp.CallResult, error) {
+func dispatchBuiltinTool(ctx context.Context, e *echo.Echo, deps Dependencies, pc httpkit.ProjectContext, t builtinAPITool, arguments []byte) (mcp.CallResult, error) {
 	caller, ok := mcpCallerFrom(ctx)
 	if !ok {
 		return mcp.CallResult{}, errMCPNoCaller
@@ -193,7 +195,7 @@ func subRequest(ctx context.Context, e *echo.Echo, caller mcpCaller, method, pat
 }
 
 // defaultDatabaseID 返回项目唯一的数据库 ID；0 个或多个库时报错并提示显式传 databaseID。
-func defaultDatabaseID(ctx context.Context, e *echo.Echo, caller mcpCaller, pc ProjectContext) (string, error) {
+func defaultDatabaseID(ctx context.Context, e *echo.Echo, caller mcpCaller, pc httpkit.ProjectContext) (string, error) {
 	path := "/v1/projects/" + url.PathEscape(pc.ID) + "/databases"
 	status, text, err := subRequest(ctx, e, caller, http.MethodGet, path, nil)
 	if err != nil {
@@ -202,7 +204,7 @@ func defaultDatabaseID(ctx context.Context, e *echo.Echo, caller mcpCaller, pc P
 	if status >= http.StatusBadRequest {
 		return "", fmt.Errorf("list databases failed: HTTP %d: %s", status, text)
 	}
-	var resp DatabaseListResponse
+	var resp datahttp.DatabaseListResponse
 	if err := json.Unmarshal([]byte(text), &resp); err != nil {
 		return "", fmt.Errorf("list databases: invalid response")
 	}

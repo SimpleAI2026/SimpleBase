@@ -25,6 +25,11 @@
 //	var ReadonlyPaths
 //	type BwrapInput struct{…}
 //	BwrapArgs(in BwrapInput) ([]string, error)
+//	policyMountArgs(in BwrapInput, exists, isDir func(string) bool) ([]string, error)
+//	systemMountArgs(in BwrapInput, exists func(string) bool) []string
+//	namespaceArgs(in BwrapInput) []string
+//	innerPolicyArgs(in BwrapInput) []string
+//	commandArgs(in BwrapInput) []string
 //	sizeOrZero(supported bool, size int64) int64
 //	tmpfsArgs(target string, size int64) []string
 //	ScratchDirs(p Policy) []string
@@ -100,6 +105,8 @@ type BwrapInput struct {
 // 顺序固定，后挂的更具体路径覆盖先挂的：
 // 会话/退出 → 只读根 → /tmp tmpfs → 可写绑定 → 只读路径（含强制 deny 表）→ deny_read → /dev /proc →
 // 命名空间 → cap-drop → 策略文件 → chdir → helper。
+// 各段在同文件的 *Args 里生成，这里只负责校验、解析探针并按上述顺序拼接：
+// 段落的先后就是挂载与隔离的语义，调整顺序前先确认后挂的仍然覆盖先挂的。
 func BwrapArgs(in BwrapInput) ([]string, error) {
 	p := in.Policy
 	if !p.Isolates() {
@@ -122,13 +129,27 @@ func BwrapArgs(in BwrapInput) ([]string, error) {
 	if isDir == nil {
 		isDir = func(s string) bool { st, err := os.Stat(s); return err == nil && st.IsDir() }
 	}
-	mode := p.EffectiveMode()
-	fd := in.PolicyFD
-	if fd == 0 {
-		fd = 3
-	}
 
+	// 会话/退出 → 只读根。
 	args := []string{"--new-session", "--die-with-parent", "--ro-bind", "/", "/"}
+	mounts, err := policyMountArgs(in, exists, isDir)
+	if err != nil {
+		return nil, err
+	}
+	args = append(args, mounts...)
+	args = append(args, systemMountArgs(in, exists)...)
+	args = append(args, namespaceArgs(in)...)
+	args = append(args, innerPolicyArgs(in)...)
+	args = append(args, commandArgs(in)...)
+	return args, nil
+}
+
+// policyMountArgs 是由策略决定的挂载，顺序为：
+// /tmp tmpfs → 可写绑定 → 只读路径（含强制 deny 表）→ deny_read。
+func policyMountArgs(in BwrapInput, exists, isDir func(string) bool) ([]string, error) {
+	p := in.Policy
+	mode := p.EffectiveMode()
+	var args []string
 
 	// /tmp 用 tmpfs，否则编译器等写不了临时文件。必须在所有绑定之前挂：
 	// 工作区或可写根可能位于 /tmp 之下（如 /tmp/ws），后挂的 tmpfs 会把它们整个盖掉。
@@ -189,8 +210,14 @@ func BwrapArgs(in BwrapInput) ([]string, error) {
 			args = append(args, "--ro-bind", "/dev/null", d)
 		}
 	}
+	return args, nil
+}
 
-	args = append(args, "--dev", "/dev", "--proc", "/proc")
+// systemMountArgs 是与策略无关的固定挂载（只有 /dev/shm 的大小取自策略），顺序为：
+// /dev /proc → /dev/shm → Docker 默认的 masked / readonly 路径。
+func systemMountArgs(in BwrapInput, exists func(string) bool) []string {
+	p := in.Policy
+	args := []string{"--dev", "/dev", "--proc", "/proc"}
 	// /dev/shm 默认与宿主一致；显式给了大小就单独挂一个 tmpfs 盖上去。
 	// 编译类任务（Go、Rust、Chromium）在 64MiB 下会失败。
 	if p.ShmBytes > 0 {
@@ -208,14 +235,35 @@ func BwrapArgs(in BwrapInput) ([]string, error) {
 			args = append(args, "--ro-bind", m, m)
 		}
 	}
-	args = append(args,
-		"--unshare-user", "--unshare-pid", "--unshare-ipc", "--unshare-net")
+	return args
+}
+
+// namespaceArgs 是命名空间：user / pid / ipc / net 全部隔离。
+// DisableUserNS 为真时再追加 --disable-userns（bwrap >= 0.8.0 且非 setuid）。
+func namespaceArgs(in BwrapInput) []string {
+	args := []string{"--unshare-user", "--unshare-pid", "--unshare-ipc", "--unshare-net"}
 	if in.DisableUserNS {
 		args = append(args, "--disable-userns")
 	}
-	args = append(args, "--cap-drop", "ALL",
+	return args
+}
+
+// innerPolicyArgs 是沙盒内 helper 的权限与策略来源：收掉全部 capability，
+// 再把 policy.json 经 --file 放到 InnerPolicyPath。PolicyFD 为 0 时取 ExtraFiles[0]（即 3）。
+func innerPolicyArgs(in BwrapInput) []string {
+	fd := in.PolicyFD
+	if fd == 0 {
+		fd = 3
+	}
+	return []string{"--cap-drop", "ALL",
 		"--dir", filepath.Dir(InnerPolicyPath),
-		"--perms", "0400", "--file", strconv.Itoa(fd), InnerPolicyPath)
+		"--perms", "0400", "--file", strconv.Itoa(fd), InnerPolicyPath}
+}
+
+// commandArgs 是 chdir 与最终命令：-- 之后是 helper 及其参数，再来一个 -- 之后才是沙盒内执行的 Argv。
+// CTTY 为真时让 helper 把 stdin 设为控制终端（交互 PTY 会话）。
+func commandArgs(in BwrapInput) []string {
+	var args []string
 	if in.Dir != "" {
 		args = append(args, "--chdir", in.Dir)
 	}
@@ -225,7 +273,7 @@ func BwrapArgs(in BwrapInput) ([]string, error) {
 	}
 	args = append(args, "--")
 	args = append(args, in.Argv...)
-	return args, nil
+	return args
 }
 
 // tmpfsArgs 返回挂一个 tmpfs 的参数。size > 0 时带 --size（bwrap >= 0.9）；

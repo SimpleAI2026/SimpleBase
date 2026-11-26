@@ -76,6 +76,10 @@
           <CopyIcon data-icon="inline-start" />
           {{ t('components.s3Preview.copyLink') }}
         </Button>
+        <Button v-if="siteUrl" variant="outline" @click="openSite">
+          <ExternalLinkIcon data-icon="inline-start" />
+          {{ t('components.s3Preview.openSite') }}
+        </Button>
         <Button variant="outline" @click="emit('update:open', false)">
           {{ t('common.close') }}
         </Button>
@@ -98,7 +102,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
-import { CopyIcon, DownloadIcon } from '@lucide/vue'
+import { CopyIcon, DownloadIcon, ExternalLinkIcon } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import SbModal from './SbModal.vue'
@@ -119,6 +123,8 @@ const props = defineProps<{
   open: boolean
   projectId: string
   record?: S3Object | null
+  /** 站点基址；存在时展示「在站点中打开」。 */
+  siteUrl?: string
 }>()
 
 const emit = defineEmits<{ 'update:open': [value: boolean] }>()
@@ -223,6 +229,11 @@ async function copyContent() {
     () => t('components.s3Preview.copied'),
     (error) => errorMessage(error, t('components.s3Preview.copyFailed'))
   )
+}
+
+function openSite() {
+  if (!props.siteUrl) return
+  window.open(props.siteUrl, '_blank', 'noopener')
 }
 
 watch(

@@ -19,11 +19,11 @@ function okText(text: string) {
   return vi.fn().mockResolvedValue({ ok: true, text: async () => text, blob: async () => new Blob([text]) })
 }
 
-async function mountModal(record: { key: string; size: number; lastModified?: string } | null, open = true) {
+async function mountModal(record: { key: string; size: number; lastModified?: string } | null, open = true, siteUrl?: string) {
   const pinia = createPinia()
   setActivePinia(pinia)
   return await mountDialog(S3PreviewModal, {
-    props: { open, projectId: 'dev-shop', record },
+    props: { open, projectId: 'dev-shop', record, siteUrl },
     global: { plugins: [pinia], stubs }
   })
 }
@@ -37,6 +37,13 @@ describe('S3PreviewModal', () => {
     vi.stubGlobal('fetch', okText('hello world'))
     URL.createObjectURL = vi.fn(() => 'blob:x')
     URL.revokeObjectURL = vi.fn()
+  })
+
+  it('opens the site from the preview footer', async () => {
+    await mountModal({ key: 'a.txt', size: 11 }, true, 'https://p.example.test')
+    await flushPromises()
+    await inDialog().findAll('button').find((b) => b.text().includes('在站点中打开'))!.trigger('click')
+    expect(window.open).toHaveBeenCalledWith('https://p.example.test', '_blank', 'noopener')
   })
 
   it('renders images through <img> without fetching content', async () => {

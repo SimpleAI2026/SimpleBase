@@ -10,10 +10,18 @@
       <template #actions>
         <SbRefreshButton :pending="pending" @click="load" />
         <input ref="fileInput" type="file" class="hidden" @change="onFileChange" />
+        <input ref="folderInput" type="file" webkitdirectory multiple class="hidden" @change="onFolderChange" />
         <Button size="sm" :disabled="uploading" @click="triggerUpload">
           <Spinner v-if="uploading" data-icon="inline-start" />
           <UploadIcon v-else data-icon="inline-start" />
           {{ t('pages.s3.upload') }}
+        </Button>
+        <Button size="sm" variant="outline" :disabled="uploading" @click="triggerFolderUpload">
+          <FolderUpIcon data-icon="inline-start" />
+          {{ t('pages.s3.uploadFolder') }}
+        </Button>
+        <Button v-if="uploading && uploadAbort" size="sm" variant="destructiveGhost" @click="cancelUpload">
+          {{ t('pages.s3.cancelUpload') }}
         </Button>
       </template>
       <template #toolbar>
@@ -137,7 +145,7 @@
         </Table>
       </div>
     </SbListCard>
-    <S3PreviewModal v-model:open="previewOpen" :project-id="projectStore.id" :record="previewTarget" />
+    <S3PreviewModal v-model:open="previewOpen" :project-id="projectStore.id" :record="previewTarget" :site-url="site?.baseUrl" />
   </PageContainer>
   </ProjectScope>
 </template>
@@ -148,7 +156,7 @@ import { copyText } from '@/utils/clipboard'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
-import { ChevronRightIcon, CopyIcon, FileIcon, FolderIcon, SearchIcon, UploadIcon } from '@lucide/vue'
+import { ChevronRightIcon, CopyIcon, FileIcon, FolderIcon, FolderUpIcon, SearchIcon, UploadIcon } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { Progress } from '@/components/ui/progress'
@@ -193,7 +201,9 @@ const loadState = useLoadState({
 const { pending, run } = loadState
 const uploading = ref(false)
 const uploadPercent = ref(0)
+const uploadAbort = ref<AbortController | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
+const folderInput = ref<HTMLInputElement | null>(null)
 const previewOpen = ref(false)
 const previewTarget = ref<S3Object | null>(null)
 
@@ -267,6 +277,107 @@ function triggerUpload() {
   fileInput.value?.click()
 }
 
+function triggerFolderUpload() {
+  folderInput.value?.click()
+}
+
+interface FolderUploadTarget {
+  file: File
+  key: string
+}
+
+function folderUploadKey(file: File): string {
+  const relative = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name
+  const parts = relative.split('/').filter(Boolean)
+  // 去掉用户选中的最外层目录名，从当前浏览前缀开始保留相对结构。
+  const name = parts.length > 1 ? parts.slice(1).join('/') : parts[0]
+  const dir = prefix.value.trim()
+  return dir.endsWith('/') ? dir + name : name
+}
+
+function folderTargets(files: File[]): FolderUploadTarget[] {
+  return files
+    .filter((file) => {
+      const relative = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name
+      return file.name !== '.DS_Store' && !relative.includes('__MACOSX/')
+    })
+    .map((file) => ({ file, key: folderUploadKey(file) }))
+}
+
+function onFolderChange(e: Event) {
+  const input = e.target as HTMLInputElement
+  const files = Array.from(input.files ?? [])
+  input.value = ''
+  if (!files.length) return
+  void uploadFolder(files)
+}
+
+async function uploadFolder(files: File[]) {
+  const targets = folderTargets(files)
+  if (!targets.length) {
+    toast.warning(t('pages.s3.folderEmpty'))
+    return
+  }
+  const pid = projectStore.id
+  const failures: string[] = []
+  const controller = new AbortController()
+  uploadAbort.value = controller
+  let done = 0
+  uploading.value = true
+  uploadPercent.value = 0
+  const advance = (currentPct = 100) => {
+    uploadPercent.value = Math.round(((done + currentPct / 100) / targets.length) * 100)
+  }
+  for (const target of targets) {
+    if (controller.signal.aborted) break
+    if (target.file.size > MAX_UPLOAD_BYTES) {
+      failures.push(target.key)
+      done += 1
+      advance()
+      continue
+    }
+    const keyError = validateKey(target.key)
+    if (keyError) {
+      failures.push(target.key)
+      done += 1
+      advance()
+      continue
+    }
+    try {
+      await api.s3.upload(pid, target.key, target.file, (pct) => advance(pct), controller.signal)
+      done += 1
+      advance()
+    } catch {
+      if (controller.signal.aborted) break
+      failures.push(target.key)
+      done += 1
+      advance()
+    }
+  }
+  const cancelled = controller.signal.aborted
+  uploadAbort.value = null
+  uploading.value = false
+  await load()
+  if (cancelled) {
+    toast.info(t('pages.s3.uploadCancelled', { count: done }))
+    return
+  }
+  const ok = targets.length - failures.length
+  if (ok > 0) toast.success(t('pages.s3.folderUploadSuccess', { count: ok }))
+  if (failures.length) {
+    toast.error(
+      t('pages.s3.folderUploadFailed', {
+        count: failures.length,
+        names: failures.slice(0, 3).join(', ') + (failures.length > 3 ? '…' : '')
+      })
+    )
+  }
+}
+
+function cancelUpload() {
+  uploadAbort.value?.abort()
+}
+
 /** 最近一次发起查询时使用的前缀；防抖回调据此跳过重复请求。 */
 let loadedPrefix = ''
 let prefixTimer: ReturnType<typeof setTimeout> | null = null
@@ -321,7 +432,7 @@ function load() {
   })
 }
 
-/* ---------- 发布网站 / 外部访问（plan/planv6.5/object-storage-sites-plan.md） ---------- */
+/* ---------- 发布网站 / 外部访问 ---------- */
 
 /** 站点域名已配置时才显示两列（未配置时后端不返回 site）。 */
 const showPublicCols = computed(() => site.value !== null && !projectStore.isAdmin)

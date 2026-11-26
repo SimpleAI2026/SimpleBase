@@ -40,6 +40,7 @@ import (
 	"sync/atomic"
 	"syscall"
 
+	"github.com/linkxzhou/SimpleBase/gosandbox/internal/ptyx"
 	"github.com/linkxzhou/SimpleBase/gosandbox/proto"
 )
 
@@ -115,9 +116,13 @@ func (s *Server) startWith(m proto.Msg, exe string, cred *syscall.Credential) er
 	p := &proc{id: m.ID, cmd: cmd, input: make(chan []byte, 64), done: make(chan struct{})}
 
 	if m.TTY {
-		master, slave, err := openPTY(m.Rows, m.Cols)
+		master, slave, err := ptyx.Open()
 		if err != nil {
 			return fmt.Errorf("open pty: %w", err)
+		}
+		if m.Rows > 0 && m.Cols > 0 {
+			// 初始窗口只是尽力而为：设不上不影响进程启动。
+			_ = ptyx.SetWinsize(slave, m.Rows, m.Cols)
 		}
 		p.pty, p.stdin = master, master
 		p.slave = slave
@@ -313,7 +318,7 @@ func (s *Server) resize(m proto.Msg) {
 	if p == nil || p.pty == nil {
 		return
 	}
-	_ = setWinsize(p.pty, m.Rows, m.Cols)
+	_ = ptyx.SetWinsize(p.pty, m.Rows, m.Cols)
 }
 
 // killAll 结束所有进程（agent 关闭时调用）。

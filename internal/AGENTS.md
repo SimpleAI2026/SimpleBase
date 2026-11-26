@@ -1,6 +1,6 @@
 # SimpleBase 后端约束（internal/）
 
-本文件约束 `internal/` 下所有 Go 包的修改边界。架构详见 `internal/README.md` 与 `plan/`。
+本文件约束 `internal/` 下所有 Go 包的修改边界。架构详见 `internal/README.md`；新计划与变更走 `openspec/`（仓库根 AGENTS.md 的「计划与变更规范」）。
 
 ## 分层与依赖方向
 
@@ -10,6 +10,8 @@ cmd/simplebase → app → api → auth / catalog / dbbridge / objectstore
                               ↓
                         systemdb（常驻系统库连接）
                         agentbridge → gocloudagent（嵌套独立模块）/ auth / systemdb / sbcli / sqlguard / llmgateway
+                        agentrun → agentbridge / gocloudagent（group）/ auth / systemdb（行类型）/ usage / audit
+                        api/httpkit、api/<context>http → httpkit 与领域包（不 import api / app / 同级子包）
                         usage / audit → catalog
 ```
 
@@ -21,7 +23,8 @@ cmd/simplebase → app → api → auth / catalog / dbbridge / objectstore
 
 | 模块 | 职责 | 禁止 |
 | --- | --- | --- |
-| `api` | Echo 路由、handler、错误协议、适配器 | 业务逻辑下沉；handler 直接依赖具体实现（必须走 `Dependencies` 接口 + adapter） |
+| `api` | Echo 路由树、守卫、中间件、Echo 错误兜底；内置 MCP 派发（`mcp_*`，经 `subRequest` 回到路由树，必须持有 Echo 实例）；`api/httpkit` 是协议内核叶子包（错误协议 / 上下文 / SSE / 审计辅助 / 计时）；`api/<context>http` 是各业务域的 handler 子包（agenthttp / datahttp / sandboxhttp / functionhttp / filehttp / iamhttp / llmhttp / opshttp / cataloghttp / backuphttp：只提供 handler，不自带路由，不 import api / app / 同级；handler 的构造函数只收窄参数，不接收整包 `Dependencies`） | 业务逻辑下沉；handler 直接依赖具体实现（必须走 `Dependencies` 接口 + adapter）；router 构造期修改共享运行时或回填依赖 |
+| `agentrun` | Agent 协作应用服务：run / 群轮次 / 群定时 / 审批 / 事件环 / 规划工具 / 标签解析；群聊引擎的宿主适配（实现 `gocloudagent/group` 的 Store / Runner / Members）；实现 `agentbridge.GroupCronRunner` 与 `RunFinalizer` | import `api*` / Echo / `app`；另写一套 run / 轮次状态机（唯一权威在 `gocloudagent/group/state.go`，仓储的 LIFE-04 条件更新）；持有 `*systemdb.Store` 字面（只经消费方窄接口） |
 | `auth` | Principal、Permission、API key 校验 | 在 handler 里解析 token |
 | `catalog` | 元数据状态机（creating→ready→deleting…）、sys_* 表仓库 | 直接执行用户 SQL |
 | `dbbridge` | 宿主与独立 `godatabase` 模块之间的适配层：`catalog.Database` ↔ `Spec`、`catalog.Service` → `PathResolver`、`observability` → `Logger`/`Observer`（nil 必须返回无类型 nil）、`Registry` 包装 | import `api` / `app`；把 `Kind=system`、`Status` 在转换中丢失或改写；让 typed-nil 流入库 |
@@ -75,6 +78,7 @@ cmd/simplebase → app → api → auth / catalog / dbbridge / objectstore
 - 每个模块带单元测试；改动必须保持 `go build ./internal/... ./cmd/...` 与 `go test ./...` 通过。
 - handler 测试用 fake service（见 `data_handler_test.go` 风格），不依赖真实 DuckDB/S3。
 - 新增写路径必须补「系统库拒绝」用例。
+- 业务 handler 一律放进 `internal/api/<context>http`（子包只提供 handler 与导出的构造函数 / 窄 `Deps`），`Dependencies` 直接引用子包类型，`internal/api` 的 25 个顶层生产文件清单由 `TestKernelResidueFiles` 锁定；依赖方向由 `internal/app` 的 `TestArchitectureGate` 强制（子包不 import api / app / 同级；`agentrun` 不 import api / Echo / app；`UpdateAgentRunStatus` 只经 `agentrun.transitionRun`、`UpdateAgentTurnStatus` 只经 `agentrun` 的群引擎仓储适配器）。
 
 ## 其他
 

@@ -8,7 +8,7 @@ description: 用官方 OpenAI SDK 或任意兼容客户端，直接调用 Simple
 
 SimpleBase 为每个项目提供一个 OpenAI Chat Completions 兼容出口。开发者不必自己申请供应商 Key，把 `base_url` 指向项目、`api_key` 填项目的 API Key，就能用官方 SDK 调用项目的默认模型。
 
-> **注意** 该出口取代了旧的 `/llm/chat`、`/llm/stream`、`/llm/providers`，旧端点已删除，不保留兼容期。设计背景见[LLM 出口统一计划（v6.0）](../../plan/planv6.7/legacy-plan-consolidation-plan.md)。
+> **注意** 该出口取代了旧的 `/llm/chat`、`/llm/stream`、`/llm/providers`，旧端点已删除，不保留兼容期。设计背景见 `openspec/specs/llm-gateway/spec.md`。
 
 ## 连接信息
 

@@ -87,8 +87,7 @@
 
 <script setup lang="ts">
 /**
- * KV 键列表（工具条 + 表格 + 加载更多），从 KvPanel 拆出
- * （plan/planv6.7/legacy-plan-consolidation-plan.md §3.6）。
+ * KV 键列表（工具条 + 表格 + 加载更多），从 KvPanel 拆出。
  *
  * 拆分边界刻意选在「纯展示」：`rows` / `pattern` / `typeFilter` 等状态仍由
  * KvPanel 持有，这里只通过 props 读、通过 emit 写。这样既缩短了宿主模板，

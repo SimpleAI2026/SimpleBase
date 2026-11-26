@@ -13,7 +13,7 @@
 //	         │ 依赖
 //	         ▼
 //	[下游] internal/config
-//	[同包] adapter.go, agent_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[同包] backup_handler.go, data_compat.go, error.go, file_compat.go, function_compat.go, health.go, mcp_builtin.go, mcp_builtin_admin.go 等 28 个
 //	[关键引用] securityHeadersMiddleware() ← router.go
 //
 // 主要符号
@@ -26,6 +26,7 @@
 package api
 
 import (
+	"github.com/linkxzhou/SimpleBase/internal/api/filehttp"
 	"net"
 	"strconv"
 	"strings"
@@ -39,7 +40,7 @@ import (
 // 纯函数，供安全头中间件与测试使用。
 // routeClassFor 在 routeClass 之上叠加 Host 判定：站点子域（planv6.5）优先归为 "site"。
 func routeClassFor(c echo.Context) string {
-	if isSiteRequest(c) {
+	if filehttp.IsSiteRequest(c) {
 		return "site"
 	}
 	return routeClass(c.Request().URL.Path)

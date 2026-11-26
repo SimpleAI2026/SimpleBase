@@ -4,6 +4,7 @@ import { http } from '@/services/http'
 import type { CreateDatabaseInput, ViewDryRunResult, CollectionImportResult } from '@/services/types'
 import { toS3FolderMeta, toS3PublicResult, toS3SiteInfo } from '@/services/converters/platform'
 import {
+  toCollectionAccessRule,
   toCollectionInfo,
   toCollectionSchema,
   toDatabaseItem,
@@ -218,7 +219,22 @@ export const dataApi = {
         )
         .then((r) => Array.isArray(r.data?.invalid) ? toSchemaDryRun(r.data) : toCollectionSchema(r.data)),
     deleteCollectionSchema: (projectId, databaseId, collection) =>
-      http.delete(dataCollectionsPath(projectId, databaseId, collection) + '/meta').then(() => undefined)
+      http.delete(dataCollectionsPath(projectId, databaseId, collection) + '/meta').then(() => undefined),
+    getCollectionAccess: (projectId, databaseId, collection) =>
+      http
+        .get(dataCollectionsPath(projectId, databaseId, collection) + '/access')
+        .then((r) => toCollectionAccessRule(r.data)),
+    putCollectionAccess: (projectId, databaseId, collection, rule) =>
+      http
+        .put(dataCollectionsPath(projectId, databaseId, collection) + '/access', {
+          mode: rule.mode,
+          owner_field: rule.ownerField
+        })
+        .then((r) => toCollectionAccessRule(r.data)),
+    deleteCollectionAccess: (projectId, databaseId, collection) =>
+      http
+        .delete(dataCollectionsPath(projectId, databaseId, collection) + '/access')
+        .then((r) => toCollectionAccessRule(r.data))
   },
 
   kv: {
@@ -268,7 +284,7 @@ export const dataApi = {
       http
         .delete(projectPath(projectId, 's3', 'objects'), { params: { key } })
         .then(() => undefined),
-    upload: (projectId, key, file, onProgress) => {
+    upload: (projectId, key, file, onProgress, signal) => {
       const fd = new FormData()
       fd.append('key', key)
       fd.append('file', file)
@@ -276,6 +292,7 @@ export const dataApi = {
         .post(projectPath(projectId, 's3', 'objects'), fd, {
           // 实例默认 15s，50MB 上传会先被掐断。
           timeout: 0,
+          signal,
           onUploadProgress: (e) => {
             if (onProgress && e.total) onProgress(Math.round((e.loaded / e.total) * 100))
           }

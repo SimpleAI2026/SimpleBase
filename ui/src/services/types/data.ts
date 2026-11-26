@@ -52,6 +52,19 @@ export interface CollectionSchemaInput {
   fields: CollectionField[]
 }
 
+export type CollectionAccessMode = 'off' | 'owner_read' | 'owner_write'
+
+export interface CollectionAccessRule {
+  mode: CollectionAccessMode
+  ownerField: string
+  enforced?: boolean
+}
+
+export interface CollectionAccessRuleInput {
+  mode: CollectionAccessMode
+  ownerField: string
+}
+
 export interface ViewDryRunResult {
   columns: string[]
   fields: CollectionField[]

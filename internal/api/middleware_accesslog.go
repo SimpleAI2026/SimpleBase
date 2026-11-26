@@ -13,7 +13,7 @@
 //	         │ 依赖
 //	         ▼
 //	[下游] internal/observability（日志与指标）
-//	[同包] router.go, context.go（WithRequestID）
+//	[同包] backup_handler.go, data_compat.go, error.go, file_compat.go, function_compat.go, health.go, mcp_builtin.go, mcp_builtin_admin.go 等 28 个
 //
 // 主要符号
 //
@@ -23,6 +23,7 @@
 package api
 
 import (
+	"github.com/linkxzhou/SimpleBase/internal/api/httpkit"
 	"net/http"
 	"strconv"
 	"strings"
@@ -42,7 +43,7 @@ func requestIDMiddleware() echo.MiddlewareFunc {
 				rid = uuid.NewString()
 			}
 			c.Response().Header().Set("X-Request-ID", rid)
-			ctx := WithRequestID(req.Context(), rid)
+			ctx := httpkit.WithRequestID(req.Context(), rid)
 			c.SetRequest(req.WithContext(ctx))
 			return next(c)
 		}
@@ -105,7 +106,7 @@ func accessLogMiddleware(deps Dependencies) echo.MiddlewareFunc {
 			start := time.Now()
 			err := next(c)
 			latency := time.Since(start)
-			rid := requestID(c)
+			rid := httpkit.RequestID(c)
 			status := c.Response().Status
 			if err != nil {
 				if he, ok := err.(*echo.HTTPError); ok {
@@ -116,11 +117,11 @@ func accessLogMiddleware(deps Dependencies) echo.MiddlewareFunc {
 			}
 			if logger != nil {
 				logger.Info("http",
-					fieldString("request_id", rid),
-					fieldString("method", c.Request().Method),
-					fieldString("route", c.Path()),
-					fieldString("status", strconv.Itoa(status)),
-					fieldDuration("duration", latency),
+					httpkit.FieldString("request_id", rid),
+					httpkit.FieldString("method", c.Request().Method),
+					httpkit.FieldString("route", c.Path()),
+					httpkit.FieldString("status", strconv.Itoa(status)),
+					httpkit.FieldDuration("duration", latency),
 				)
 			}
 			if deps.Metrics != nil {
@@ -128,7 +129,7 @@ func accessLogMiddleware(deps Dependencies) echo.MiddlewareFunc {
 				deps.Metrics.HTTPRequestDuration.WithLabelValues(c.Path(), c.Request().Method).Observe(latency.Seconds())
 			}
 			if deps.System != nil {
-				pc := projectOf(c)
+				pc := httpkit.ProjectOf(c)
 				projectID := pc.ID
 				if shouldRecordRequestLog(c.Request().Method, c.Path(), status, latency, metricsPath) {
 					deps.System.RecordLog(systemdb.LogEvent{

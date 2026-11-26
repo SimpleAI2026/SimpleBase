@@ -29,7 +29,7 @@ import (
 	"database/sql"
 	"testing"
 
-	"github.com/linkxzhou/SimpleBase/internal/api"
+	"github.com/linkxzhou/SimpleBase/internal/api/httpkit"
 	"github.com/linkxzhou/SimpleBase/internal/llmgateway"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 
@@ -43,7 +43,7 @@ func TestLLMTraceRecorder(t *testing.T) {
 	}
 	store := openTraceStore(t)
 	rec := newLLMTraceRecorder(store)
-	ctx := api.WithRequestID(context.Background(), "rid-trace-1")
+	ctx := httpkit.WithRequestID(context.Background(), "rid-trace-1")
 	if err := rec.RecordTrace(ctx, gatewayTraceForTest()); err != nil {
 		t.Fatal(err)
 	}
@@ -67,14 +67,14 @@ func TestLLMTraceRecorderFallback(t *testing.T) {
 	store := openTraceStore(t)
 
 	// 无 meta：回退 request_id / api
-	ctx := api.WithRequestID(context.Background(), "req-fb")
+	ctx := httpkit.WithRequestID(context.Background(), "req-fb")
 	tr := gatewayTraceForTest()
 	tr.InputJSON = `[{"role":"user","content":"x"}]`
 	if err := newLLMTraceRecorder(store).RecordTrace(ctx, tr); err != nil {
 		t.Fatal(err)
 	}
 	// 有 meta：透传（caller=agent, trace_id=run-x）
-	ctx2 := llmgateway.WithTraceMeta(api.WithRequestID(context.Background(), "req-2"), "run-x", "agent")
+	ctx2 := llmgateway.WithTraceMeta(httpkit.WithRequestID(context.Background(), "req-2"), "run-x", "agent")
 	tr2 := gatewayTraceForTest()
 	tr2.TraceID = "run-x"
 	tr2.Caller = "agent"

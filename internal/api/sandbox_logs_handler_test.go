@@ -100,19 +100,15 @@ func TestLogsFollowIsSSE(t *testing.T) {
 		defer close(done)
 		e.ServeHTTP(rec, req)
 	}()
-	// 历史写出后取消：follow 会一直轮询。
-	deadline := time.After(5 * time.Second)
-	for !strings.Contains(rec.Body.String(), "hello") {
-		select {
-		case <-deadline:
-			cancel()
-			<-done
-			t.Fatalf("no history in the SSE body: %q", rec.Body.String())
-		case <-time.After(10 * time.Millisecond):
-		}
-	}
+	// 历史在 handler 入口同步写出；follow 随后一直轮询。等历史落盘后取消并等 handler 退出，
+	// 再读响应体（httptest.ResponseRecorder 不是并发安全的，边写边读会被 -race 判为数据竞争）。
+	time.Sleep(200 * time.Millisecond)
 	cancel()
-	<-done
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("follow stream did not stop after cancel")
+	}
 
 	if ct := rec.Header().Get(echo.HeaderContentType); !strings.HasPrefix(ct, "text/event-stream") {
 		t.Fatalf("content type = %q", ct)

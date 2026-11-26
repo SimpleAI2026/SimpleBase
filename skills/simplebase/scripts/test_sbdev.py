@@ -194,6 +194,10 @@ elif key == ("object", "upload", ""):
     ok({"key": f["key"], "size": len(data)})
 elif key == ("object", "list", ""):
     ok([{"key": k, "size": v} for k, v in sorted(st.setdefault("objects", {}).items())])
+elif key == ("object", "delete", ""):
+    st.setdefault("objects", {}).pop(f["key"], None)
+    save(st)
+    ok({"deleted": 1})
 elif key == ("cron", "list", ""):
     ok({"jobs": list(st["cron"].values())})
 elif key in (("cron", "create", ""), ("cron", "update", "")):
@@ -569,6 +573,7 @@ class SiteDeployTests(SbdevCase):
                 calls.append(("GET", self.path, self.headers.get("Host")))
                 if self.path.endswith("/s3/site"):
                     return self.reply(200, json.dumps({"enabled": False, "publishable": True}))
+
                 if self.headers.get("Host", "").startswith("myapp001.localhost"):
                     return self.reply(200, "<html></html>", "text/html")
                 self.reply(404, "{}")
@@ -607,6 +612,24 @@ class SiteDeployTests(SbdevCase):
         self.assertEqual(result["url"], f"http://myapp001.localhost:{port}/")
         self.assertEqual(result["http_status"], 200)
         self.assertNotIn("local-secret-key", out + err)
+
+    def test_prune_requires_confirmation_and_stays_in_prefix(self):
+        self.serve()
+        self.write("dist/index.html", "<!doctype html>")
+        self.run_cmd("apply")
+        self.seed_objects({"web/old.txt": 10, "other/old.txt": 10})
+        args = ["site", "deploy", "--dist", "dist", "--prefix", "web/", "--prune"]
+        code, out, err = self.run_cmd(*args)
+        self.assertEqual(code, 3, err)
+        self.assertIn("prune", out)
+        self.assertEqual(self.st()["objects"]["web/old.txt"], 10)
+
+        code, out, err = self.run_cmd(*args, "--yes")
+        self.assertEqual(code, 0, err)
+        objects = self.st()["objects"]
+        self.assertNotIn("web/old.txt", objects)
+        self.assertIn("other/old.txt", objects)
+        self.assertIn("web/index.html", objects)
 
     def test_deploy_rejects_secret_in_bundle(self):
         self.serve()

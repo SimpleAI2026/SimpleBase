@@ -103,7 +103,7 @@ func (t *mcpTool) InvokableRun(ctx context.Context, argumentsInJSON string, _ ..
 		)
 	}
 	if res.IsError {
-		return toolFailure(mcp.CodeToolError, truncate(res.Text, 2000)), nil
+		return toolFailure(mcp.CodeToolError, agentcore.Truncate(res.Text, 2000)), nil
 	}
 	out := agentcore.RedactSecrets(res.Text)
 	if res.Truncated {
@@ -131,7 +131,7 @@ func (t *mcpTool) classify(ctx context.Context) (ToolDecision, error) {
 
 // mcpConfirmArgv 生成脱敏后的确认参数摘要：工具名 + 参数 JSON 截断。
 func mcpConfirmArgv(serverID, tool, arguments string) []string {
-	summary := truncate(agentcore.RedactSecrets(strings.TrimSpace(arguments)), 200)
+	summary := agentcore.Truncate(agentcore.RedactSecrets(strings.TrimSpace(arguments)), 200)
 	if summary == "" {
 		return []string{serverID, tool}
 	}

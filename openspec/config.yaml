@@ -1,0 +1,50 @@
+schema: spec-driven
+
+# Project context (optional)
+# Add only constraints that should guide OpenSpec artifacts and workflows.
+# Include constraints an agent cannot infer by reading the code.
+# Keep general project documentation and discoverable codebase facts out.
+# Example:
+#   context: |
+#     Designs and tasks must cover Windows, macOS, and Linux
+#     Write all artifacts in Spanish
+
+context: |
+  SimpleBase：单写实例的云端数据库服务（Go 1.25 + Echo v4 + Vue 3）。所有产物用简体中文，change-id 用 kebab-case。
+
+  架构范式：战略 DDD + 六边形应用服务。事实来源
+  openspec/specs/platform-architecture/spec.md；
+  约束摘要见仓库根 AGENTS.md「架构规则」与 internal/AGENTS.md。
+  新代码落点：有 HTTP/WS/SSH 帧 → api/<context>http；协议原语 → api/httpkit；
+  多入口复用或跨请求生命周期 → internal/agentrun 或领域包；外部系统适配 → agentbridge/dbbridge；
+  仅装配用 → internal/app 私有。
+
+  不可违反：不新增第三方依赖、不改 go.mod 之外的构建配置；
+  不改公开 API 路径 / 错误形状 / SSE 帧格式；系统库只允许 SELECT；
+  四个嵌套独立模块（godatabase / gocloudagent / gosandbox / gofunction）不得 import 根模块；
+  依赖方向由 internal/app 的 TestArchitectureGate 强制。
+
+  纯重构 / 工具 / 文档类变更在变更目录的 .openspec.yaml 设 skip_specs: true，
+  不为通过校验编造需求；行为变化必须有 delta spec。
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always state what is out of scope
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing

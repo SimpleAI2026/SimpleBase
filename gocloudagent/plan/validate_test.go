@@ -95,6 +95,72 @@ func TestValidateFirstErrorTable(t *testing.T) {
 	}
 }
 
+func TestValidateFirstErrorPrecedence(t *testing.T) {
+	cases := []struct {
+		name string
+		mut  func(*Decision, *Constraints)
+		want string
+	}{
+		{"action before goal", func(d *Decision, _ *Constraints) {
+			d.Action = "explode"
+			d.Goal = ""
+		}, `plan is invalid: unknown action "explode"`},
+		{"goal before empty dispatch", func(d *Decision, _ *Constraints) {
+			d.Goal = ""
+			d.Dispatches = nil
+		}, "plan is invalid: goal is required for create"},
+		{"size before duplicate and member", func(d *Decision, _ *Constraints) {
+			for i := 0; i < 4; i++ {
+				d.Dispatches = append(d.Dispatches, Dispatch{Ref: "d1", TargetKind: TargetAgent, TargetID: "missing"})
+			}
+		}, "plan has too many dispatches: 5 dispatches exceed 4"},
+		{"member before mention and graph", func(d *Decision, c *Constraints) {
+			c.Mentioned = []string{"a2"}
+			d.Dispatches[0].TargetID = "missing"
+			d.Dispatches[0].DependsOn = []string{"ghost"}
+		}, `plan targets a non-member: dispatch "d1" targets "missing"`},
+		{"mention before graph and steps", func(d *Decision, c *Constraints) {
+			c.Mentioned = []string{"a2"}
+			d.Dispatches[0].DependsOn = []string{"ghost"}
+			d.Steps = []Step{{Status: "bad"}}
+		}, `plan omits a mentioned assistant: "a2"`},
+		{"graph before steps", func(d *Decision, _ *Constraints) {
+			d.Dispatches[0].DependsOn = []string{"ghost"}
+			d.Steps = []Step{{Status: "bad"}}
+		}, `plan is invalid: "d1" depends on unknown "ghost"`},
+		{"depth before steps", func(d *Decision, _ *Constraints) {
+			d.Dispatches = []Dispatch{
+				{Ref: "d1", TargetKind: TargetAgent, TargetID: "a1", Message: "m"},
+				{Ref: "d2", TargetKind: TargetAgent, TargetID: "a2", Message: "m", DependsOn: []string{"d1"}},
+				{Ref: "d3", TargetKind: TargetAgent, TargetID: "a3", Message: "m", DependsOn: []string{"d2"}},
+				{Ref: "d4", TargetKind: TargetAgent, TargetID: "a1", Message: "m", DependsOn: []string{"d3"}},
+			}
+			d.Steps = []Step{{Status: "bad"}}
+		}, "plan dependency chain is too deep: depth 4 exceeds 3"},
+		{"steps before complex dispatch refs", func(d *Decision, _ *Constraints) {
+			d.Complexity = ComplexityComplex
+			d.Steps = []Step{{Status: "bad"}}
+		}, "plan is invalid: step 1 needs id and title"},
+		{"complex steps before dispatch step id", func(d *Decision, _ *Constraints) {
+			d.Complexity = ComplexityComplex
+		}, "plan is invalid: complex plan requires steps"},
+		{"complex dispatch refs in order", func(d *Decision, _ *Constraints) {
+			d.Complexity = ComplexityComplex
+			d.Steps = []Step{{ID: "s1", Title: "step", Status: StepPending}}
+			d.Dispatches = append(d.Dispatches, Dispatch{Ref: "d2", TargetKind: TargetAgent, TargetID: "a2", Message: "m", StepID: "ghost"})
+		}, `plan is invalid: dispatch "d1" requires step_id in a complex plan`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d, c := validDecision(), baseConstraints()
+			tc.mut(&d, &c)
+			if err := Validate(d, c); err == nil || err.Error() != tc.want {
+				t.Fatalf("error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
 // @ 硬约束：被点名的成员必须出现，否则 ErrMentionMissing。
 func TestValidateMentionHardConstraint(t *testing.T) {
 	c := baseConstraints()

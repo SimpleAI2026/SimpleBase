@@ -15,7 +15,7 @@
 //	         │
 //	         ▼
 //	[下游] 仅标准库 / 第三方
-//	[同包] adapter.go, agent_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
+//	[同包] backup_handler.go, data_compat.go, error.go, file_compat.go, function_compat.go, mcp_builtin.go, mcp_builtin_admin.go, mcp_builtin_session.go 等 28 个
 //	[关键引用] HealthHandler ← router.go
 //
 // 主要符号
@@ -27,6 +27,7 @@
 package api
 
 import (
+	"github.com/linkxzhou/SimpleBase/internal/api/httpkit"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
@@ -53,8 +54,8 @@ func (h *HealthHandler) Ready(c echo.Context) error {
 		return c.NoContent(http.StatusOK)
 	}
 	if err := h.checker.Ready(c.Request().Context()); err != nil {
-		rid := requestID(c)
-		return c.JSON(http.StatusServiceUnavailable, APIErrorBody{Error: APIErrorDetail{
+		rid := httpkit.RequestID(c)
+		return c.JSON(http.StatusServiceUnavailable, httpkit.APIErrorBody{Error: httpkit.APIErrorDetail{
 			Code: "not_ready", Message: "dependency check failed", RequestID: rid,
 		}})
 	}

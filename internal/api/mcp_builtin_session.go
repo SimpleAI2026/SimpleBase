@@ -13,7 +13,7 @@
 //	         │ 依赖
 //	         ▼
 //	[下游] 仅标准库 / 第三方
-//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[同包] backup_handler.go, data_compat.go, error.go, file_compat.go, function_compat.go, health.go, mcp_builtin.go, mcp_builtin_admin.go 等 28 个
 //	[关键引用] internalPrincipalFrom ← mcp_dispatch.go；withInternalPrincipalAuth ← router.go；attachBuiltinMCP ← routes_v1.go
 //
 // 主要符号
@@ -35,6 +35,7 @@ package api
 
 import (
 	"context"
+	"github.com/linkxzhou/SimpleBase/internal/api/httpkit"
 
 	"github.com/labstack/echo/v4"
 
@@ -65,7 +66,7 @@ func withInternalPrincipalAuth(inner echo.MiddlewareFunc) echo.MiddlewareFunc {
 		authed := inner(next)
 		return func(c echo.Context) error {
 			if p, ok := internalPrincipalFrom(c.Request().Context()); ok {
-				c.SetRequest(c.Request().WithContext(WithPrincipal(c.Request().Context(), p)))
+				c.SetRequest(c.Request().WithContext(httpkit.WithPrincipal(c.Request().Context(), p)))
 				return next(c)
 			}
 			return authed(c)
@@ -83,7 +84,7 @@ func (h *builtinMCPHandler) Spec(ctx context.Context, p auth.Principal, projectI
 	if catalog.IsSystemProject(projectID) {
 		return nil, false
 	}
-	spec, ok := h.resolveSpec(name, ProjectContext{ID: projectID, TenantID: p.TenantID})
+	spec, ok := h.resolveSpec(name, httpkit.ProjectContext{ID: projectID, TenantID: p.TenantID})
 	if !ok {
 		return nil, false
 	}
@@ -134,7 +135,7 @@ func (h *builtinMCPHandler) policyTable(name string) (map[string]cloudagent.Tool
 	if entry == nil {
 		return nil, false
 	}
-	spec := entry.Build(&builtinMCPBuilder{h: h}, ProjectContext{})
+	spec := entry.Build(&builtinMCPBuilder{h: h}, httpkit.ProjectContext{})
 	if spec == nil {
 		return nil, false
 	}

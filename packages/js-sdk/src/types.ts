@@ -81,3 +81,31 @@ export interface S3ObjectMeta {
   content_type?: string
   [key: string]: unknown
 }
+
+/** 站点发布状态；`mode` 由服务端按 sites 配置返回（path | subdomain）。 */
+export interface S3SiteInfo {
+  baseUrl?: string
+  publishable: boolean
+  reason?: string
+  mode?: 'path' | 'subdomain'
+}
+
+/** 一条公开路径。 */
+export interface S3PublicPath {
+  path: string
+  kind: string
+  publicUrl?: string
+}
+
+/** GET /s3/public 的响应。 */
+export interface S3PublicState {
+  site: S3SiteInfo
+  paths: S3PublicPath[]
+}
+
+/** PUT /s3/public 的响应。 */
+export interface S3PublicUpdateResult {
+  public: boolean
+  publicUrl?: string
+  publicInherited?: string
+}

@@ -19,7 +19,7 @@ if [[ $# -gt 0 ]]; then
   PACKAGES=("$@")
 else
   # 云端 Runtime 已迁到 gocloudagent/cloudagent（独立模块，planv6.2 / v6.6），这里列根模块仍存在的包。
-  PACKAGES=(./internal/agentbridge ./internal/systemdb ./internal/api ./internal/llmgateway ./internal/agentjob)
+  PACKAGES=(./internal/agentbridge ./internal/agentrun ./internal/systemdb ./internal/api ./internal/llmgateway)
 fi
 
 echo "==> go test ${RACE_FLAG} ${PACKAGES[*]}"

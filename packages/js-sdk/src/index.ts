@@ -10,6 +10,10 @@ export type {
   BatchResult,
   BatchResultItem,
   S3ObjectMeta,
+  S3SiteInfo,
+  S3PublicPath,
+  S3PublicState,
+  S3PublicUpdateResult,
   Json
 } from './types.js'
 export type {

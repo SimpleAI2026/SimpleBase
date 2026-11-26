@@ -36,6 +36,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"github.com/linkxzhou/SimpleBase/internal/api/llmhttp"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -57,6 +58,8 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/observability"
 	"github.com/linkxzhou/SimpleBase/internal/systemdb"
 	"github.com/linkxzhou/SimpleBase/internal/testutil/fakellm"
+
+	"github.com/linkxzhou/SimpleBase/internal/api/httpkit"
 )
 
 // oaiE2E 是「真实 llmgateway + fakellm 上游 + 完整 NewRouter」的端到端环境。
@@ -116,7 +119,7 @@ func newOAIE2E(t *testing.T, scripts []fakellm.Script, def fakellm.Script) *oaiE
 		DataHandler:     NewDataHandler(&fakeDataService{dbs: []catalog.Database{cat.db}, lease: &fakeSQLLease{}}, true),
 		Usage:           &fakeUsage{},
 		Audit:           &fakeAudit{},
-		LLM:             NewLLMService(gw),
+		LLM:             httpkit.NewLLMService(gw),
 		S3FileStore:     objectstore.NewMemoryFileStore(),
 		System:          systemdb.NewStoreForTest(sdb),
 	}
@@ -154,7 +157,7 @@ func TestOAIE2E_NonStreamAndStream(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status=%d %s", resp.StatusCode, raw)
 	}
-	var out oaiChatResponse
+	var out llmhttp.ChatResponse
 	if err := json.Unmarshal(raw, &out); err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +219,7 @@ func TestOAIE2E_ToolsAndToolChoiceReachUpstream(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status=%d %s", resp.StatusCode, raw)
 	}
-	var out oaiChatResponse
+	var out llmhttp.ChatResponse
 	if err := json.Unmarshal(raw, &out); err != nil {
 		t.Fatal(err)
 	}
@@ -330,7 +333,7 @@ func TestOAIE2E_ModelsListsConfiguredModels(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status=%d %s", resp.StatusCode, raw)
 	}
-	var list oaiModelList
+	var list llmhttp.ModelList
 	if err := json.Unmarshal(raw, &list); err != nil {
 		t.Fatal(err)
 	}

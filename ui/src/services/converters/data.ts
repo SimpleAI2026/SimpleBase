@@ -3,6 +3,7 @@
 import type {
   AggregateQuery,
   AggregateResult,
+  CollectionAccessRule,
   CollectionInfo,
   CollectionSchema,
   DatabaseItem,
@@ -141,6 +142,17 @@ export function toCollectionInfo(value: unknown): CollectionInfo {
     fieldCount: Number(raw.field_count ?? 0),
     documentCount: Number(raw.document_count ?? 0),
     registered: raw.registered === true
+  }
+}
+
+/** CollectionAccessRule：后端 `owner_field` → UI `ownerField`。 */
+export function toCollectionAccessRule(value: unknown): CollectionAccessRule {
+  const raw = objectOf(value) ?? {}
+  const mode = raw.mode === 'owner_read' || raw.mode === 'owner_write' ? raw.mode : 'off'
+  return {
+    mode,
+    ownerField: String(raw.owner_field ?? 'owner_id'),
+    enforced: raw.enforced === true
   }
 }
 

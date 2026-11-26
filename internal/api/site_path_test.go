@@ -30,7 +30,6 @@ package api
 
 import (
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -143,6 +142,13 @@ func TestSitePathDispatchBoundaries(t *testing.T) {
 	if rec := siteGet(e, http.MethodGet, "api.example.com", "/v1/projects/proj-1/databases", nil); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("v1: %d", rec.Code)
 	}
+	// 控制台与文档站路径不经站点面代理（不得返回站点内容或站点 404）。
+	for _, p := range []string{"/console", "/docs"} {
+		rec := siteGet(e, http.MethodGet, "api.example.com", p, nil)
+		if strings.Contains(rec.Body.String(), "<h1>root</h1>") || strings.Contains(rec.Body.String(), "custom 404") {
+			t.Errorf("%s must not be routed to the site: %d %q", p, rec.Code, rec.Body.String())
+		}
+	}
 	// 子域名 Host 在路径模式下不被识别。
 	if rec := siteGet(e, http.MethodGet, sitePID+".simplebase.top", "/index.html", nil); strings.Contains(rec.Body.String(), "root") {
 		t.Fatal("path mode must not honor subdomain host")
@@ -165,32 +171,6 @@ func TestSiteSubdomainModeIgnoresPath(t *testing.T) {
 	rec := siteGet(e, http.MethodGet, "api.example.com", "/sites/"+sitePID+"/", nil)
 	if strings.Contains(rec.Body.String(), "root") {
 		t.Fatal("subdomain mode must not serve path style")
-	}
-}
-
-func TestSitePathAdminURLs(t *testing.T) {
-	// 管理 API 返回路径方式 URL，且三级回退：sites.public_base_url > http.public_url > 请求 Host。
-	e, _ := siteAdminRouter(t, nil, true, sitePID, true)
-	_ = e
-	cases := []struct {
-		name, override, httpURL, want string
-	}{
-		{"override wins", "https://o.example.com/", "https://h.example.com", "https://o.example.com/sites/" + sitePID},
-		{"http public_url", "", "https://h.example.com/", "https://h.example.com/sites/" + sitePID},
-		{"request host", "", "", "http://example.com/sites/" + sitePID},
-	}
-	for _, tc := range cases {
-		h := &S3Handler{sitesCfg: config.SitesConfig{PublicBaseURL: tc.override}, cfgHTTPPublicURL: tc.httpURL}
-		c := echo.New().NewContext(httptest.NewRequest(http.MethodGet, "/", nil), httptest.NewRecorder())
-		if got := h.siteBase(c, sitePID); got != tc.want {
-			t.Errorf("%s: got %q want %q", tc.name, got, tc.want)
-		}
-	}
-	// 子域名方式沿用 <pid>.<base_domain>。
-	h := &S3Handler{sitesCfg: siteCfg()}
-	c := echo.New().NewContext(httptest.NewRequest(http.MethodGet, "/", nil), httptest.NewRecorder())
-	if got := h.siteBase(c, sitePID); got != "https://"+sitePID+".simplebase.top" {
-		t.Errorf("subdomain base: %q", got)
 	}
 }
 

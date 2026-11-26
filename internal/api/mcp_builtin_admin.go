@@ -14,7 +14,7 @@
 //	         │ 依赖
 //	         ▼
 //	[下游] 仅标准库 / 第三方
-//	[同包] adapter.go, adapters_test.go, agent_active_runs_test.go, agent_approval_handler.go, agent_crud_handler.go 等 207 个
+//	[同包] backup_handler.go, data_compat.go, error.go, file_compat.go, function_compat.go, health.go, mcp_builtin.go, mcp_builtin_session.go 等 28 个
 //
 // 主要符号
 //
@@ -34,6 +34,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"github.com/linkxzhou/SimpleBase/internal/api/httpkit"
 	"net/http"
 	"strconv"
 
@@ -61,12 +62,12 @@ type builtinServerDTO struct {
 }
 
 // builtinList 返回当前项目可见的内置 MCP。实例开关关闭、系统项目时返回空数组。
-func (h *mcpServerHandler) builtinList(c echo.Context, pc ProjectContext) []builtinServerDTO {
+func (h *mcpServerHandler) builtinList(c echo.Context, pc httpkit.ProjectContext) []builtinServerDTO {
 	out := []builtinServerDTO{}
 	if h.builtin == nil || catalog.IsSystemProject(pc.ID) {
 		return out
 	}
-	base := publicBaseURL(c, h.publicURL, h.publicOverride)
+	base := httpkit.PublicBaseURL(c, h.publicURL, h.publicOverride)
 	for _, entry := range builtinMCPs {
 		if entry.Available != nil && !entry.Available(h.builtin.deps) {
 			continue
@@ -109,33 +110,33 @@ type builtinStateBody struct {
 
 // SetState 是 PUT /mcp/builtin/:name/state：写项目级开关并记审计。
 func (h *mcpServerHandler) SetState(c echo.Context) error {
-	pc, err := requireProject(c)
+	pc, err := httpkit.RequireProject(c)
 	if err != nil {
-		return WriteError(c, err)
+		return httpkit.WriteError(c, err)
 	}
 	name := c.Param("name")
 	if h.builtin == nil || catalog.IsSystemProject(pc.ID) {
-		return WriteError(c, echo.NewHTTPError(http.StatusNotFound, "builtin mcp not available"))
+		return httpkit.WriteError(c, echo.NewHTTPError(http.StatusNotFound, "builtin mcp not available"))
 	}
 	if _, found := h.builtin.resolveSpec(name, pc); !found {
-		return WriteError(c, echo.NewHTTPError(http.StatusNotFound, "builtin mcp not found"))
+		return httpkit.WriteError(c, echo.NewHTTPError(http.StatusNotFound, "builtin mcp not found"))
 	}
 	if h.writableGuard(c) != nil {
 		return nil
 	}
 	var body builtinStateBody
 	if err := c.Bind(&body); err != nil {
-		return WriteError(c, err)
+		return httpkit.WriteError(c, err)
 	}
 	if body.Enabled == nil {
-		return WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "enabled is required"))
+		return httpkit.WriteError(c, echo.NewHTTPError(http.StatusBadRequest, "enabled is required"))
 	}
 	raw, err := json.Marshal(*body.Enabled)
 	if err != nil {
-		return WriteError(c, err)
+		return httpkit.WriteError(c, err)
 	}
 	if err := h.store.PutProjectSetting(c.Request().Context(), pc.ID, "mcp.builtin."+name+".enabled", string(raw)); err != nil {
-		return WriteError(c, err)
+		return httpkit.WriteError(c, err)
 	}
 	h.recordBuiltinAudit(c, pc.ID, name, *body.Enabled)
 	return c.JSON(http.StatusOK, map[string]any{"name": name, "enabled": *body.Enabled})
@@ -149,22 +150,22 @@ func (h *mcpServerHandler) recordBuiltinAudit(c echo.Context, projectID, name st
 	if enabled {
 		kind = "mcp.builtin.enable"
 	}
-	recordAudit(c, h.audit, kind, projectID, "ok", "name:"+name+",enabled:"+strconv.FormatBool(enabled))
+	httpkit.RecordAudit(c, h.audit, kind, projectID, "ok", "name:"+name+",enabled:"+strconv.FormatBool(enabled))
 }
 
 // TestBuiltin 是 POST /mcp/builtin/:name/test：进程内连一次并列工具，不依赖 agent.mcp.enabled。
 func (h *mcpServerHandler) TestBuiltin(c echo.Context) error {
-	pc, err := requireProject(c)
+	pc, err := httpkit.RequireProject(c)
 	if err != nil {
-		return WriteError(c, err)
+		return httpkit.WriteError(c, err)
 	}
 	if h.builtin == nil || catalog.IsSystemProject(pc.ID) {
-		return WriteError(c, echo.NewHTTPError(http.StatusNotFound, "builtin mcp not available"))
+		return httpkit.WriteError(c, echo.NewHTTPError(http.StatusNotFound, "builtin mcp not available"))
 	}
 	name := c.Param("name")
 	spec, found := h.builtin.resolveSpec(name, pc)
 	if !found {
-		return WriteError(c, echo.NewHTTPError(http.StatusNotFound, "builtin mcp not found"))
+		return httpkit.WriteError(c, echo.NewHTTPError(http.StatusNotFound, "builtin mcp not found"))
 	}
 	ctx, cancel := context.WithTimeout(c.Request().Context(), 2*mcp.DefaultConnectTimeout)
 	defer cancel()

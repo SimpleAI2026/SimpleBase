@@ -20,7 +20,7 @@ export interface ConversationOptions {
 }
 
 /**
- * useAgentConversation：单会话运行状态层（工具期间不回落 thinking，见 plan/planv6.7/legacy-plan-consolidation-plan.md 的 planv4.1 BUG 锚点）。
+ * useAgentConversation：单会话运行状态层（工具期间不回落 thinking）。
  * - 追踪全部 SSE 回调，工具执行期间 phase 停留在 tool（不跳回 thinking）
  * - 重试走后端 retry_of_run_id（不重复追加 user 消息）
  * - 页面刷新后从 run_status/error_code 还原失败态

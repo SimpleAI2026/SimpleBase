@@ -401,53 +401,11 @@ func applyYAML(cfg *Config, yc yamlConfig) (yamlSecretPresence, error) {
 	var secrets yamlSecretPresence
 	applyYAMLHTTP(&cfg.HTTP, yc.HTTP)
 
-	setStr(&cfg.Instance.ID, yc.Instance.ID)
-	setBool(&cfg.Instance.Writable, yc.Instance.Writable)
-	setStr(&cfg.Instance.Profile, yc.Instance.Profile)
-	setBool(&cfg.Instance.Lease.Enabled, yc.Instance.Lease.Enabled)
-	setDur(&cfg.Instance.Lease.TTL, yc.Instance.Lease.TTL)
-	setDur(&cfg.Instance.Lease.RenewInterval, yc.Instance.Lease.RenewInterval)
-	setDur(&cfg.Instance.Lease.Grace, yc.Instance.Lease.Grace)
-	setStr(&cfg.Instance.Lease.OnLost, yc.Instance.Lease.OnLost)
-
-	setStr(&cfg.Storage.Database, yc.Storage.Database)
-	setStr(&cfg.Storage.Files, yc.Storage.Files)
-	setStr(&cfg.Storage.DataDir, yc.Storage.DataDir)
-
-	setStr(&cfg.Database.Engine, yc.Database.Engine)
-	setStr(&cfg.Database.CacheDir, yc.Database.CacheDir)
-	setInt64(&cfg.Database.CacheMaxBytes, yc.Database.CacheMaxBytes)
-	setInt(&cfg.Database.CacheMaxDatabases, yc.Database.CacheMaxDatabases)
-	setDur(&cfg.Database.IdleTimeout, yc.Database.IdleTimeout)
-	setInt(&cfg.Database.MaxOpen, yc.Database.MaxOpen)
-	applyYAMLDuckLake(&cfg.Database.DuckLake, yc.Database.DuckLake)
-
+	applyYAMLInstance(&cfg.Instance, yc.Instance)
+	applyYAMLStorage(&cfg.Storage, yc.Storage)
+	applyYAMLDatabase(&cfg.Database, yc.Database)
 	applyYAMLS3(&cfg.S3, yc.S3, &secrets)
-
-	if yc.Auth.APIKeyHashSecret != nil {
-		cfg.Auth.APIKeyHashSecret = *yc.Auth.APIKeyHashSecret
-		if *yc.Auth.APIKeyHashSecret != "" {
-			secrets.auth = true
-		}
-	}
-	if yc.Auth.SessionSecret != nil {
-		cfg.Auth.SessionSecret = *yc.Auth.SessionSecret
-		if *yc.Auth.SessionSecret != "" {
-			secrets.sessionSecret = true
-		}
-	}
-	if yc.Auth.APIKeyHashSecrets != nil {
-		cfg.Auth.APIKeyHashSecrets = *yc.Auth.APIKeyHashSecrets
-		if *yc.Auth.APIKeyHashSecrets != "" {
-			secrets.apiKeySecretRing = true
-		}
-	}
-	if yc.Auth.BootstrapPassword != nil {
-		cfg.Auth.BootstrapPassword = *yc.Auth.BootstrapPassword
-		if *yc.Auth.BootstrapPassword != "" {
-			secrets.bootstrapPWD = true
-		}
-	}
+	applyYAMLAuth(&cfg.Auth, yc.Auth, &secrets)
 
 	if yc.LLM.Enabled != nil {
 		cfg.LLM.Enabled = *yc.LLM.Enabled
@@ -544,6 +502,60 @@ func applyYAML(cfg *Config, yc yamlConfig) (yamlSecretPresence, error) {
 	}
 
 	return secrets, nil
+}
+
+func applyYAMLInstance(dst *InstanceConfig, y yamlInstance) {
+	setStr(&dst.ID, y.ID)
+	setBool(&dst.Writable, y.Writable)
+	setStr(&dst.Profile, y.Profile)
+	setBool(&dst.Lease.Enabled, y.Lease.Enabled)
+	setDur(&dst.Lease.TTL, y.Lease.TTL)
+	setDur(&dst.Lease.RenewInterval, y.Lease.RenewInterval)
+	setDur(&dst.Lease.Grace, y.Lease.Grace)
+	setStr(&dst.Lease.OnLost, y.Lease.OnLost)
+}
+
+func applyYAMLStorage(dst *StorageConfig, y yamlStorage) {
+	setStr(&dst.Database, y.Database)
+	setStr(&dst.Files, y.Files)
+	setStr(&dst.DataDir, y.DataDir)
+}
+
+func applyYAMLDatabase(dst *DatabaseConfig, y yamlDatabase) {
+	setStr(&dst.Engine, y.Engine)
+	setStr(&dst.CacheDir, y.CacheDir)
+	setInt64(&dst.CacheMaxBytes, y.CacheMaxBytes)
+	setInt(&dst.CacheMaxDatabases, y.CacheMaxDatabases)
+	setDur(&dst.IdleTimeout, y.IdleTimeout)
+	setInt(&dst.MaxOpen, y.MaxOpen)
+	applyYAMLDuckLake(&dst.DuckLake, y.DuckLake)
+}
+
+func applyYAMLAuth(dst *AuthConfig, y yamlAuth, secrets *yamlSecretPresence) {
+	if y.APIKeyHashSecret != nil {
+		dst.APIKeyHashSecret = *y.APIKeyHashSecret
+		if *y.APIKeyHashSecret != "" {
+			secrets.auth = true
+		}
+	}
+	if y.SessionSecret != nil {
+		dst.SessionSecret = *y.SessionSecret
+		if *y.SessionSecret != "" {
+			secrets.sessionSecret = true
+		}
+	}
+	if y.APIKeyHashSecrets != nil {
+		dst.APIKeyHashSecrets = *y.APIKeyHashSecrets
+		if *y.APIKeyHashSecrets != "" {
+			secrets.apiKeySecretRing = true
+		}
+	}
+	if y.BootstrapPassword != nil {
+		dst.BootstrapPassword = *y.BootstrapPassword
+		if *y.BootstrapPassword != "" {
+			secrets.bootstrapPWD = true
+		}
+	}
 }
 
 // applyYAMLHTTP 把 YAML 的 HTTP/CORS 域应用到 cfg；切片按值拷贝。

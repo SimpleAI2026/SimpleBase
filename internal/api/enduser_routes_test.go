@@ -3,6 +3,7 @@ package api
 
 import (
 	"context"
+	"github.com/linkxzhou/SimpleBase/internal/api/iamhttp"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -65,7 +66,7 @@ func newEndUserRouter(t *testing.T) *echo.Echo {
 	e.GET("/v1/projects/:projectID/end-users/me", func(c echo.Context) error {
 		h := NewEndUsersHandler(deps.EndUsers)
 		return h.Me(c)
-	}, endUserAuth("test-secret"))
+	}, iamhttp.EndUserAuth("test-secret"))
 	return e
 }
 

@@ -35,6 +35,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/linkxzhou/SimpleBase/internal/api/filehttp"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -62,14 +63,14 @@ func siteRouter(t *testing.T, mutate func(*Dependencies)) (*echo.Echo, Dependenc
 	t.Helper()
 	deps, _ := fullRouterDeps(t)
 	deps.Config.Sites = siteCfg()
-	deps.Sites = NewSiteStore(deps.System, 0)
+	deps.Sites = filehttp.NewSiteStore(deps.System, 0)
 	if mutate != nil {
 		mutate(&deps)
 	}
 	store := deps.S3FileStore
 	ctx := context.Background()
 	put := func(key, ct, body string) {
-		if _, err := store.Put(ctx, joinKey(sitePID, key), strings.NewReader(body), int64(len(body)), ct); err != nil {
+		if _, err := store.Put(ctx, filehttp.JoinKey(sitePID, key), strings.NewReader(body), int64(len(body)), ct); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -174,6 +175,21 @@ func TestSiteServeRules(t *testing.T) {
 	}
 }
 
+func TestSiteSpaFallback(t *testing.T) {
+	e, _, _ := siteRouter(t, func(d *Dependencies) { d.Config.Sites.SpaFallback = true })
+	host := sitePID + ".simplebase.top"
+
+	rec := siteGet(e, http.MethodGet, host, "/orders/42", nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "<h1>root</h1>") {
+		t.Fatalf("spa fallback: status=%d body=%q", rec.Code, rec.Body.String())
+	}
+
+	rec = siteGet(e, http.MethodGet, host, "/assets/missing.js", nil)
+	if rec.Code != http.StatusNotFound || strings.Contains(rec.Body.String(), "<h1>root</h1>") {
+		t.Fatalf("assets must not fall back: status=%d body=%q", rec.Code, rec.Body.String())
+	}
+}
+
 func TestSiteHostDispatchBoundaries(t *testing.T) {
 	e, deps, _ := siteRouter(t, nil)
 	// 非站点 Host：走原有路由（未认证 /v1 → 401；/__site 直接访问 → 404）。
@@ -228,7 +244,7 @@ func TestSiteContentType(t *testing.T) {
 		"noext":       {"", "application/octet-stream"},
 	}
 	for key, tc := range cases {
-		if got := siteContentType(key, tc[0]); got != tc[1] {
+		if got := filehttp.SiteContentType(key, tc[0]); got != tc[1] {
 			t.Errorf("%s: got %q want %q", key, got, tc[1])
 		}
 	}
@@ -245,7 +261,7 @@ func siteAdminRouter(t *testing.T, perms []auth.Permission, writable bool, pid s
 		cfg.BaseDomain = ""
 	}
 	w := writable
-	h := &S3Handler{store: objectstore.NewMemoryFileStore(), index: store, writable: w, sites: NewSiteStore(store, 0), sitesCfg: cfg}
+	h := filehttp.NewS3Handler(filehttp.S3HandlerDeps{Store: objectstore.NewMemoryFileStore(), Index: store, Writable: w, Sites: filehttp.NewSiteStore(store, 0), SitesCfg: cfg})
 	e := echo.New()
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
@@ -281,7 +297,7 @@ func TestSiteAdminAPI(t *testing.T) {
 	e, store := siteAdminRouter(t, admin, true, sitePID, true)
 
 	rec := jsonReq(e, http.MethodGet, "/s3/site", "")
-	var info siteInfoDTO
+	var info filehttp.SiteInfoDTO
 	_ = json.Unmarshal(rec.Body.Bytes(), &info)
 	if rec.Code != 200 || !info.Publishable || info.BaseURL != "https://"+sitePID+".simplebase.top" {
 		t.Fatalf("initial site: %d %+v", rec.Code, info)
@@ -360,7 +376,7 @@ func TestSiteAdminAPIGuards(t *testing.T) {
 	// 未配置站点域名
 	e, _ = siteAdminRouter(t, []auth.Permission{auth.DatabaseAdmin}, true, sitePID, false)
 	rec = jsonReq(e, http.MethodGet, "/s3/site", "")
-	if !strings.Contains(rec.Body.String(), `"publishable":false`) || !strings.Contains(rec.Body.String(), siteReasonNoDomain) {
+	if !strings.Contains(rec.Body.String(), `"publishable":false`) || !strings.Contains(rec.Body.String(), filehttp.SiteReasonNoDomain) {
 		t.Fatalf("no domain cfg: %s", rec.Body.String())
 	}
 	if rec := jsonReq(e, http.MethodPut, "/s3/public", `{"key":"a","kind":"file","public":true}`); rec.Code != http.StatusBadRequest {
@@ -380,10 +396,10 @@ func TestSiteListDecorationAndDeleteCleanup(t *testing.T) {
 	_ = store.SetPublicPath(ctx, sitePID, "top.html", systemdb.PublicPathFile, true, "")
 	rec := jsonReq(e, http.MethodGet, "/s3/objects?delimiter=/", "")
 	var out struct {
-		Folders    []string          `json:"folders"`
-		Objects    []s3ObjectDTO     `json:"objects"`
-		FolderMeta []s3FolderMetaDTO `json:"folderMeta"`
-		Site       siteInfoDTO       `json:"site"`
+		Folders    []string                   `json:"folders"`
+		Objects    []filehttp.S3ObjectDTO     `json:"objects"`
+		FolderMeta []filehttp.S3FolderMetaDTO `json:"folderMeta"`
+		Site       filehttp.SiteInfoDTO       `json:"site"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatal(err)

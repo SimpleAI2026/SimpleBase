@@ -265,6 +265,29 @@ spec:
 
 其它 S3 兼容服务（MinIO、COS 等）的配置入口不同，规则相同：只放行 `GET` / `HEAD`，来源限定为控制台域名。未配置 CORS 时，文本预览会提示加载失败，「下载」会退回到新窗口打开临时链接，数据读写本身不受影响。本地开发模式使用本地文件存储，不涉及 CORS。
 
+## 站点发布（对象存储）
+
+对象存储可以把已公开的对象作为静态站点对外提供，有两种 URL 方案，由启动配置决定：
+
+```yaml
+sites:
+  subdomain: false          # true = 子域名方式；默认路径方式
+  path_prefix: /sites       # 路径方式的挂载点（单段，不得占用 v1/go/files 等）
+  public_base_url: ""       # 路径方式生成访问 URL 的外部基址，空时回退 http.public_url
+  base_domain: ""           # 仅子域名方式使用
+  spa_fallback: false       # true = 未命中的无扩展名路径回退到根 index
+```
+
+- **路径方式（默认）**：`<public_base_url>/sites/<项目ID>/<路径>`，不需要泛域名与泛证书。前缀只允许单段 `[a-z0-9_-]`，且不能与 `v1`、`go`、`health`、`metrics`、`files`、`console`、`docs`、`assets`、`__site`、`e2b` 等保留前缀冲突。
+- **子域名方式**：`https://<项目ID>.<base_domain>/<路径>`。必须显式设置 `SIMPLEBASE_SITES_SUBDOMAIN=1`；`base_domain` 已配置但未开启时，服务会以路径方式启动并输出兼容性告警。
+- 环境变量：`SIMPLEBASE_SITES_SUBDOMAIN`、`SIMPLEBASE_SITES_PATH_PREFIX`、`SIMPLEBASE_SITES_PUBLIC_BASE_URL`。
+- 两种模式互斥，只在启动时读取一次；升级依赖子域名的旧部署后必须显式开启，否则原站点 URL 不再生效。
+- `spa_fallback: true` 时，未命中的无扩展名路径返回站点根 `index`（SPA 刷新子路由）；带扩展名的静态资源未命中仍返回 404。
+- 路径模式与控制台同源：站点响应带 CSP `sandbox`（移除 `allow-same-origin`），服务端不设置任何 `Domain=<父域>` Cookie；控制台路径不会被站点面代理。
+- 回滚：把 `subdomain` 改回 `true` 并恢复泛域名即可；路径模式不写持久化状态，无需数据迁移。
+- 管理员下线：`POST /v1/system/projects/:projectID/site/takedown` 需要 admin / superadmin 角色，一次关闭该项目全部公开路径并写审计；路径记录保留，可重新公开。
+- 站点配额：`PUT /v1/system/projects/:projectID/site/quota`（admin / superadmin）body `{"max_requests":10000,"max_egress_bytes":1073741824}`，0 表示不限；落 `sys_site_quotas`。超限返回 429 与 `Retry-After: 60`。用量按项目 / UTC 日累计在 `sys_site_traffic`，进程内每 5 秒或 64 次请求批量落库；异常退出可能丢失最后一批计数。
+
 ## Runbook
 
 ### 场景 1：S3 故障

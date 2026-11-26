@@ -24,7 +24,7 @@
 //	ValidateProjectID(id string) error
 //	NewProjectID() string
 //	type KeyBuilder struct {…}
-//	... 另有 25 个顶层符号
+//	... 另有 24 个顶层符号
 
 package objectstore
 
@@ -115,23 +115,6 @@ func (k KeyBuilder) DuckLakeDataURI(bucket, projectID, databaseID string) (strin
 	return k.DB().DuckLakeDataURI(bucket, projectID, databaseID)
 }
 
-// joinKey 将若干已校验的分段拼成 key，并保证：
-//   - 不以 "/" 开头（避免 bucket 根路径歧义）
-//   - 不出现连续 "/"
-//   - 不出现 ".."
-func joinKey(parts ...string) string {
-	cleaned := make([]string, 0, len(parts))
-	for _, p := range parts {
-		// 去掉前后多余 "/"，跳过空段
-		p = strings.Trim(p, "/")
-		if p == "" {
-			continue
-		}
-		cleaned = append(cleaned, p)
-	}
-	return strings.Join(cleaned, "/")
-}
-
 // base 返回根前缀，已做清洗。为空表示根目录。
 func (k KeyBuilder) base() string {
 	return strings.Trim(k.RootPrefix, "/")
@@ -158,22 +141,22 @@ func (k KeyBuilder) FilesPrefix(projectID string) (string, error) {
 // SystemPrefix 返回平台级对象的完整前缀（不含尾部 "/"）。
 // 承载实例格式标记、reset 锁、CAS 探针等不属于任何项目的对象。
 func (k KeyBuilder) SystemPrefix() string {
-	return joinKey(k.base(), SystemPrefix)
+	return blob.JoinKey(k.base(), SystemPrefix)
 }
 
 // SystemKey 返回平台级对象的完整 key。
 func (k KeyBuilder) SystemKey(name string) string {
 	name = strings.Trim(name, "/")
-	return joinKey(k.base(), SystemPrefix, name)
+	return blob.JoinKey(k.base(), SystemPrefix, name)
 }
 
 // CatalogPrefix 返回实例级 CAS 探针前缀。
 // 与 reset 锁、实例格式标记同属 _system/，但单独一段便于按需清理。
 func (k KeyBuilder) CatalogPrefix() string {
-	return joinKey(k.base(), SystemPrefix, "catalog")
+	return blob.JoinKey(k.base(), SystemPrefix, "catalog")
 }
 
 // ResetLockKey 返回 reset 互斥锁对象键（ducklake-duckdb-catalog-plan §5.2）。
 func (k KeyBuilder) ResetLockKey() string {
-	return joinKey(k.base(), SystemPrefix, "reset.lock")
+	return blob.JoinKey(k.base(), SystemPrefix, "reset.lock")
 }

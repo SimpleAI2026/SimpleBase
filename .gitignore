@@ -2,6 +2,8 @@
 # config.yaml 由 build.sh 从 config.example.yaml 生成，禁止入库
 .env
 config.yaml
+# OpenSpec 的项目规范配置是计划 / 变更工作流的一部分，需要入库（上面一行只针对本地运行配置）
+!/openspec/config.yaml
 
 # ─── 系统 ────────────────────────────────────────────
 .DS_Store

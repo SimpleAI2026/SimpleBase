@@ -38,6 +38,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/linkxzhou/SimpleBase/internal/api/cataloghttp"
+	"github.com/linkxzhou/SimpleBase/internal/api/datahttp"
 	"io"
 	"net/http"
 	"os"
@@ -56,7 +58,6 @@ import (
 	"github.com/linkxzhou/SimpleBase/gosandbox/image"
 	"github.com/linkxzhou/SimpleBase/internal/agentrun"
 	"github.com/linkxzhou/SimpleBase/internal/alerts"
-	"github.com/linkxzhou/SimpleBase/internal/api"
 	"github.com/linkxzhou/SimpleBase/internal/audit"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 	"github.com/linkxzhou/SimpleBase/internal/catalog"
@@ -136,7 +137,7 @@ type App struct {
 	}
 
 	kvInitOnce sync.Once
-	kvInit     api.KVInitializer // 惰性单例：路由装配与 systemdb 种子共用
+	kvInit     cataloghttp.KVInitializer // 惰性单例：路由装配与 systemdb 种子共用
 
 	health *healthService
 
@@ -240,7 +241,7 @@ func NewWithRegistry(ctx context.Context, cfg config.Config, reg prometheus.Regi
 
 	var h apiHandlers
 	h.database, h.kvInit = a.assembleDatabaseHandler(cfg)
-	h.realtime = api.NewRealtimeHandler(cfg.Limits.RealtimeMaxConns)
+	h.realtime = datahttp.NewRealtimeHandler(cfg.Limits.RealtimeMaxConns)
 	// 函数面（执行器 + 触发器队列）先于数据写 handler：领域事件的订阅方在构造 fan-out 时
 	// 一次性登记（internal-ddd-hexagonal-implementation-plan §4、决策 D5）——记录事件先实时、后触发器，
 	// 对象事件只给触发器；之后不再有可变的 Add()。

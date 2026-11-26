@@ -9,6 +9,7 @@ package group
 import (
 	"encoding/json"
 
+	"github.com/linkxzhou/SimpleBase/gocloudagent/agentcore"
 	"github.com/linkxzhou/SimpleBase/gocloudagent/plan"
 )
 
@@ -37,7 +38,7 @@ func taskJSON(t Task, index, total int) []byte {
 	b, _ := json.Marshal(map[string]any{
 		"status": t.Status, "index": index, "total": total,
 		"ref": t.Ref, "target_kind": t.TargetKind, "target_id": t.TargetID,
-		"message": truncate(t.Message), "depends_on": t.DependsOn, "context_from": t.ContextFrom,
+		"message": agentcore.Truncate(t.Message, maxGroupContentChars), "depends_on": t.DependsOn, "context_from": t.ContextFrom,
 		"step_id": t.StepID, "risk": t.Risk, "expected_output": t.ExpectedOutput,
 		"result": t.Result, "error_code": t.ErrorCode, "run_id": t.RunID,
 		"attempt": t.Attempt, "version": t.Version,
@@ -49,7 +50,7 @@ func humanJSON(name, message string, humanIDs ...string) []byte {
 	if name == "" {
 		name = "当前用户"
 	}
-	payload := map[string]any{"human_name": name, "message": truncate(message)}
+	payload := map[string]any{"human_name": name, "message": agentcore.Truncate(message, maxGroupContentChars)}
 	if len(humanIDs) > 0 {
 		payload["human_id"] = humanIDs[0]
 	}

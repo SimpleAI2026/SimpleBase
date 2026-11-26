@@ -3,15 +3,16 @@ package app
 
 import (
 	"fmt"
+	"github.com/linkxzhou/SimpleBase/internal/api/backuphttp"
+	"github.com/linkxzhou/SimpleBase/internal/api/httpkit"
 
-	"github.com/linkxzhou/SimpleBase/internal/api"
 	"github.com/linkxzhou/SimpleBase/internal/backup"
 	"github.com/linkxzhou/SimpleBase/internal/config"
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 	"go.uber.org/zap"
 )
 
-func (a *App) assembleBackup(cfg config.Config) (*api.BackupHandler, error) {
+func (a *App) assembleBackup(cfg config.Config) (*backuphttp.Handler, error) {
 	if !cfg.Backup.Enabled || a.systemStore == nil || a.registry == nil || a.fileFactory == nil {
 		if a.logger != nil {
 			a.logger.Info("backup disabled",
@@ -29,7 +30,7 @@ func (a *App) assembleBackup(cfg config.Config) (*api.BackupHandler, error) {
 		blobs, _ = a.objectStore.(objectstore.BlobStore)
 	}
 	service := backup.NewService(cfg.Backup, cfg.Instance.ID, a.catalog, a.registry, a.fileFactory, repo, blobs, objectstore.KeyBuilder{RootPrefix: cfg.S3.Prefix})
-	backupHandler := api.NewBackupHandler(service, api.NewAuditService(a.auditSvc), cfg.Instance.Writable)
+	backupHandler := backuphttp.New(service, httpkit.NewAuditService(a.auditSvc), cfg.Instance.Writable)
 	// §8.3.6：readiness「48h 内有成功备份」检查的数据源。
 	a.backupStoreReader = repo
 	if cfg.Backup.Schedule != "" {

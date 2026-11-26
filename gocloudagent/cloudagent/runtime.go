@@ -244,7 +244,7 @@ func (r *Runtime) startRunTimeout(ctx context.Context, req RunRequest, rc RunCon
 func (r *Runtime) consumeEvents(runCtx context.Context, req RunRequest, agent adk.Agent, emit func(Event), tr Tracer, onToolCall func(string)) (string, []map[string]any, map[string]map[string]any, error) {
 	runner := adk.NewRunner(runCtx, adk.RunnerConfig{Agent: agent, EnableStreaming: req.Stream})
 	msgs := historyToSchema(req.History)
-	msgs = append(msgs, schema.UserMessage(truncate(req.UserText, maxUserChars)))
+	msgs = append(msgs, schema.UserMessage(agentcore.Truncate(req.UserText, maxUserChars)))
 	iter := runner.Run(runCtx, msgs)
 
 	var assistant strings.Builder

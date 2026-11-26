@@ -39,6 +39,7 @@ package api
 
 import (
 	"encoding/json"
+	"github.com/linkxzhou/SimpleBase/internal/api/sandboxhttp"
 	"net/http"
 	"strings"
 	"testing"
@@ -56,7 +57,7 @@ func TestSnapshotCreate(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
 	}
-	var got e2bSnapshot
+	var got sandboxhttp.E2BSnapshot
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v (%s)", err, rec.Body.String())
 	}
@@ -101,7 +102,7 @@ func TestSnapshotList(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list: %d %s", rec.Code, rec.Body.String())
 	}
-	var list []e2bSnapshot
+	var list []sandboxhttp.E2BSnapshot
 	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
 		t.Fatalf("decode: %v (%s)", err, rec.Body.String())
 	}
@@ -123,8 +124,8 @@ func TestSnapshotRemove(t *testing.T) {
 	rec := call(e, http.MethodPost, "/e2b/sandboxes/"+id+"/snapshots", key, "", map[string]string{"E2b-Sandbox-Id": id})
 	snap := watcherIDOf(t, rec.Body.Bytes()) // 同一形状的 {"snapshotID":...} 提取
 	if snap == "" {
-		// watcherIDOf 找的是 watcherID；这里直接解 e2bSnapshot。
-		var s e2bSnapshot
+		// watcherIDOf 找的是 watcherID；这里直接解 sandboxhttp.E2BSnapshot。
+		var s sandboxhttp.E2BSnapshot
 		if err := json.Unmarshal(rec.Body.Bytes(), &s); err != nil {
 			t.Fatalf("decode: %v", err)
 		}
@@ -149,7 +150,7 @@ func TestFork(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("fork: %d %s", rec.Code, rec.Body.String())
 	}
-	var got e2bDetail
+	var got sandboxhttp.E2BErrorDetail
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v (%s)", err, rec.Body.String())
 	}
@@ -174,7 +175,7 @@ func TestSnapshotFork(t *testing.T) {
 	e, key, _ := routerWith(t, sb)
 	id := rowFor(t, sb)
 	rec := call(e, http.MethodPost, "/e2b/sandboxes/"+id+"/snapshots", key, "", map[string]string{"E2b-Sandbox-Id": id})
-	var snap e2bSnapshot
+	var snap sandboxhttp.E2BSnapshot
 	if err := json.Unmarshal(rec.Body.Bytes(), &snap); err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +184,7 @@ func TestSnapshotFork(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("snapshot fork: %d %s", rec.Code, rec.Body.String())
 	}
-	var got e2bDetail
+	var got sandboxhttp.E2BErrorDetail
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}

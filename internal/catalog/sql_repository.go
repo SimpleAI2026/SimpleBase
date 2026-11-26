@@ -602,18 +602,64 @@ func (r *sqlRepository) GetQuota(ctx context.Context, projectID string) (Project
 		`SELECT project_id, max_databases, max_storage_bytes, max_llm_requests, max_llm_tokens, period_seconds, updated_at
 		 FROM sys_project_quotas WHERE project_id = ?`, projectID).Scan(
 		&q.ProjectID, &maxDB, &maxStorage, &maxReq, &maxTok, &period, &q.UpdatedAt)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return ProjectQuota{ProjectID: projectID, PeriodSeconds: 3600}, nil
-		}
+	if errors.Is(err, sql.ErrNoRows) {
+		q = ProjectQuota{ProjectID: projectID, PeriodSeconds: 3600}
+	} else if err != nil {
 		return ProjectQuota{}, err
+	} else {
+		q.MaxDatabases = int(maxDB)
+		q.MaxStorageBytes = maxStorage
+		q.MaxLLMRequests = maxReq
+		q.MaxLLMTokens = maxTok
+		q.PeriodSeconds = int(period)
 	}
-	q.MaxDatabases = int(maxDB)
-	q.MaxStorageBytes = maxStorage
-	q.MaxLLMRequests = maxReq
-	q.MaxLLMTokens = maxTok
-	q.PeriodSeconds = int(period)
+	var siteReq, siteBytes, sitePeriod int64
+	siteErr := r.db.QueryRowContext(ctx,
+		`SELECT max_requests, max_egress_bytes, period_seconds FROM sys_site_quotas WHERE project_id = ?`, projectID).
+		Scan(&siteReq, &siteBytes, &sitePeriod)
+	if siteErr != nil && !errors.Is(siteErr, sql.ErrNoRows) && !isMissingTable(siteErr) {
+		return ProjectQuota{}, siteErr
+	}
+	q.MaxSiteRequests = siteReq
+	q.MaxSiteEgressBytes = siteBytes
+	_ = sitePeriod // 站点流量固定按 UTC 日聚合，保留列用于后续可配置
 	return q, nil
+}
+
+// isMissingTable 兼容旧系统库尚未执行 EnsureSystemSchema 的场景；站点配额缺失时降级为不限。
+func isMissingTable(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "no such table") || strings.Contains(s, "does not exist")
+}
+
+func (r *sqlRepository) upsertSiteQuota(ctx context.Context, quota ProjectQuota) error {
+	var existing string
+	err := r.db.QueryRowContext(ctx, `SELECT project_id FROM sys_site_quotas WHERE project_id = ?`, quota.ProjectID).Scan(&existing)
+	if err == nil {
+		_, err = r.db.ExecContext(ctx,
+			`UPDATE sys_site_quotas SET max_requests=?, max_egress_bytes=?, period_seconds=?, updated_at=? WHERE project_id=?`,
+			quota.MaxSiteRequests, quota.MaxSiteEgressBytes, int64(86400), quota.UpdatedAt.UTC(), quota.ProjectID)
+		if isMissingTable(err) {
+			return nil
+		}
+		return err
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		_, err = r.db.ExecContext(ctx,
+			`INSERT INTO sys_site_quotas(project_id, max_requests, max_egress_bytes, period_seconds, updated_at) VALUES(?, ?, ?, ?, ?)`,
+			quota.ProjectID, quota.MaxSiteRequests, quota.MaxSiteEgressBytes, int64(86400), quota.UpdatedAt.UTC())
+		if isMissingTable(err) {
+			return nil
+		}
+		return err
+	}
+	if isMissingTable(err) {
+		return nil
+	}
+	return err
 }
 
 func (r *sqlRepository) UpsertQuota(ctx context.Context, quota ProjectQuota) error {
@@ -636,6 +682,9 @@ func (r *sqlRepository) UpsertQuota(ctx context.Context, quota ProjectQuota) err
 		if err != nil {
 			return err
 		}
+		if err := r.upsertSiteQuota(ctx, quota); err != nil {
+			return err
+		}
 		r.touch(ctx)
 		return nil
 	}
@@ -650,8 +699,46 @@ func (r *sqlRepository) UpsertQuota(ctx context.Context, quota ProjectQuota) err
 	if err != nil {
 		return err
 	}
+	if err := r.upsertSiteQuota(ctx, quota); err != nil {
+		return err
+	}
 	r.touch(ctx)
 	return nil
+}
+
+func (r *sqlRepository) IncrementSiteTraffic(ctx context.Context, projectID, day string, requests, bytes int64) error {
+	now := time.Now().UTC()
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE sys_site_traffic SET requests = requests + ?, bytes = bytes + ?, updated_at = ?
+		 WHERE project_id = ? AND day = ?`, requests, bytes, now, projectID, day)
+	if err != nil {
+		return err
+	}
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
+		_, err = r.db.ExecContext(ctx,
+			`INSERT INTO sys_site_traffic(project_id, day, requests, bytes, updated_at) VALUES(?, ?, ?, ?, ?)`,
+			projectID, day, requests, bytes, now)
+		if err != nil {
+			return err
+		}
+	}
+	r.touch(ctx)
+	return nil
+}
+
+func (r *sqlRepository) GetSiteTraffic(ctx context.Context, projectID, day string) (SiteTraffic, error) {
+	var out SiteTraffic
+	err := r.db.QueryRowContext(ctx,
+		`SELECT requests, bytes FROM sys_site_traffic WHERE project_id = ? AND day = ?`, projectID, day).
+		Scan(&out.Requests, &out.Bytes)
+	if errors.Is(err, sql.ErrNoRows) {
+		return SiteTraffic{}, nil
+	}
+	if err != nil {
+		return SiteTraffic{}, err
+	}
+	return out, nil
 }
 
 func (r *sqlRepository) SumUsageSince(ctx context.Context, projectID string, since time.Time) (UsageSummary, error) {

@@ -41,7 +41,7 @@ npm run build   # 确认输出目录（如 dist/）根下生成 index.html 与�
 1. **禁止打入项目密钥**：`SIMPLEBASE_API_KEY`（`sb_live_*`）绝不能写进前端源码、`VITE_*` 环境变量、`config.js` 或构建产物（`sbdev.py site deploy` 会在上传前扫描并拦截）。浏览器端需要调接口时：
    - 指向独立的业务 BFF 地址（见下「前端调后端」）；或
    - 使用终端用户认证接口 `/v1/projects/<project_id>/end-users/{signup,login,me}`，不要暴露项目级 API Key。
-2. **单页应用使用 Hash 路由**：站点面当前不开启未命中路径回退 `index.html`，History 路由直接访问或刷新 `/orders` 会返回 404；请用 `#/orders`（参见 `examples/jd/web/index.html`）或多页 HTML。
+2. **单页应用路由**：默认不开启未命中路径回退，History 路由直接访问或刷新 `/orders` 会返回 404。可在实例开启 `sites.spa_fallback: true`（或 `SIMPLEBASE_SITES_SPA_FALLBACK=1`）让无扩展名路径回退到根 `index.html`，静态资源未命中仍 404；也可继续用 `#/orders`（参见 `examples/jd/web/index.html`）。
 3. **资源路径与发布前缀对齐**：发布到子域名根 `/` 时可用 `/assets/...` 或 `./assets/...`；发布到子目录（如 `--prefix shop/`）时，构建工具须配置 `base: './'` 或 `base: '/shop/'`。
 4. **SVG 去掉 `<?xml ...?>` 声明**：服务端上传会嗅探前 512 字节并与扩展名比对；以 `<?xml` 开头的 `.svg` 会被嗅探成 `text/xml` 触发 `415 mime_mismatch`，请直接以 `<svg xmlns="...">` 开头（与 `examples/*/seed/images/*.svg` 一致）。
 
@@ -95,6 +95,9 @@ python3 scripts/sbdev.py site deploy -C <dir> --dist dist
 # 发布到指定子目录前缀（如 http://myapp001.localhost:8080/web/）
 python3 scripts/sbdev.py site deploy -C <dir> --dist web --prefix web/
 
+# 删除前缀内不属于本次构建的旧对象（先列清单；不带 --yes 返回退出码 3）
+python3 scripts/sbdev.py site deploy -C <dir> --dist web --prefix web/ --prune --yes
+
 # 只上传构建产物到对象存储，暂不改动站点与公开开关
 python3 scripts/sbdev.py site deploy -C <dir> --dist dist --no-publish
 
@@ -108,6 +111,12 @@ python3 scripts/sbdev.py site deploy -C <dir> --dist dist --env-file .env.cloud 
 # 下线站点（立即使子域名全部路径返回 404，保留路径级开关记录）
 python3 scripts/sbdev.py site unpublish -C <dir> [--env-file .env.cloud --yes]
 ```
+
+`--prune` 只删除目标前缀内、且不在本次上传清单里的对象；跨前缀对象不会删除。对象列表最多扫描 1000 条，超出时只处理前 1000 条并告警。非交互模式未带 `--yes` 时只输出计划并退出 3，不删除任何对象。
+
+管理员可调用 `POST /v1/system/projects/<项目ID>/site/takedown` 一次关闭该项目全部公开路径（admin / superadmin 角色，写审计）；路径记录保留，可重新公开。
+
+站点配额按项目 / UTC 日统计：管理员用 `PUT /v1/system/projects/<项目ID>/site/quota` 设置 `{"max_requests":10000,"max_egress_bytes":1073741824}`（0 不限），落 `sys_site_quotas`；用量累计在 `sys_site_traffic`。超限返回 429 与 `Retry-After: 60`。计数每 5 秒或 64 次请求批量落库，异常退出可能丢失最后一批。
 
 ### 方式二：用 `simplebase` CLI + 管理 API 分步执行
 

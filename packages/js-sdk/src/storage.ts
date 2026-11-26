@@ -1,6 +1,6 @@
 import type { HttpClient } from './http.js'
 import { projectPath } from './http.js'
-import type { S3ObjectMeta } from './types.js'
+import type { S3ObjectMeta, S3PublicState, S3PublicUpdateResult, S3SiteInfo } from './types.js'
 
 export type UploadBody = Blob | File | ArrayBuffer | Uint8Array | string
 
@@ -13,6 +13,12 @@ export interface StorageApi {
   ): Promise<S3ObjectMeta>
   remove(key: string): Promise<{ ok?: boolean }>
   presign(key: string): Promise<{ url: string }>
+  /** 站点状态；`mode` 为 path 或 subdomain。 */
+  getSite(): Promise<S3SiteInfo>
+  /** 站点状态 + 已公开路径列表。 */
+  listPublic(): Promise<S3PublicState>
+  /** 设置单条文件 / 文件夹的外部访问；委托主体只允许 web/ 文件夹。 */
+  setPublic(input: { key: string; kind: 'file' | 'folder'; public: boolean }): Promise<S3PublicUpdateResult>
 }
 
 function toBlob(body: UploadBody, contentType?: string): Blob {
@@ -58,6 +64,15 @@ export function createStorageApi(http: HttpClient): StorageApi {
     },
     presign(key) {
       return http.request('GET', presignPath(), { query: { key } })
+    },
+    getSite() {
+      return http.request('GET', projectPath(http.projectId, '/s3/site'))
+    },
+    listPublic() {
+      return http.request('GET', projectPath(http.projectId, '/s3/public'))
+    },
+    setPublic(input) {
+      return http.request('PUT', projectPath(http.projectId, '/s3/public'), { body: input })
     }
   }
 }

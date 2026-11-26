@@ -118,4 +118,22 @@ describe('CollectionSchemaModal', () => {
     await flushPromises()
     expect(toast.error).toHaveBeenCalledWith('Schema 保存失败')
   })
+
+  it('loads and saves the collection access rule', async () => {
+    api.db.getCollectionAccess.mockResolvedValue({ mode: 'owner_write', ownerField: 'user_id', enforced: true })
+    api.db.putCollectionAccess.mockResolvedValue({ mode: 'owner_write', ownerField: 'user_id', enforced: true })
+    await mountSchema()
+    await flushPromises()
+    const owner = inDialog().find('[data-testid="collection-access-owner"]').element as HTMLInputElement
+    expect(owner.value).toBe('user_id')
+    await inDialog().find('[data-testid="save-collection-access"]').trigger('click')
+    await flushPromises()
+    expect(api.db.putCollectionAccess).toHaveBeenCalledWith('p', 'd', 'users', { mode: 'owner_write', ownerField: 'user_id' })
+    expect(toast.success).toHaveBeenCalledWith('行级访问规则已保存')
+
+    api.db.putCollectionAccess.mockRejectedValueOnce(new Error('rule failed'))
+    await inDialog().find('[data-testid="save-collection-access"]').trigger('click')
+    await flushPromises()
+    expect(toast.error).toHaveBeenCalledWith('rule failed')
+  })
 })

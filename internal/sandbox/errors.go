@@ -2,7 +2,7 @@
 //
 // 用法
 //
-//	var ErrNotFound / ErrNameConflict / ErrLimitExceeded / ErrInvalidSpec / ErrFileTooLarge / ErrBusy / ErrGone / ErrAlreadyPaused  // 领域错误；api/error.go 按 errors.Is 映射 HTTP 状态（§7.3）
+//	var ErrNotFound / ErrNameConflict / ErrLimitExceeded / ErrInvalidSpec / ErrFileTooLarge / ErrBusy / ErrGone / ErrAlreadyPaused  // 领域错误；入口错误协议按 errors.Is 映射 HTTP 状态（§7.3）
 //	var ErrInvalidPath  // ErrInvalidPath 是 vm.ErrInvalidPath 的别名：「路径必须落在工作目录内」属于沙盒 运行时规则（实现在 gosandbox/vm）...
 //
 // 调用架构
@@ -29,7 +29,7 @@ import (
 	"github.com/linkxzhou/SimpleBase/gosandbox/vm"
 )
 
-// 领域错误；api/error.go 按 errors.Is 映射 HTTP 状态（§7.3）。
+// 领域错误；入口错误协议（internal/api/httpkit）按 errors.Is 映射 HTTP 状态（§7.3）。
 // 运行时错误（ErrUnavailable / ErrFileNotFound / ErrInvalidPath / ErrInvalid /
 // ErrNotFound / ErrBackend）定义在 gosandbox/vm，api 层按 errors.Is 映射。
 var (

@@ -3,7 +3,7 @@
 // 用法
 //
 //	AssembleInstruction(sections ...string) string  // AssembleInstruction joins non-empty prompt sections in the supplied order.
-//	同包调用：truncate() → history.go, mcptool.go
+//	同包调用：AssembleInstruction() → runtime.go
 //
 // 调用架构
 //
@@ -15,13 +15,12 @@
 //	         ▼
 //	[下游] 仅标准库 / 第三方
 //	[同包] callgate.go, callgate_test.go, confirmation.go, confirmation_test.go, errors.go 等 32 个
-//	[关键引用] AssembleInstruction ← runtime.go, runtime_test.go；truncate ← history.go, mcptool.go
+//	[关键引用] AssembleInstruction ← runtime.go, runtime_test.go
 //
 // 主要符号
 //
 //	const maxHistoryChars / maxUserChars
 //	AssembleInstruction(sections ...string) string
-//	truncate(s string, max int) string
 
 package cloudagent
 
@@ -46,5 +45,3 @@ func AssembleInstruction(sections ...string) string {
 	}
 	return agentcore.RedactSecrets(strings.Join(parts, "\n\n"))
 }
-
-func truncate(s string, max int) string { return agentcore.Truncate(s, max) }

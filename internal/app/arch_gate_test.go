@@ -360,6 +360,8 @@ func archWriteBaseline(t *testing.T, pkgs map[string]*archPackage) {
 }
 
 // TestArchitectureGate 规则 + 基线；违例时输出 importer → imported，评审只需看基线 diff 是否只降不升。
+// 基线按包记录：handler 子包（api/<context>http）经等价搬迁继承原 api 的 systemdb 使用面；
+// 应用服务（agentrun）与新用例包只允许行类型（Store 字面为 0）。
 func TestArchitectureGate(t *testing.T) {
 	pkgs := archScan(t)
 	if *archUpdate {
@@ -376,7 +378,7 @@ func TestArchitectureGate(t *testing.T) {
 	for rel, p := range pkgs {
 		want, ok := base[rel]
 		if !ok && (p.SysDB > 0 || p.StoreLit > 0) {
-			worse = append(worse, fmt.Sprintf("%s：基线缺席，现 %d/%d（新包不得直接使用 systemdb）", rel, p.SysDB, p.StoreLit))
+			worse = append(worse, fmt.Sprintf("%s：基线缺席，现 %d/%d（新包的 *systemdb.Store 使用面须随引入批次登记基线；应用服务与新用例包应为 0）", rel, p.SysDB, p.StoreLit))
 			continue
 		}
 		if p.SysDB > want[0] || p.StoreLit > want[1] {

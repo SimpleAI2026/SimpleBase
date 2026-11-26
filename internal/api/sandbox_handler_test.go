@@ -36,6 +36,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/linkxzhou/SimpleBase/internal/api/sandboxhttp"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -67,17 +68,17 @@ func TestMapE2BError(t *testing.T) {
 		{vm.ErrUnavailable, 503, "sandbox_unavailable", "unavailable"},
 		{vm.ErrBackend, 502, "sandbox_backend_error", "internal"},
 	} {
-		got := mapE2BError(tc.err)
-		if got.status != tc.status || got.errorCode != tc.errorCode || got.connect != tc.connect {
+		got := sandboxhttp.MapE2BError(tc.err)
+		if got.Status != tc.status || got.ErrorCode != tc.errorCode || got.Connect != tc.connect {
 			t.Errorf("%v -> %+v, want %d/%s/%s", tc.err, got, tc.status, tc.errorCode, tc.connect)
 		}
 		// 包装过的错误同样命中，且文案是固定的，不含内部细节。
-		wrapped := mapE2BError(errors.Join(errors.New("leak: /data/secret/path"), tc.err))
-		if wrapped.status != tc.status || strings.Contains(wrapped.message, "secret") {
+		wrapped := sandboxhttp.MapE2BError(errors.Join(errors.New("leak: /data/secret/path"), tc.err))
+		if wrapped.Status != tc.status || strings.Contains(wrapped.Message, "secret") {
 			t.Errorf("wrapped %v leaked or mismatched: %+v", tc.err, wrapped)
 		}
 	}
-	if mapE2BError(errors.New("boom")).status != 0 {
+	if sandboxhttp.MapE2BError(errors.New("boom")).Status != 0 {
 		t.Fatal("unknown errors must not be mapped here")
 	}
 }
@@ -88,11 +89,11 @@ func TestE2BPathClassification(t *testing.T) {
 		"/process.Process/Start": true, "/filesystem.Filesystem/ListDir": true,
 		"/v1/projects/p/databases": false, "/health/live": false, "/sandboxes": false, "/": false,
 	} {
-		if isE2BPath(p) != want {
-			t.Errorf("isE2BPath(%q) = %v, want %v", p, !want, want)
+		if sandboxhttp.IsE2BPath(p) != want {
+			t.Errorf("sandboxhttp.IsE2BPath(%q) = %v, want %v", p, !want, want)
 		}
 	}
-	if !isConnectPath("/e2b/envd/process.Process/Start") || !isConnectPath("/filesystem.Filesystem/Stat") || isConnectPath("/files") {
+	if !sandboxhttp.IsConnectPath("/e2b/envd/process.Process/Start") || !sandboxhttp.IsConnectPath("/filesystem.Filesystem/Stat") || sandboxhttp.IsConnectPath("/files") {
 		t.Fatal("connect path classification is wrong")
 	}
 }
@@ -100,8 +101,8 @@ func TestE2BPathClassification(t *testing.T) {
 func TestE2BPathResolution(t *testing.T) {
 	for in, want := range map[string]string{"": "/workspace", "a.txt": "/workspace/a.txt", "/workspace/x": "/workspace/x",
 		"../etc": "/etc", "sub/../b": "/workspace/b", "  c  ": "/workspace/c"} {
-		if got := e2bPath("/workspace", in); got != want {
-			t.Errorf("e2bPath(%q) = %q, want %q", in, got, want)
+		if got := sandboxhttp.E2BPath("/workspace", in); got != want {
+			t.Errorf("sandboxhttp.E2BPath(%q) = %q, want %q", in, got, want)
 		}
 	}
 }
@@ -397,7 +398,7 @@ func TestCapabilitiesReportsTerminalAndSSH(t *testing.T) {
 	sb.interactive = true
 	deps, key := fullRouterDeps(t)
 	deps.Sandbox = sb
-	deps.Terminal = &TerminalBridge{Fingerprint: "SHA256:abc", SSHListen: "127.0.0.1:2222"}
+	deps.Terminal = &sandboxhttp.TerminalBridge{Fingerprint: "SHA256:abc", SSHListen: "127.0.0.1:2222"}
 	e := NewRouter(deps)
 	rec := call(e, "GET", "/e2b/ext/capabilities", key, "", nil)
 	var caps map[string]any
@@ -410,7 +411,7 @@ func TestCapabilitiesReportsTerminalAndSSH(t *testing.T) {
 		t.Fatal("capabilities must report the envd version")
 	}
 	// 终端关闭时 ssh 段不暴露地址。
-	deps.Terminal = &TerminalBridge{Fingerprint: "SHA256:abc"}
+	deps.Terminal = &sandboxhttp.TerminalBridge{Fingerprint: "SHA256:abc"}
 	e = NewRouter(deps)
 	rec = call(e, "GET", "/e2b/ext/capabilities", key, "", nil)
 	if strings.Contains(rec.Body.String(), "127.0.0.1:2222") || !strings.Contains(rec.Body.String(), `"enabled":false`) {

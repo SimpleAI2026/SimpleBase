@@ -39,7 +39,7 @@ import (
 	"github.com/linkxzhou/SimpleBase/internal/objectstore"
 )
 
-// 本文件对齐 plan/planv6.7/legacy-plan-consolidation-plan.md 验收（用户明确不做 MinIO e2e）。
+// 本文件对齐对象存储验收（用户明确不做 MinIO e2e）。
 
 type recordingDescriptorWriter struct {
 	failNext bool

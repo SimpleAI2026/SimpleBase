@@ -58,6 +58,35 @@ func TestSiteCommands(t *testing.T) {
 		!strings.Contains(hits[0].Body, `"key":"web/"`) || !strings.Contains(hits[0].Body, `"kind":"folder"`) || !strings.Contains(hits[0].Body, `"public":true`) {
 		t.Fatalf("publish hits=%+v", hits)
 	}
+
+	stub.reset()
+	if code, out, errb = runCLI(t, env, []string{"site", "enable"}, ""); code != 0 {
+		t.Fatalf("enable: %d %s %s", code, out, errb)
+	}
+	hits = stub.all()
+	if len(hits) != 1 || hits[0].Method != http.MethodPut || !strings.HasSuffix(hits[0].Path, "/s3/public") ||
+		!strings.Contains(hits[0].Body, `"key":"web/"`) || !strings.Contains(hits[0].Body, `"kind":"folder"`) || !strings.Contains(hits[0].Body, `"public":true`) {
+		t.Fatalf("enable hits=%+v", hits)
+	}
+
+	stub.reset()
+	if code, out, errb = runCLI(t, env, []string{"site", "disable"}, ""); code != 0 {
+		t.Fatalf("disable: %d %s %s", code, out, errb)
+	}
+	hits = stub.all()
+	if len(hits) != 1 || !strings.Contains(hits[0].Body, `"key":"web/"`) || !strings.Contains(hits[0].Body, `"public":false`) {
+		t.Fatalf("disable hits=%+v", hits)
+	}
+
+	stub.reset()
+	if code, out, errb = runCLI(t, env, []string{"object", "public", "--key", "web/app.js", "--on"}, ""); code != 0 {
+		t.Fatalf("object public: %d %s %s", code, out, errb)
+	}
+	hits = stub.all()
+	if len(hits) != 1 || !strings.HasSuffix(hits[0].Path, "/s3/public") ||
+		!strings.Contains(hits[0].Body, `"key":"web/app.js"`) || !strings.Contains(hits[0].Body, `"kind":"file"`) || !strings.Contains(hits[0].Body, `"public":true`) {
+		t.Fatalf("object public hits=%+v", hits)
+	}
 }
 
 // 助手只能公开 web/：缺省、空串、根、其它前缀都在发请求前被拒绝。
@@ -86,5 +115,24 @@ func TestSitePublishPrefixGuard(t *testing.T) {
 	}
 	if hits := stub.all(); len(hits) != 0 {
 		t.Fatalf("rejected publish must not hit the server: %+v", hits)
+	}
+
+	badPublic := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"object", "public"}, "--key is required"},
+		{[]string{"object", "public", "--key", "a.txt"}, "use exactly one of --on or --off"},
+		{[]string{"object", "public", "--key", "a.txt", "--on", "--off"}, "use exactly one of --on or --off"},
+		{[]string{"object", "public", "--key", "web", "--kind", "folder", "--on"}, "folder key must end with /"},
+	}
+	for _, tc := range badPublic {
+		code, out, errb := runCLI(t, env, tc.args, "")
+		if code == 0 || !strings.Contains(out+errb, tc.want) {
+			t.Errorf("%v: code=%d out=%s err=%s", tc.args, code, out, errb)
+		}
+	}
+	if hits := stub.all(); len(hits) != 0 {
+		t.Fatalf("rejected public must not hit the server: %+v", hits)
 	}
 }

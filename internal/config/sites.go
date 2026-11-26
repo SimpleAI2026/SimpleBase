@@ -45,6 +45,8 @@ type SitesConfig struct {
 	IndexDocument string `yaml:"index_document"`
 	// NotFoundDocument 例 404.html；必须同样处于公开路径下才会使用。
 	NotFoundDocument string `yaml:"not_found_document"`
+	// SpaFallback=true：未命中的无扩展名路径回退到站点根 index 文档（SPA 刷新子路由）。
+	SpaFallback bool `yaml:"spa_fallback"`
 	// CacheTTL 站点开关 / 公开路径的进程内缓存 TTL，默认 30s。
 	CacheTTL time.Duration `yaml:"cache_ttl"`
 	// CSP 站点响应的 Content-Security-Policy；空 = 内置默认，off = 不发。

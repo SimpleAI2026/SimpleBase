@@ -13,7 +13,7 @@
 #      （缺少 config.yaml 时会从本文件生成一份副本；auth 盐自动写入 .env）
 #   2. 首次登录用内置超管（见 internal/auth 的 Bootstrap 常量），随后立即改密。
 #
-# 存储模式（本版本新增，见 plan/planv6.7/legacy-plan-consolidation-plan.md §4.13）：
+# 存储模式：
 #   storage.database / storage.files 决定持久层落在本地盘还是对象存储。
 #   local 模式下 storage.data_dir 是唯一副本，cache_dir 只放可丢弃的内容。
 #   切换模式不迁移数据：改配置 → Ctrl+C → ./build.sh reset -y → ./build.sh dev。
@@ -106,6 +106,7 @@ sites:
   url_port: 0                 # 非 0 时拼进访问 URL；SIMPLEBASE_SITES_URL_PORT
   index_document: index.html  # 目录默认文档；SIMPLEBASE_SITES_INDEX_DOCUMENT
   not_found_document: ""      # 例 404.html（需同样公开）；SIMPLEBASE_SITES_NOT_FOUND_DOCUMENT
+  spa_fallback: false         # true = 未命中的无扩展名路径回退到根 index；SIMPLEBASE_SITES_SPA_FALLBACK
   cache_ttl: 30s              # 站点 / 公开路径进程内缓存；SIMPLEBASE_SITES_CACHE_TTL
   csp: ""                     # 空 = 内置默认；off = 不发；SIMPLEBASE_SITES_CSP
 

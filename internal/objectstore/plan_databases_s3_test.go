@@ -30,7 +30,7 @@ import (
 	"testing"
 )
 
-// 对齐对象存储边界（见 plan/planv6.7/legacy-plan-consolidation-plan.md §4.3）：descriptor v2、平面 key 隔离、无 turso 用户库路径。
+// 对齐对象存储边界：descriptor v2、平面 key 隔离、无 turso 用户库路径。
 
 func TestPlan_PlaneAAndPlaneBPrefixesDoNotOverlap(t *testing.T) {
 	kb := KeyBuilder{RootPrefix: "simplebase"}

@@ -40,4 +40,4 @@ curl -s "$SIMPLEBASE_URL/v1/projects/$SIMPLEBASE_PROJECT_ID/databases/$SIMPLEBAS
 `verify-perms.sh` 预期只读 SQL/KV（KV 读命令只要求 `database:read`，G3 已随 M1 修复、函数调用与文件列表成功、写操作 403。跨项目访问需要同实例上存在另一个项目（默认 `ex-shop1`），项目不存在时该用例 SKIP。
 
 LLM provider 未配置时，助手与助手定时任务记「未验证」，不计失败。
-限制：G0b、G1、G2、G4、G6、G11、G12（`plan/planv6.7/legacy-plan-consolidation-plan.md` §3-D1）。
+限制：平台能力缺口见 `openspec/changes/close-legacy-backlog`。

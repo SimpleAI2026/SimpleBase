@@ -18,6 +18,7 @@ package api
 import (
 	"github.com/labstack/echo/v4"
 	"github.com/linkxzhou/SimpleBase/godatabase"
+	"github.com/linkxzhou/SimpleBase/internal/api/httpkit"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 )
 
@@ -40,18 +41,18 @@ func newRouteGuards(deps Dependencies) routeGuards {
 	return routeGuards{
 		require: func(perm auth.Permission) echo.MiddlewareFunc {
 			return func(next echo.HandlerFunc) echo.HandlerFunc {
-				return policyGate(auth.Require(perm, PrincipalFromContext)(next))
+				return policyGate(auth.Require(perm, httpkit.PrincipalFromContext)(next))
 			}
 		},
 		delegable: func(perm auth.Permission) echo.MiddlewareFunc {
 			return func(next echo.HandlerFunc) echo.HandlerFunc {
-				return policyGate(auth.RequireDelegable(perm, PrincipalFromContext, auth.DelegationMark())(next))
+				return policyGate(auth.RequireDelegable(perm, httpkit.PrincipalFromContext, auth.DelegationMark())(next))
 			}
 		},
 		writeGate: func(next echo.HandlerFunc) echo.HandlerFunc {
 			return func(c echo.Context) error {
 				if !deps.Config.Instance.Writable {
-					return WriteError(c, godatabase.ErrWriterUnavailable)
+					return httpkit.WriteError(c, godatabase.ErrWriterUnavailable)
 				}
 				return next(c)
 			}

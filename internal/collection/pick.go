@@ -2,6 +2,7 @@
 //
 // 用法
 //
+//	NamePattern                                                 // 集合名形态
 //	FieldNamePattern                                             // 字段名形态
 //	InvalidQuery(message string) error                           // 查询参数不合法
 //	ParseFields(raw string, schema *Collection) ([]string, error)   // 解析 fields= 参数（逗号分隔，支持 a.b.c），只允许已登记且可选的字段
@@ -128,6 +129,9 @@ func HideDocumentFields(doc map[string]any, hidden []string) map[string]any {
 	}
 	return out
 }
+
+// NamePattern 是集合名的形态约束：字母开头，仅字母 / 数字 / 下划线，最长 63 个字符。
+var NamePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]{0,62}$`)
 
 // FieldNamePattern 是字段名的形态约束：字母开头，仅字母 / 数字 / 下划线，最长 63 个字符。
 // 查询、排序、聚合与投影共用这一条规则（SQL 里字段名只会以参数或已校验的标识符出现）。

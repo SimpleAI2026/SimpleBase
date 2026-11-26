@@ -86,6 +86,34 @@
             <Button class="ml-auto" size="sm" variant="ghost" @click="fields.splice(index, 1)">{{ t('common.del') }}</Button>
           </div>
         </div>
+        <div class="rounded-lg border border-border p-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p class="font-medium">{{ t('components.collectionPanel.accessTitle') }}</p>
+              <p class="text-xs text-muted-foreground">{{ t('components.collectionPanel.accessHint') }}</p>
+            </div>
+            <Button data-testid="save-collection-access" size="sm" variant="outline" :disabled="accessSaving" @click="saveAccess">
+              {{ t('common.save') }}
+            </Button>
+          </div>
+          <div class="mt-3 grid gap-3 md:grid-cols-2">
+            <Field>
+              <FieldLabel>{{ t('components.collectionPanel.accessMode') }}</FieldLabel>
+              <Select v-model="accessMode">
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="off">{{ t('components.collectionPanel.accessOff') }}</SelectItem>
+                  <SelectItem value="owner_read">{{ t('components.collectionPanel.accessOwnerRead') }}</SelectItem>
+                  <SelectItem value="owner_write">{{ t('components.collectionPanel.accessOwnerWrite') }}</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field>
+              <FieldLabel>{{ t('components.collectionPanel.accessOwnerField') }}</FieldLabel>
+              <Input v-model="accessOwnerField" data-testid="collection-access-owner" :disabled="accessMode === 'off'" placeholder="owner_id" />
+            </Field>
+          </div>
+        </div>
       </div>
     </SbAsyncRegion>
   </SbModal>
@@ -105,7 +133,7 @@ import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
 import { PlusIcon } from '@lucide/vue'
 import { api } from '@/services/api'
-import type { ApiError, CollectionField, CollectionFieldOptions, CollectionSchemaInput } from '@/services/types'
+import type { ApiError, CollectionAccessMode, CollectionField, CollectionFieldOptions, CollectionSchemaInput } from '@/services/types'
 import { errorMessage } from '@/utils/format'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -151,6 +179,9 @@ const loadError = ref('')
 const originalFields = ref<EditableField[]>([])
 const pendingInput = ref<CollectionSchemaInput | null>(null)
 const confirmSave = ref(false)
+const accessMode = ref<CollectionAccessMode>('off')
+const accessOwnerField = ref('owner_id')
+const accessSaving = ref(false)
 
 function fieldSnapshot(field: EditableField): string {
   return JSON.stringify(field)
@@ -190,6 +221,34 @@ function toEditableField(field: CollectionField): EditableField {
     values: field.options.values?.join(',') ?? ''
   }
 }
+async function loadAccess() {
+  if (!props.open || !props.collection) return
+  try {
+    const rule = await api.db.getCollectionAccess(props.projectId, props.databaseId, props.collection)
+    accessMode.value = rule.mode
+    accessOwnerField.value = rule.ownerField || 'owner_id'
+  } catch {
+    // 规则读取失败不阻塞 Schema 编辑；保存时会再次给出错误。
+  }
+}
+
+async function saveAccess() {
+  accessSaving.value = true
+  try {
+    const rule = await api.db.putCollectionAccess(props.projectId, props.databaseId, props.collection, {
+      mode: accessMode.value,
+      ownerField: accessOwnerField.value.trim() || 'owner_id'
+    })
+    accessMode.value = rule.mode
+    accessOwnerField.value = rule.ownerField
+    toast.success(t('components.collectionPanel.accessSaved'))
+  } catch (error) {
+    toast.error(errorMessage(error, t('components.collectionPanel.accessFailed')))
+  } finally {
+    accessSaving.value = false
+  }
+}
+
 async function load() {
   if (!props.open || !props.collection) return
   loading.value = true
@@ -210,6 +269,7 @@ async function load() {
     }
   } finally {
     loading.value = false
+    void loadAccess()
   }
 }
 function bound(value: string, date: boolean): number | string | undefined {

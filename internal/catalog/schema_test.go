@@ -52,6 +52,12 @@ func applyTestSchema(db *sql.DB) error {
 			project_id VARCHAR NOT NULL, max_databases BIGINT NOT NULL, max_storage_bytes BIGINT NOT NULL,
 			max_llm_requests BIGINT NOT NULL, max_llm_tokens BIGINT NOT NULL, period_seconds BIGINT NOT NULL,
 			updated_at TIMESTAMP NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS sys_site_quotas (
+			project_id VARCHAR NOT NULL, max_requests BIGINT NOT NULL, max_egress_bytes BIGINT NOT NULL,
+			period_seconds BIGINT NOT NULL, updated_at TIMESTAMP NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS sys_site_traffic (
+			project_id VARCHAR NOT NULL, day VARCHAR NOT NULL, requests BIGINT NOT NULL, bytes BIGINT NOT NULL,
+			updated_at TIMESTAMP NOT NULL)`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {

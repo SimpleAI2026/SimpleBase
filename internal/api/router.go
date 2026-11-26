@@ -7,7 +7,7 @@
 //	mountPublicAuthRoutes(e, deps)
 //	type Dependencies（导出类型，同包与上层均可使用）
 //	type CacheService（导出类型，同包与上层均可使用）
-//	同包调用：AuditService → adapter.go, agent_handler.go 等；AuditEvent → adapter.go, agent_handler.go 等；UsageService → adapter.go, agent_handler.go 等
+//	同包调用：httpkit.AuditService → 等；AuditEvent → 等；UsageService → 等
 //
 // 调用架构
 //
@@ -18,8 +18,8 @@
 //	         │ 依赖
 //	         ▼
 //	[下游] gocloudagent, internal/auth, internal/catalog, internal/config 等
-//	[同包] adapter.go, agent_handler.go, api_key_policy.go, api_keys_handler.go 等 59 个
-//	[关键引用] AuditService ← adapter.go, agent_handler.go, backup_handler.go
+//	[同包] backup_handler.go, error.go, health.go, mcp_builtin.go, mcp_builtin_admin.go 等 25 个顶层生产文件
+//	[关键引用] httpkit.AuditService ← backup_handler.go
 //
 // 主要符号
 //
@@ -27,7 +27,7 @@
 //	type CacheService interface {…}
 //	type CacheUsage struct {…}
 //	type UsageService interface {…}
-//	type AuditService interface {…}
+//	type httpkit.AuditService interface {…}
 //	type AuditEvent struct {…}
 //	... 另有 27 个顶层符号
 
@@ -35,7 +35,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"runtime"
 
@@ -44,8 +43,13 @@ import (
 	"github.com/linkxzhou/SimpleBase/gocloudagent/cloudagent"
 	"github.com/linkxzhou/SimpleBase/gosandbox/image"
 	"github.com/linkxzhou/SimpleBase/internal/agentrun"
+	"github.com/linkxzhou/SimpleBase/internal/api/datahttp"
+	"github.com/linkxzhou/SimpleBase/internal/api/filehttp"
+	"github.com/linkxzhou/SimpleBase/internal/api/functionhttp"
+	"github.com/linkxzhou/SimpleBase/internal/api/httpkit"
+	"github.com/linkxzhou/SimpleBase/internal/api/iamhttp"
+	"github.com/linkxzhou/SimpleBase/internal/api/sandboxhttp"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
-	"github.com/linkxzhou/SimpleBase/internal/catalog"
 	"github.com/linkxzhou/SimpleBase/internal/config"
 	"github.com/linkxzhou/SimpleBase/internal/cronjob"
 	"github.com/linkxzhou/SimpleBase/internal/functionrun"
@@ -67,40 +71,42 @@ type Dependencies struct {
 	Health          HealthChecker
 	// 业务依赖（Plan 5 起填充）
 	Auth            *auth.Service
-	Catalog         CatalogService
-	Registry        RegistryService
-	DatabaseHandler *DatabaseHandler
+	Catalog         datahttp.CatalogService
+	Registry        datahttp.RegistryService
+	DatabaseHandler *datahttp.DatabaseHandler
 	// Plan 6：SQL 执行 handler。writable=false 时仅 query 可用。
-	SQLHandler             *SQLHandler
-	DataHandler            *DataHandler
-	CollectionMetaHandler  *CollectionMetaHandler
+	SQLHandler             *datahttp.SQLHandler
+	DataHandler            *datahttp.DataHandler
+	CollectionMetaHandler  *datahttp.CollectionMetaHandler
 	BackupHandler          *BackupHandler
-	RealtimeHandler        *RealtimeHandler
+	RealtimeHandler        *datahttp.RealtimeHandler
 	FunctionRunner         *functionrun.Runner
-	FunctionTriggerHandler *FunctionTriggerHandler
-	TriggerEvents          objectEventPublisher
+	FunctionTriggerHandler *functionhttp.FunctionTriggerHandler
+	TriggerEvents          filehttp.ObjectEventPublisher
 	// SchemaHandler 管理 SQL 数据库的表结构。nil 时不挂载。
-	SchemaHandler *SchemaHandler
+	SchemaHandler *datahttp.SchemaHandler
 	// KVHandler：项目级 Key-Value 数据服务（key-value-ducklake-plan）。
-	KVHandler *KVHandler
+	KVHandler *datahttp.KVHandler
 	// KVService：项目 KV catalog 服务（建项目时建 kind=kv 行）。
-	KVService KVService
+	KVService datahttp.KVService
 	// KVInit：项目 KV catalog 行创建后初始化 kv schema。
 	KVInit KVInitializer
 	// Plan 7-9：缓存、用量、审计、LLM
-	Cache CacheService
-	Usage UsageService
-	Audit AuditService
+	Cache httpkit.CacheService
+	Usage httpkit.UsageService
+	Audit httpkit.AuditService
 	// EndUsers 是终端用户服务（§8.2.6；nil = 不挂终端用户路由）。
 	EndUsers *auth.EndUserService
-	LLM      LLMService
+	LLM      httpkit.LLMService
 	// S3FileStore：用户文件存储（objectstore.FileStore）。
 	S3FileStore objectstore.FileStore
 	// System 是实例系统 DuckLake（元数据 / 指标 / 日志 / S3 索引 / LLM 会话 / Cloud Agent）。
 	System *systemdb.Store
 	// Sites 是对象存储发布网站的站点开关 / 公开路径存储（planv6.5）。
 	// nil 且 System 非 nil 时由 NewRouter 基于 System 自动构造（带 sites.cache_ttl 缓存）。
-	Sites SiteStore
+	Sites filehttp.SiteStore
+	// SiteTraffic 是站点请求 / 出口配额与统计；nil 时不限流、不统计。
+	SiteTraffic filehttp.SiteTraffic
 	// CloudAgent 是 Phase 1 单 agent + 只读工具运行时。
 	CloudAgent *cloudagent.Runtime
 	// CronScheduler 是统一定时任务调度器（云函数 + Agent）；nil 时 trigger 返回 503。
@@ -109,14 +115,14 @@ type Dependencies struct {
 	// app 构造并注入，cron 的群定时执行器直接持有同一个 Service，不再经路由延迟绑定。
 	AgentRun *agentrun.Service
 	// Sandbox 是项目级云沙盒服务；未配置时仅 capabilities 路由可用。
-	Sandbox      SandboxService
+	Sandbox      sandboxhttp.SandboxService
 	SandboxUsage interface {
 		RecordSandbox(context.Context, string, string, int64) error
 	}
 	// Images 是镜像 store；nil 表示本实例不分发镜像（ext/images 回答 501）。
 	Images *image.Store
 	// Terminal 是浏览器终端的 SSH 桥；nil 表示终端不可用（capabilities.terminal=false）。
-	Terminal *TerminalBridge
+	Terminal *sandboxhttp.TerminalBridge
 	// login-auth-plan：登录态与用户管理。
 	Sessions *auth.SessionService
 	Users    *auth.UserService
@@ -124,120 +130,10 @@ type Dependencies struct {
 	Delegations *auth.DelegationRegistry
 }
 
-// CacheService 抽象缓存管理（plan7.md）。
-type CacheService interface {
-	Usage(ctx context.Context) (CacheUsage, error)
-}
-
-// CacheUsage 是缓存用量快照。
-type CacheUsage struct {
-	TotalBytes   int64
-	DatabaseDirs int
-}
-
-// UsageService 抽象用量配额（plan9.md）。
-type UsageService interface {
-	CheckQuota(ctx context.Context, projectID string, kind string) error
-}
-
-// AuditService 抽象审计记录（plan9.md）。
-type AuditService interface {
-	Record(ctx context.Context, e AuditEvent) error
-	ListOperations(ctx context.Context, projectID, databaseID string, limit int) ([]catalog.Operation, error)
-}
-
-// AuditEvent 是审计事件输入。
-type AuditEvent struct {
-	DatabaseID  string
-	ProjectID   string
-	PrincipalID string
-	Kind        string
-	RequestID   string
-	Status      string
-	Detail      string
-}
-
-// LLMService 抽象 LLM Gateway（plan8.md）。
-type LLMService interface {
-	Chat(ctx context.Context, projectID string, req LLMRequest) (LLMResponse, error)
-	Stream(ctx context.Context, projectID string, req LLMRequest) (LLMStreamReader, error)
-	ListProviders(ctx context.Context, projectID string) ([]string, error)
-	// ProviderModels 返回各 provider 可用模型名（planv4.1 BUG-07）。
-	ProviderModels(ctx context.Context, projectID string) (map[string][]string, error)
-}
-
-// LLMRequest 是对外请求抽象。
-type LLMRequest struct {
-	Model       string
-	Messages    []LLMMessage
-	MaxTokens   *int
-	Temperature *float64
-	// Tools 非空时走原生 function calling（云 Agent 与 OpenAI 兼容端点使用）。
-	Tools []LLMTool
-	// ToolChoice 是调用方指定的工具选择策略（"auto"/"none"/"required" 或指定函数的对象），
-	// 原样保存 HTTP 请求里的 JSON 值，由 adapter 反序列化后透传给上游。
-	// 空表示不指定；云 Agent 的循环从不设置它（强制选择工具对 agent 循环有害）。
-	ToolChoice json.RawMessage
-}
-
-// LLMMessage 是对话消息。
-type LLMMessage struct {
-	Role       string
-	Content    string
-	ToolCalls  []LLMToolCall
-	ToolCallID string
-}
-
-// LLMTool 是原生工具定义；Parameters 为 JSON Schema。
-type LLMTool struct {
-	Name        string
-	Description string
-	Parameters  json.RawMessage
-}
-
-// LLMToolCall 是一次原生工具调用。
-type LLMToolCall struct {
-	ID        string
-	Name      string
-	Arguments string
-}
-
-// LLMResponse 映射 LLM 响应。
-type LLMResponse struct {
-	Content      string
-	Usage        LLMTokenUsage
-	Model        string
-	Provider     string
-	FinishReason string
-	ToolCalls    []LLMToolCall
-}
-
-// LLMTokenUsage 是 token 用量。
-type LLMTokenUsage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
-	TotalTokens      int `json:"total_tokens"`
-	ReasoningTokens  int `json:"reasoning_tokens,omitempty"`
-}
-
-// LLMStreamReader 抽象流式读取。
-type LLMStreamReader interface {
-	Next() (*LLMStreamChunk, error)
-	Close() error
-}
-
-// LLMStreamChunk 是流式分块。
-type LLMStreamChunk struct {
-	Type         string `json:"type"`
-	Content      string `json:"content,omitempty"`
-	FinishReason string `json:"finish_reason,omitempty"`
-	Done         bool   `json:"-"`
-	// 以下字段由 api 层内部消费；对外的 OpenAI 兼容流式帧由 oaiStreamWriter 编码，不直接序列化本结构。
-	ToolCallIndex int            `json:"-"`
-	ToolCallID    string         `json:"-"`
-	ToolCallName  string         `json:"-"`
-	ToolCallArgs  string         `json:"-"`
-	Usage         *LLMTokenUsage `json:"-"`
+// sandboxDeps 把路由依赖收窄成沙盒 / E2B 入站需要的字段（路由级测试与 routes 装配共用）。
+func sandboxDeps(deps Dependencies) sandboxhttp.Deps {
+	return sandboxhttp.Deps{Config: deps.Config, Logger: deps.Logger, Auth: deps.Auth, Catalog: deps.Catalog, Images: deps.Images,
+		Terminal: deps.Terminal, Sandbox: deps.Sandbox, Audit: deps.Audit, System: deps.System, SandboxUsage: deps.SandboxUsage}
 }
 
 // HealthChecker 由 App 提供；live 不做 I/O，ready 检查 catalog/S3。
@@ -254,11 +150,11 @@ type HealthChecker interface {
 // context → handler）、OpenAPI、站点面与 SPA fallback；错误统一经 errorHandler 映射。
 func NewRouter(deps Dependencies) *echo.Echo {
 	e := echo.New()
-	e.Logger.SetOutput(nullWriter{})
+	e.Logger.SetOutput(httpkit.NullWriter{})
 	e.HideBanner = true
 	e.HidePort = true
 	e.HTTPErrorHandler = errorHandler(deps)
-	requestLogger = deps.Logger
+	httpkit.SetLogger(deps.Logger)
 	e.IPExtractor = trustedIPExtractor(deps.Config.HTTP.TrustedProxies)
 
 	sitesOn := useGlobalMiddleware(e, &deps)
@@ -277,7 +173,7 @@ func NewRouter(deps Dependencies) *echo.Echo {
 	if deps.Auth != nil && deps.DatabaseHandler != nil {
 		mountV1Routes(e, deps)
 		mountGoRoutes(e, deps)
-		mountE2BRoutes(e, deps)
+		sandboxhttp.MountRoutes(e, sandboxDeps(deps), timedAuthMiddleware(deps.authMW()))
 	}
 
 	e.GET("/v1/openapi.json", func(c echo.Context) error {
@@ -286,8 +182,8 @@ func NewRouter(deps Dependencies) *echo.Echo {
 
 	// planv6.5 §5.2 / planv6.7 §1.1：站点面（匿名只读）。handler 内再校验分流标记，控制台域直接访问 /__site 返回 404。
 	if sitesOn {
-		site := &SiteHandler{store: deps.S3FileStore, sites: deps.Sites, cfg: deps.Config.Sites}
-		e.Any(sitePathPrefix+"/*", site.Serve)
+		site := filehttp.NewSiteHandler(deps.S3FileStore, deps.Sites, deps.Config.Sites, deps.SiteTraffic)
+		e.Any(filehttp.PathPrefix+"/*", site.Serve)
 	}
 
 	// 管理端静态资源：所有未匹配 API 路由的 GET 请求回退到前端 SPA。
@@ -301,15 +197,15 @@ func NewRouter(deps Dependencies) *echo.Echo {
 func useGlobalMiddleware(e *echo.Echo, deps *Dependencies) bool {
 	// planv6.5 §5.1 / planv6.7 §1.2：对象存储发布网站。按模式在路由前改写到 /__site/*。
 	if deps.Sites == nil && deps.System != nil {
-		deps.Sites = NewSiteStore(deps.System, deps.Config.Sites.EffectiveCacheTTL())
+		deps.Sites = filehttp.NewSiteStore(deps.System, deps.Config.Sites.EffectiveCacheTTL())
 	}
 	mode := deps.Config.Sites.Mode()
 	sitesOn := deps.Sites != nil && deps.S3FileStore != nil && (mode == config.SiteModePath || deps.Config.Sites.Configured())
 	if sitesOn {
 		if mode == config.SiteModeSubdomain {
-			e.Pre(siteHostMiddleware(deps.Config.Sites))
+			e.Pre(filehttp.SiteHostMiddleware(deps.Config.Sites))
 		} else {
-			e.Pre(sitePathMiddleware(deps.Config.Sites))
+			e.Pre(filehttp.SitePathMiddleware(deps.Config.Sites))
 		}
 	}
 
@@ -322,11 +218,11 @@ func useGlobalMiddleware(e *echo.Echo, deps *Dependencies) bool {
 	// simplebase_api_stage_seconds 与 debug 日志行。必须在 requestID 之后。
 	// planv5.0 §4 P0.1：pprof 挂载已与 perf_stage_timing 解耦（§8.1.7），见 mountObservabilityRoutes。
 	if deps.Config.Observability.PerfStageTiming {
-		var recorder stageTimingRecorder
+		var recorder httpkit.StageTimingRecorder
 		if deps.Metrics != nil {
 			recorder = deps.Metrics
 		}
-		e.Use(perfStageMiddleware(recorder, deps.Logger))
+		e.Use(httpkit.PerfStageMiddleware(recorder, deps.Logger))
 		// planv5.0 §4 P0.1：认证子阶段（锁等待/缓存/查库/项目集）注入
 		// 认证服务；观察者从请求 ctx 取 timer，关闭时零开销。
 		if deps.Sessions != nil {
@@ -359,7 +255,7 @@ func useGlobalMiddleware(e *echo.Echo, deps *Dependencies) bool {
 // mountPublicAuthRoutes 挂载免认证登录、刷新、初始改密与终端用户路由。
 func mountPublicAuthRoutes(e *echo.Echo, deps Dependencies) {
 	if deps.Sessions != nil && deps.Users != nil {
-		ah := NewAuthHandler(deps.Sessions, deps.Users).WithAudit(deps.Audit)
+		ah := iamhttp.NewAuthHandler(deps.Sessions, deps.Users).WithAudit(deps.Audit)
 		e.POST("/v1/auth/login", ah.Login)
 		e.POST("/v1/auth/refresh", ah.Refresh)
 		// §8.2.2：强制改密闭环（免认证；复用 loginGuard）。
@@ -369,10 +265,10 @@ func mountPublicAuthRoutes(e *echo.Echo, deps Dependencies) {
 	// §8.2.6：终端用户路由（独立密钥域 + 独立守卫；signup/login 免认证，
 	// me 走 endUserAuth；pre_auth 限流已覆盖 key=ip 规则）。
 	if deps.EndUsers != nil {
-		eh := NewEndUsersHandler(deps.EndUsers).WithAudit(deps.Audit)
+		eh := iamhttp.NewEndUsersHandler(deps.EndUsers).WithAudit(deps.Audit)
 		e.POST("/v1/projects/:projectID/end-users/signup", eh.Signup)
 		e.POST("/v1/projects/:projectID/end-users/login", eh.Login)
-		e.GET("/v1/projects/:projectID/end-users/me", eh.Me, endUserAuth(deps.Config.Auth.SessionSecret))
+		e.GET("/v1/projects/:projectID/end-users/me", eh.Me, iamhttp.EndUserAuth(deps.Config.Auth.SessionSecret))
 	}
 }
 
@@ -385,5 +281,5 @@ func (deps Dependencies) authMW() echo.MiddlewareFunc {
 	if deps.Sessions != nil {
 		sessions = deps.Sessions
 	}
-	return withInternalPrincipalAuth(auth.AuthMiddlewareWithDelegation(sessions, deps.Auth, WithPrincipal, deps.Config.Auth.APIKeyHashSecret, deps.Delegations))
+	return withInternalPrincipalAuth(auth.AuthMiddlewareWithDelegation(sessions, deps.Auth, httpkit.WithPrincipal, deps.Config.Auth.APIKeyHashSecret, deps.Delegations))
 }

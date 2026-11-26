@@ -26,12 +26,12 @@
 package api
 
 import (
+	"github.com/labstack/echo/v4"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
-	"github.com/labstack/echo/v4"
 	"github.com/linkxzhou/SimpleBase/internal/auth"
 )
 
@@ -64,47 +64,6 @@ func TestPolicyGateResourcesAndExpiry(t *testing.T) {
 	check(http.MethodGet, "/", &auth.KeyPolicy{Resources: []string{"collection:*"}, Actions: []string{"read"}, ExpiresAt: &expired}, http.StatusForbidden)
 }
 
-func TestPolicyGateRealtimeDefersCollectionScope(t *testing.T) {
-	for _, test := range []struct {
-		collection string
-		status     int
-	}{{"orders", http.StatusOK}, {"other", http.StatusForbidden}} {
-		e := echo.New()
-		req := httptest.NewRequest(http.MethodGet, "/v1/projects/p1/realtime?collections="+test.collection, nil)
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-		c.SetPath("/v1/projects/:projectID/realtime")
-		c.SetRequest(req.WithContext(WithPrincipal(req.Context(), auth.Principal{Scope: &auth.KeyPolicy{
-			Resources: []string{"collection:orders"}, Actions: []string{"read"},
-		}})))
-		handler := policyGate(func(c echo.Context) error {
-			if err := (&RealtimeHandler{}).checkScope(c, splitRealtimeNames(c.QueryParam("collections"), true)); err != nil {
-				return WriteError(c, err)
-			}
-			return c.NoContent(http.StatusOK)
-		})
-		_ = handler(c)
-		if rec.Code != test.status {
-			t.Fatalf("collection %s: status=%d want %d", test.collection, rec.Code, test.status)
-		}
-	}
-}
-
-func TestScopeSubset(t *testing.T) {
-	parent := &auth.KeyPolicy{Resources: []string{"collection:orders"}, Actions: []string{"read"}, HiddenFields: []string{"secret"}}
-	if !scopeSubset(parent, parent) {
-		t.Fatal("same scope rejected")
-	}
-	if scopeSubset(parent, &auth.KeyPolicy{Resources: []string{"collection:*"}, Actions: []string{"read"}}) {
-		t.Fatal("wider resource accepted")
-	}
-	if scopeSubset(parent, &auth.KeyPolicy{Resources: []string{"collection:orders"}, Actions: []string{"read", "write"}}) {
-		t.Fatal("wider action accepted")
-	}
-}
-
-// 受限 Key（Scope 非空）经 g.require / g.delegable 挂载的路由必须先过 policyGate。
-// function-triggers 过去直接用 auth.Require，绕开了 Key 的资源 / 动作范围。
 func TestRouteGuardsApplyPolicyGate(t *testing.T) {
 	var deps Dependencies
 	deps.Config.Instance.Writable = true
@@ -153,5 +112,19 @@ func TestRouteGuardsWriteGateReadOnlyInstance(t *testing.T) {
 	e.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/x", nil))
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status=%d want 503", rec.Code)
+	}
+}
+
+// apiKeyPrincipal 构造只持指定权限的 API Key 主体（与 iamhttp 测试同形）。
+func apiKeyPrincipal(perms ...auth.Permission) auth.Principal {
+	permSet := make(map[auth.Permission]struct{}, len(perms))
+	for _, p := range perms {
+		permSet[p] = struct{}{}
+	}
+	return auth.Principal{
+		APIKeyID:    "key-self",
+		TenantID:    "tenant-1",
+		ProjectIDs:  map[string]struct{}{"proj-1": {}},
+		Permissions: permSet,
 	}
 }

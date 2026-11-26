@@ -225,7 +225,7 @@ func TestMCPServer(ctx context.Context, srv systemdb.MCPServer, opts MCPOptions)
 }
 
 // isBlockedIP 判定已下沉到 gocloudagent/tools.IsBlockedIP（planv6.8 §13.7），
-// 宿主不再保留副本；表驱动断言见 tools/netguard_test.go。
+// 宿主不再保留副本；表驱动断言见 gocloudagent/tools 包的 netguard 测试。
 
 // MCPPolicy 从系统库的工具策略表判定只读/破坏性。
 //

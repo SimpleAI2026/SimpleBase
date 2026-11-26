@@ -8,7 +8,7 @@
 
 - `11-backup` 需要 `SIMPLEBASE_BACKUP_ENABLED=true`（默认关闭时 `/backups` 路由不挂载，用例按 SKIP 处理）：`SIMPLEBASE_BACKUP_ENABLED=true ./examples/run_all.sh --start`。
 - `14-sandbox` / `15-llm` 是可选能力，前置不满足（本机无隔离、无 LLM provider）时打印 SKIP 并退出 0。
-- 逐站端到端验证（skill 工作区重放 + A/B 双实例）见 [`scripts/examples-verify/verify.sh`](../scripts/examples-verify/verify.sh) 与 [执行报告](../plan/planv6.7/legacy-plan-consolidation-plan.md#25-planv60planv64-被引用的编号)。
+- 逐站端到端验证（skill 工作区重放 + A/B 双实例）见 [`scripts/examples-verify/verify.sh`](../scripts/examples-verify/verify.sh)。
 
 ## 业务案例
 
@@ -51,4 +51,4 @@
 
 恢复手段：`./build.sh reset -y` **会清掉同一实例上的所有项目和本地数据**；随后 `./build.sh dev`、`./examples/init.sh` 重新创建。远程 S3 数据不随本地 reset 删除；谨慎操作。
 
-平台缺口 2026-11-06 逐条复核（对照 [`legacy-plan-consolidation-plan` §3-D1](../plan/planv6.7/legacy-plan-consolidation-plan.md#d-功能缺口)）：G0（项目归属校验）、G3（KV 读命令权限）、G9（迁移工具，已由 `simplebase dev` 的 up-only 迁移补位）、G14（Realtime / 订阅已实现）不再构成限制；G5 已按该文档决策改为超管登录 + 每次初始化轮换运行时 Key。仍适用：G0b、G1、G2、G4、G6、G7、G8、G10、G11、G12、G13、G15、G16（各案例 README 的「限制」一节只引用这些编号）。
+平台缺口 2026-11-06 逐条复核（对照 [`close-legacy-backlog` D1](../openspec/changes/close-legacy-backlog/tasks.md)）：G0（项目归属校验）、G3（KV 读命令权限）、G9（迁移工具，已由 `simplebase dev` 的 up-only 迁移补位）、G14（Realtime / 订阅已实现）不再构成限制；G5 已按该文档决策改为超管登录 + 每次初始化轮换运行时 Key。仍适用：G0b、G1、G2、G4、G6、G7、G8、G10、G11、G12、G13、G15、G16（各案例 README 的「限制」一节只引用这些编号）。

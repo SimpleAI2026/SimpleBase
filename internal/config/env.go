@@ -39,178 +39,212 @@ import (
 )
 
 func applyEnv(cfg *Config) {
-	if v, ok := os.LookupEnv("SIMPLEBASE_HTTP_ADDRESS"); ok {
-		cfg.HTTP.Address = v
-	}
-	setEnvDuration(&cfg.HTTP.ReadTimeout, "SIMPLEBASE_HTTP_READ_TIMEOUT")
-	setEnvDuration(&cfg.HTTP.WriteTimeout, "SIMPLEBASE_HTTP_WRITE_TIMEOUT")
-	setEnvDuration(&cfg.HTTP.IdleTimeout, "SIMPLEBASE_HTTP_IDLE_TIMEOUT")
-	setEnvDuration(&cfg.HTTP.ShutdownTimeout, "SIMPLEBASE_HTTP_SHUTDOWN_TIMEOUT")
-	setEnvBool(&cfg.HTTP.Gzip, "SIMPLEBASE_HTTP_GZIP")
-	setEnvBool(&cfg.HTTP.CORS.Enabled, "SIMPLEBASE_HTTP_CORS_ENABLED")
-	setEnvBool(&cfg.HTTP.CORS.AllowCredentials, "SIMPLEBASE_HTTP_CORS_ALLOW_CREDENTIALS")
-	setEnvInt(&cfg.HTTP.CORS.MaxAge, "SIMPLEBASE_HTTP_CORS_MAX_AGE")
-	if v, ok := os.LookupEnv("SIMPLEBASE_HTTP_CORS_ALLOWED_ORIGINS"); ok {
-		cfg.HTTP.CORS.AllowedOrigins = strutil.SplitCSV(v)
-	}
-	if v, ok := os.LookupEnv("SIMPLEBASE_HTTP_TRUSTED_PROXIES"); ok {
-		cfg.HTTP.TrustedProxies = strutil.SplitCSV(v)
-	}
-	setEnvBool(&cfg.Limits.RateLimit.Enabled, "SIMPLEBASE_RATE_LIMIT_ENABLED")
-	setEnvInt(&cfg.Limits.RateLimit.Burst, "SIMPLEBASE_RATE_LIMIT_BURST")
-	setEnvBool(&cfg.Limits.RateLimit.ExemptSSE, "SIMPLEBASE_RATE_LIMIT_EXEMPT_SSE")
-	if v, ok := os.LookupEnv("SIMPLEBASE_FILES_TOKEN_SECRET"); ok {
-		cfg.Files.TokenSecret = v
-	}
-	if v, ok := os.LookupEnv("SIMPLEBASE_FILES_ALLOWED_MIME"); ok {
-		cfg.Files.AllowedMIME = strutil.SplitCSV(v)
-	}
-	setEnvBool(&cfg.Backup.Enabled, "SIMPLEBASE_BACKUP_ENABLED")
-	setEnvBool(&cfg.Backup.UploadToS3, "SIMPLEBASE_BACKUP_UPLOAD_TO_S3")
-	setEnvInt(&cfg.Backup.KeepLast, "SIMPLEBASE_BACKUP_KEEP_LAST")
-	setEnvInt(&cfg.Backup.KeepDays, "SIMPLEBASE_BACKUP_KEEP_DAYS")
-	setEnvInt(&cfg.Backup.MaxPerProject, "SIMPLEBASE_BACKUP_MAX_PER_PROJECT")
-	setEnvDuration(&cfg.Backup.SnapshotTimeout, "SIMPLEBASE_BACKUP_SNAPSHOT_TIMEOUT")
-	if v, ok := os.LookupEnv("SIMPLEBASE_BACKUP_DIR"); ok {
-		cfg.Backup.Dir = v
-	}
-	if v, ok := os.LookupEnv("SIMPLEBASE_BACKUP_SCHEDULE"); ok {
-		cfg.Backup.Schedule = v
-	}
-	// planv6.5：对象存储发布网站；planv6.7：子域名 / 路径两种方式。
-	setEnvBool(&cfg.Sites.Subdomain, "SIMPLEBASE_SITES_SUBDOMAIN")
-	if v, ok := os.LookupEnv("SIMPLEBASE_SITES_PATH_PREFIX"); ok {
-		cfg.Sites.PathPrefix = v
-	}
-	if v, ok := os.LookupEnv("SIMPLEBASE_SITES_PUBLIC_BASE_URL"); ok {
-		cfg.Sites.PublicBaseURL = v
-	}
-	if v, ok := os.LookupEnv("SIMPLEBASE_SITES_BASE_DOMAIN"); ok {
-		cfg.Sites.BaseDomain = v
-	}
-	if v, ok := os.LookupEnv("SIMPLEBASE_SITES_URL_SCHEME"); ok {
-		cfg.Sites.URLScheme = v
-	}
-	setEnvInt(&cfg.Sites.URLPort, "SIMPLEBASE_SITES_URL_PORT")
-	if v, ok := os.LookupEnv("SIMPLEBASE_SITES_INDEX_DOCUMENT"); ok {
-		cfg.Sites.IndexDocument = v
-	}
-	if v, ok := os.LookupEnv("SIMPLEBASE_SITES_NOT_FOUND_DOCUMENT"); ok {
-		cfg.Sites.NotFoundDocument = v
-	}
-	setEnvDuration(&cfg.Sites.CacheTTL, "SIMPLEBASE_SITES_CACHE_TTL")
-	if v, ok := os.LookupEnv("SIMPLEBASE_SITES_CSP"); ok {
-		cfg.Sites.CSP = v
-	}
-
-	if v, ok := os.LookupEnv("SIMPLEBASE_INSTANCE_ID"); ok {
-		cfg.Instance.ID = v
-	}
-	setEnvBool(&cfg.Instance.Writable, "SIMPLEBASE_INSTANCE_WRITABLE")
-	setEnvBool(&cfg.Instance.Lease.Enabled, "SIMPLEBASE_INSTANCE_LEASE_ENABLED")
-	setEnvDuration(&cfg.Instance.Lease.TTL, "SIMPLEBASE_INSTANCE_LEASE_TTL")
-	setEnvDuration(&cfg.Instance.Lease.RenewInterval, "SIMPLEBASE_INSTANCE_LEASE_RENEW_INTERVAL")
-	setEnvDuration(&cfg.Instance.Lease.Grace, "SIMPLEBASE_INSTANCE_LEASE_GRACE")
-	if v, ok := os.LookupEnv("SIMPLEBASE_INSTANCE_LEASE_ON_LOST"); ok {
-		cfg.Instance.Lease.OnLost = v
-	}
-	if v, ok := os.LookupEnv("SIMPLEBASE_INSTANCE_PROFILE"); ok {
-		cfg.Instance.Profile = v
-	}
-
-	if v, ok := os.LookupEnv("SIMPLEBASE_STORAGE_DATABASE"); ok {
-		cfg.Storage.Database = v
-	}
-	if v, ok := os.LookupEnv("SIMPLEBASE_STORAGE_FILES"); ok {
-		cfg.Storage.Files = v
-	}
-	if v, ok := os.LookupEnv("SIMPLEBASE_DATA_DIR"); ok {
-		cfg.Storage.DataDir = v
-	}
-
-	if v, ok := os.LookupEnv("SIMPLEBASE_DB_ENGINE"); ok {
-		cfg.Database.Engine = v
-	}
-	if v, ok := os.LookupEnv("SIMPLEBASE_DB_CACHE_DIR"); ok {
-		cfg.Database.CacheDir = v
-	}
-	setEnvInt64(&cfg.Database.CacheMaxBytes, "SIMPLEBASE_DB_CACHE_MAX_BYTES")
-	setEnvInt(&cfg.Database.CacheMaxDatabases, "SIMPLEBASE_DB_CACHE_MAX_DATABASES")
-	setEnvDuration(&cfg.Database.IdleTimeout, "SIMPLEBASE_DB_IDLE_TIMEOUT")
-	setEnvInt(&cfg.Database.MaxOpen, "SIMPLEBASE_DB_MAX_OPEN")
-
-	applyEnvDuckLake(&cfg.Database.DuckLake)
-
+	applyEnvHTTP(&cfg.HTTP)
+	applyEnvFiles(&cfg.Files)
+	applyEnvBackup(&cfg.Backup)
+	applyEnvSites(&cfg.Sites)
+	applyEnvInstance(&cfg.Instance)
+	applyEnvStorage(&cfg.Storage)
+	applyEnvDatabase(&cfg.Database)
 	applyEnvS3(&cfg.S3)
-
-	if v, ok := os.LookupEnv("SIMPLEBASE_AUTH_APIKEY_SECRET"); ok {
-		cfg.Auth.APIKeyHashSecret = v
-	}
-	if v, ok := os.LookupEnv("SIMPLEBASE_AUTH_SESSION_SECRET"); ok {
-		cfg.Auth.SessionSecret = v
-	}
-	if v, ok := os.LookupEnv("SIMPLEBASE_AUTH_APIKEY_SECRETS"); ok {
-		cfg.Auth.APIKeyHashSecrets = v
-	}
-	if v, ok := os.LookupEnv("SIMPLEBASE_BOOTSTRAP_PASSWORD"); ok {
-		cfg.Auth.BootstrapPassword = v
-	}
-
+	applyEnvAuth(&cfg.Auth)
 	applyEnvSandbox(cfg)
-
-	setEnvInt64(&cfg.Limits.MaxRequestBytes, "SIMPLEBASE_LIMITS_MAX_REQUEST_BYTES")
-	setEnvInt(&cfg.Limits.MaxQueryRows, "SIMPLEBASE_LIMITS_MAX_QUERY_ROWS")
-	setEnvDuration(&cfg.Limits.QueryTimeout, "SIMPLEBASE_LIMITS_QUERY_TIMEOUT")
-	setEnvInt(&cfg.Limits.MaxConcurrentQueries, "SIMPLEBASE_LIMITS_MAX_CONCURRENT_QUERIES")
-	setEnvInt(&cfg.Limits.MaxBatchStatements, "SIMPLEBASE_LIMITS_MAX_BATCH_STATEMENTS")
-	setEnvInt(&cfg.Limits.MaxSQLBytes, "SIMPLEBASE_LIMITS_MAX_SQL_BYTES")
-	setEnvInt(&cfg.Limits.MaxConcurrentGoRuns, "SIMPLEBASE_LIMITS_MAX_CONCURRENT_GO_RUNS")
-	setEnvInt(&cfg.Limits.MaxFilterScanRows, "SIMPLEBASE_LIMITS_MAX_FILTER_SCAN_ROWS")
-	setEnvInt64(&cfg.Limits.MaxImportBytes, "SIMPLEBASE_LIMITS_MAX_IMPORT_BYTES")
-	setEnvInt(&cfg.Limits.RealtimeMaxConns, "SIMPLEBASE_LIMITS_REALTIME_MAX_CONNS")
-
-	if v, ok := os.LookupEnv("SIMPLEBASE_LOG_LEVEL"); ok {
-		cfg.Observability.LogLevel = v
-	}
-	if v, ok := os.LookupEnv("SIMPLEBASE_LOG_FORMAT"); ok {
-		cfg.Observability.LogFormat = v
-	}
-	if v, ok := os.LookupEnv("SIMPLEBASE_LOG_OUTPUT"); ok {
-		cfg.Observability.LogOutput = v
-	}
-	if v, ok := os.LookupEnv("SIMPLEBASE_METRICS_PATH"); ok {
-		cfg.Observability.MetricsPath = v
-	}
-	setEnvBool(&cfg.Observability.PerfStageTiming, "SIMPLEBASE_PERF_STAGE_TIMING")
-	if v, ok := os.LookupEnv("SIMPLEBASE_METRICS_ADDRESS"); ok {
-		cfg.Observability.MetricsAddress = v
-	}
-	setEnvBool(&cfg.Observability.PProf, "SIMPLEBASE_PPROF")
-	if v, ok := os.LookupEnv("SIMPLEBASE_METRICS_TOKEN"); ok {
-		cfg.Observability.MetricsToken = v
-	}
-	if v, ok := os.LookupEnv("SIMPLEBASE_HTTP_PUBLIC_URL"); ok {
-		cfg.HTTP.PublicURL = v
-	}
-	setEnvInt(&cfg.HTTP.SecurityHeaders.HSTSMaxAge, "SIMPLEBASE_HTTP_HSTS_MAX_AGE")
-	setEnvBool(&cfg.HTTP.SecurityHeaders.HSTSIncludeSubdomains, "SIMPLEBASE_HTTP_HSTS_INCLUDE_SUBDOMAINS")
-	if v, ok := os.LookupEnv("SIMPLEBASE_HTTP_SECURITY_HEADERS_CSP"); ok {
-		cfg.HTTP.SecurityHeaders.CSP = v
-	}
-	setEnvInt(&cfg.Limits.RateLimit.MaxBuckets, "SIMPLEBASE_RATE_LIMIT_MAX_BUCKETS")
-	if v, ok := os.LookupEnv("SIMPLEBASE_BACKUP_MISSED_POLICY"); ok {
-		cfg.Backup.MissedPolicy = v
-	}
-
-	if v, ok := os.LookupEnv("SIMPLEBASE_SYSTEM_DB_NAME"); ok {
-		cfg.SystemDatabase.Name = v
-	}
-	setEnvDuration(&cfg.SystemDatabase.MetricsFlushInterval, "SIMPLEBASE_METRICS_FLUSH_INTERVAL")
-	setEnvDuration(&cfg.SystemDatabase.LogFlushInterval, "SIMPLEBASE_LOG_FLUSH_INTERVAL")
-	setEnvInt(&cfg.SystemDatabase.LogKeepDays, "SIMPLEBASE_LOG_KEEP_DAYS")
-
+	applyEnvLimits(&cfg.Limits)
+	applyEnvObservability(&cfg.Observability)
+	applyEnvSystemDatabase(&cfg.SystemDatabase)
 	applyEnvLLM(cfg)
 	applyEnvAgent(cfg)
+}
+
+func applyEnvHTTP(dst *HTTPConfig) {
+	if v, ok := os.LookupEnv("SIMPLEBASE_HTTP_ADDRESS"); ok {
+		dst.Address = v
+	}
+	setEnvDuration(&dst.ReadTimeout, "SIMPLEBASE_HTTP_READ_TIMEOUT")
+	setEnvDuration(&dst.WriteTimeout, "SIMPLEBASE_HTTP_WRITE_TIMEOUT")
+	setEnvDuration(&dst.IdleTimeout, "SIMPLEBASE_HTTP_IDLE_TIMEOUT")
+	setEnvDuration(&dst.ShutdownTimeout, "SIMPLEBASE_HTTP_SHUTDOWN_TIMEOUT")
+	setEnvBool(&dst.Gzip, "SIMPLEBASE_HTTP_GZIP")
+	setEnvBool(&dst.CORS.Enabled, "SIMPLEBASE_HTTP_CORS_ENABLED")
+	setEnvBool(&dst.CORS.AllowCredentials, "SIMPLEBASE_HTTP_CORS_ALLOW_CREDENTIALS")
+	setEnvInt(&dst.CORS.MaxAge, "SIMPLEBASE_HTTP_CORS_MAX_AGE")
+	if v, ok := os.LookupEnv("SIMPLEBASE_HTTP_CORS_ALLOWED_ORIGINS"); ok {
+		dst.CORS.AllowedOrigins = strutil.SplitCSV(v)
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_HTTP_TRUSTED_PROXIES"); ok {
+		dst.TrustedProxies = strutil.SplitCSV(v)
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_HTTP_PUBLIC_URL"); ok {
+		dst.PublicURL = v
+	}
+	setEnvInt(&dst.SecurityHeaders.HSTSMaxAge, "SIMPLEBASE_HTTP_HSTS_MAX_AGE")
+	setEnvBool(&dst.SecurityHeaders.HSTSIncludeSubdomains, "SIMPLEBASE_HTTP_HSTS_INCLUDE_SUBDOMAINS")
+	if v, ok := os.LookupEnv("SIMPLEBASE_HTTP_SECURITY_HEADERS_CSP"); ok {
+		dst.SecurityHeaders.CSP = v
+	}
+}
+
+func applyEnvFiles(dst *FilesConfig) {
+	if v, ok := os.LookupEnv("SIMPLEBASE_FILES_TOKEN_SECRET"); ok {
+		dst.TokenSecret = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_FILES_ALLOWED_MIME"); ok {
+		dst.AllowedMIME = strutil.SplitCSV(v)
+	}
+}
+
+func applyEnvBackup(dst *BackupConfig) {
+	setEnvBool(&dst.Enabled, "SIMPLEBASE_BACKUP_ENABLED")
+	setEnvBool(&dst.UploadToS3, "SIMPLEBASE_BACKUP_UPLOAD_TO_S3")
+	setEnvInt(&dst.KeepLast, "SIMPLEBASE_BACKUP_KEEP_LAST")
+	setEnvInt(&dst.KeepDays, "SIMPLEBASE_BACKUP_KEEP_DAYS")
+	setEnvInt(&dst.MaxPerProject, "SIMPLEBASE_BACKUP_MAX_PER_PROJECT")
+	setEnvDuration(&dst.SnapshotTimeout, "SIMPLEBASE_BACKUP_SNAPSHOT_TIMEOUT")
+	if v, ok := os.LookupEnv("SIMPLEBASE_BACKUP_DIR"); ok {
+		dst.Dir = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_BACKUP_SCHEDULE"); ok {
+		dst.Schedule = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_BACKUP_MISSED_POLICY"); ok {
+		dst.MissedPolicy = v
+	}
+}
+
+func applyEnvSites(dst *SitesConfig) {
+	// planv6.5：对象存储发布网站；planv6.7：子域名 / 路径两种方式。
+	setEnvBool(&dst.Subdomain, "SIMPLEBASE_SITES_SUBDOMAIN")
+	if v, ok := os.LookupEnv("SIMPLEBASE_SITES_PATH_PREFIX"); ok {
+		dst.PathPrefix = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_SITES_PUBLIC_BASE_URL"); ok {
+		dst.PublicBaseURL = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_SITES_BASE_DOMAIN"); ok {
+		dst.BaseDomain = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_SITES_URL_SCHEME"); ok {
+		dst.URLScheme = v
+	}
+	setEnvInt(&dst.URLPort, "SIMPLEBASE_SITES_URL_PORT")
+	if v, ok := os.LookupEnv("SIMPLEBASE_SITES_INDEX_DOCUMENT"); ok {
+		dst.IndexDocument = v
+	}
+	setEnvBool(&dst.SpaFallback, "SIMPLEBASE_SITES_SPA_FALLBACK")
+	if v, ok := os.LookupEnv("SIMPLEBASE_SITES_NOT_FOUND_DOCUMENT"); ok {
+		dst.NotFoundDocument = v
+	}
+	setEnvDuration(&dst.CacheTTL, "SIMPLEBASE_SITES_CACHE_TTL")
+	if v, ok := os.LookupEnv("SIMPLEBASE_SITES_CSP"); ok {
+		dst.CSP = v
+	}
+}
+
+func applyEnvInstance(dst *InstanceConfig) {
+	if v, ok := os.LookupEnv("SIMPLEBASE_INSTANCE_ID"); ok {
+		dst.ID = v
+	}
+	setEnvBool(&dst.Writable, "SIMPLEBASE_INSTANCE_WRITABLE")
+	setEnvBool(&dst.Lease.Enabled, "SIMPLEBASE_INSTANCE_LEASE_ENABLED")
+	setEnvDuration(&dst.Lease.TTL, "SIMPLEBASE_INSTANCE_LEASE_TTL")
+	setEnvDuration(&dst.Lease.RenewInterval, "SIMPLEBASE_INSTANCE_LEASE_RENEW_INTERVAL")
+	setEnvDuration(&dst.Lease.Grace, "SIMPLEBASE_INSTANCE_LEASE_GRACE")
+	if v, ok := os.LookupEnv("SIMPLEBASE_INSTANCE_LEASE_ON_LOST"); ok {
+		dst.Lease.OnLost = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_INSTANCE_PROFILE"); ok {
+		dst.Profile = v
+	}
+}
+
+func applyEnvStorage(dst *StorageConfig) {
+	if v, ok := os.LookupEnv("SIMPLEBASE_STORAGE_DATABASE"); ok {
+		dst.Database = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_STORAGE_FILES"); ok {
+		dst.Files = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_DATA_DIR"); ok {
+		dst.DataDir = v
+	}
+}
+
+func applyEnvDatabase(dst *DatabaseConfig) {
+	if v, ok := os.LookupEnv("SIMPLEBASE_DB_ENGINE"); ok {
+		dst.Engine = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_DB_CACHE_DIR"); ok {
+		dst.CacheDir = v
+	}
+	setEnvInt64(&dst.CacheMaxBytes, "SIMPLEBASE_DB_CACHE_MAX_BYTES")
+	setEnvInt(&dst.CacheMaxDatabases, "SIMPLEBASE_DB_CACHE_MAX_DATABASES")
+	setEnvDuration(&dst.IdleTimeout, "SIMPLEBASE_DB_IDLE_TIMEOUT")
+	setEnvInt(&dst.MaxOpen, "SIMPLEBASE_DB_MAX_OPEN")
+	applyEnvDuckLake(&dst.DuckLake)
+}
+
+func applyEnvAuth(dst *AuthConfig) {
+	if v, ok := os.LookupEnv("SIMPLEBASE_AUTH_APIKEY_SECRET"); ok {
+		dst.APIKeyHashSecret = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_AUTH_SESSION_SECRET"); ok {
+		dst.SessionSecret = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_AUTH_APIKEY_SECRETS"); ok {
+		dst.APIKeyHashSecrets = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_BOOTSTRAP_PASSWORD"); ok {
+		dst.BootstrapPassword = v
+	}
+}
+
+func applyEnvLimits(dst *LimitsConfig) {
+	setEnvBool(&dst.RateLimit.Enabled, "SIMPLEBASE_RATE_LIMIT_ENABLED")
+	setEnvInt(&dst.RateLimit.Burst, "SIMPLEBASE_RATE_LIMIT_BURST")
+	setEnvBool(&dst.RateLimit.ExemptSSE, "SIMPLEBASE_RATE_LIMIT_EXEMPT_SSE")
+	setEnvInt64(&dst.MaxRequestBytes, "SIMPLEBASE_LIMITS_MAX_REQUEST_BYTES")
+	setEnvInt(&dst.MaxQueryRows, "SIMPLEBASE_LIMITS_MAX_QUERY_ROWS")
+	setEnvDuration(&dst.QueryTimeout, "SIMPLEBASE_LIMITS_QUERY_TIMEOUT")
+	setEnvInt(&dst.MaxConcurrentQueries, "SIMPLEBASE_LIMITS_MAX_CONCURRENT_QUERIES")
+	setEnvInt(&dst.MaxBatchStatements, "SIMPLEBASE_LIMITS_MAX_BATCH_STATEMENTS")
+	setEnvInt(&dst.MaxSQLBytes, "SIMPLEBASE_LIMITS_MAX_SQL_BYTES")
+	setEnvInt(&dst.MaxConcurrentGoRuns, "SIMPLEBASE_LIMITS_MAX_CONCURRENT_GO_RUNS")
+	setEnvInt(&dst.MaxFilterScanRows, "SIMPLEBASE_LIMITS_MAX_FILTER_SCAN_ROWS")
+	setEnvInt64(&dst.MaxImportBytes, "SIMPLEBASE_LIMITS_MAX_IMPORT_BYTES")
+	setEnvInt(&dst.RealtimeMaxConns, "SIMPLEBASE_LIMITS_REALTIME_MAX_CONNS")
+	setEnvInt(&dst.RateLimit.MaxBuckets, "SIMPLEBASE_RATE_LIMIT_MAX_BUCKETS")
+}
+
+func applyEnvObservability(dst *ObservabilityConfig) {
+	if v, ok := os.LookupEnv("SIMPLEBASE_LOG_LEVEL"); ok {
+		dst.LogLevel = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_LOG_FORMAT"); ok {
+		dst.LogFormat = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_LOG_OUTPUT"); ok {
+		dst.LogOutput = v
+	}
+	if v, ok := os.LookupEnv("SIMPLEBASE_METRICS_PATH"); ok {
+		dst.MetricsPath = v
+	}
+	setEnvBool(&dst.PerfStageTiming, "SIMPLEBASE_PERF_STAGE_TIMING")
+	if v, ok := os.LookupEnv("SIMPLEBASE_METRICS_ADDRESS"); ok {
+		dst.MetricsAddress = v
+	}
+	setEnvBool(&dst.PProf, "SIMPLEBASE_PPROF")
+	if v, ok := os.LookupEnv("SIMPLEBASE_METRICS_TOKEN"); ok {
+		dst.MetricsToken = v
+	}
+}
+
+func applyEnvSystemDatabase(dst *SystemDatabaseConfig) {
+	if v, ok := os.LookupEnv("SIMPLEBASE_SYSTEM_DB_NAME"); ok {
+		dst.Name = v
+	}
+	setEnvDuration(&dst.MetricsFlushInterval, "SIMPLEBASE_METRICS_FLUSH_INTERVAL")
+	setEnvDuration(&dst.LogFlushInterval, "SIMPLEBASE_LOG_FLUSH_INTERVAL")
+	setEnvInt(&dst.LogKeepDays, "SIMPLEBASE_LOG_KEEP_DAYS")
 }
 
 // applyEnvDuckLake 应用 SIMPLEBASE_DUCKLAKE_* 环境变量（LookupEnv 语义：设置即覆盖，含空串）。

@@ -145,7 +145,7 @@ packages/               Go 与 JavaScript SDK
 skills/simplebase/      本地开发与云端重放 skill（sbdev.py）
 examples/               业务站点与能力用例
 scripts/                测试、冒烟与 examples-verify
-docs/  plan/            用户文档 / 设计计划
+docs/  openspec/        用户文档 / 设计计划与变更规范（原 plan/ 已删除）
 ```
 
 ## 技术栈

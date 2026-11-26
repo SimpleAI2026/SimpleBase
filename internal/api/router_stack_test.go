@@ -338,7 +338,7 @@ func TestProjectContextMiddleware(t *testing.T) {
 		c.SetParamValues(projectID)
 		ctx := WithPrincipal(c.Request().Context(), auth.Principal{TenantID: "ten", ProjectIDs: map[string]struct{}{projectID: {}}})
 		c.SetRequest(c.Request().WithContext(ctx))
-		h := projectContextMiddlewareEcho(deps)(func(c echo.Context) error {
+		h := projectContextMiddlewareEcho(deps.Catalog)(func(c echo.Context) error {
 			pc, ok := ProjectFromContext(c.Request().Context())
 			if !ok {
 				return c.String(http.StatusInternalServerError, "no pc")
@@ -389,7 +389,7 @@ func TestProjectContextMiddlewareAuthorization(t *testing.T) {
 			e := echo.New()
 			e.HTTPErrorHandler = errorHandler(Dependencies{})
 			deps := Dependencies{Catalog: &stubCatalog{tenant: tc.tenant}}
-			e.GET("/:projectID", func(c echo.Context) error { return c.NoContent(http.StatusOK) }, projectContextMiddlewareEcho(deps))
+			e.GET("/:projectID", func(c echo.Context) error { return c.NoContent(http.StatusOK) }, projectContextMiddlewareEcho(deps.Catalog))
 			req := httptest.NewRequest(http.MethodGet, "/"+tc.project, nil)
 			if tc.name != "missing principal" {
 				req = req.WithContext(WithPrincipal(req.Context(), tc.p))
